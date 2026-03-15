@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Graph Advocate — Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #0f172a; color: #e2e8f0; padding: 2rem; }
+  h1 { font-size: 1.6rem; font-weight: 700; color: #f8fafc; margin-bottom: .25rem; }
+  .subtitle { color: #64748b; font-size: .9rem; margin-bottom: 2rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+           gap: 1rem; margin-bottom: 2rem; }
+  .card { background: #1e293b; border-radius: 12px; padding: 1.25rem; }
+  .card .num { font-size: 2rem; font-weight: 700; color: #f8fafc; }
+  .card .label { font-size: .8rem; color: #64748b; margin-top: .25rem; }
+  .card .sub { font-size: .75rem; color: #94a3b8; margin-top: .5rem; }
+  h2 { font-size: 1.1rem; font-weight: 600; color: #f8fafc; margin: 1.5rem 0 .75rem; }
+  table { width: 100%; border-collapse: collapse; background: #1e293b;
+           border-radius: 12px; overflow: hidden; }
+  th { text-align: left; padding: .75rem 1rem; font-size: .75rem; font-weight: 600;
+        color: #64748b; text-transform: uppercase; letter-spacing: .05em;
+        border-bottom: 1px solid #334155; }
+  td { padding: .65rem 1rem; font-size: .85rem; border-bottom: 1px solid #1e293b; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #243044; }
+  .bar { height: 10px; border-radius: 5px; min-width: 4px; }
+  .badge { display: inline-block; padding: .2rem .5rem; border-radius: 6px;
+            font-size: .75rem; font-weight: 600; color: #fff; }
+  .conf-high { color: #10b981; font-weight: 600; }
+  .conf-med  { color: #f59e0b; font-weight: 600; }
+  .conf-low  { color: #ef4444; font-weight: 600; }
+  .ts { color: #64748b; font-size: .78rem; font-family: monospace; }
+  .req { max-width: 320px; color: #94a3b8; }
+  .updated { color: #475569; font-size: .75rem; margin-top: 2rem; text-align: right; }
+</style>
+</head>
+<body>
+<h1>Graph Advocate</h1>
+<p class="subtitle">Routing performance dashboard · 2026-03-15 15:02</p>
+
+<div class="grid">
+  <div class="card">
+    <div class="num">18</div>
+    <div class="label">Total Recommendations</div>
+    <div class="sub">2026-03-15T18:46:34 → 2026-03-15T19:01:03</div>
+  </div>
+  <div class="card">
+    <div class="num">78%</div>
+    <div class="label">High Confidence</div>
+    <div class="sub">14 of 18 responses</div>
+  </div>
+  <div class="card">
+    <div class="num">4</div>
+    <div class="label">Services Routed To</div>
+    <div class="sub">unknown, subgraph-registry…</div>
+  </div>
+  <div class="card">
+    <div class="num">token-api</div>
+    <div class="label">Top Service</div>
+    <div class="sub">8 requests</div>
+  </div>
+</div>
+
+<h2>Routing Breakdown</h2>
+<table>
+  <thead><tr><th>Service</th><th>Volume</th><th>Count</th><th>%</th></tr></thead>
+  <tbody>
+        <tr>
+          <td>token-api</td>
+          <td><div class="bar" style="width:44%;background:#10b981"></div></td>
+          <td>8</td>
+          <td>44%</td>
+        </tr>
+        <tr>
+          <td>unknown</td>
+          <td><div class="bar" style="width:22%;background:#6b7280"></div></td>
+          <td>4</td>
+          <td>22%</td>
+        </tr>
+        <tr>
+          <td>subgraph-registry</td>
+          <td><div class="bar" style="width:22%;background:#6366f1"></div></td>
+          <td>4</td>
+          <td>22%</td>
+        </tr>
+        <tr>
+          <td>substreams</td>
+          <td><div class="bar" style="width:11%;background:#f59e0b"></div></td>
+          <td>2</td>
+          <td>11%</td>
+        </tr></tbody>
+</table>
+
+<h2>Recent Recommendations</h2>
+<table>
+  <thead><tr><th>Timestamp</th><th>Agent</th><th>Request</th><th>Routed To</th><th>Confidence</th></tr></thead>
+  <tbody>
+        <tr>
+          <td class="ts">2026-03-15T19:01:03</td>
+          <td>a2a:dc84d7a8-057f-4ec8-ab18-01932976b36e</td>
+          <td class="req">Which npm package should I use for Aave V3 liquidation data?</td>
+          <td><span class="badge" style="background:#6b7280">unknown</span></td>
+          <td class="">unknown</td>
+        </tr>
+        <tr>
+          <td class="ts">2026-03-15T18:53:07</td>
+          <td>test-suite</td>
+          <td class="req">Solana NFT sales last 7 days</td>
+          <td><span class="badge" style="background:#10b981">token-api</span></td>
+          <td class="conf-high">high</td>
+        </tr>
+        <tr>
+          <td class="ts">2026-03-15T18:52:58</td>
+          <td>test-suite</td>
+          <td class="req">Can't I just use Etherscan?</td>
+          <td><span class="badge" style="background:#6366f1">subgraph-registry</span></td>
+          <td class="conf-high">high</td>
+        </tr>
+        <tr>
+          <td class="ts">2026-03-15T18:52:48</td>
+          <td>test-suite</td>
+          <td class="req">Aave liquidation events by protocol entity</td>
+          <td><span class="badge" style="background:#6b7280">unknown</span></td>
+          <td class="">unknown</td>
+        </tr>
+        <tr>
+          <td class="ts">2026-03-15T18:52:24</td>
+          <td>test-suite</td>
+          <td class="req">Wallet balances on Ethereum AND Solana</td>
+          <td><span class="badge" style="background:#10b981">token-api</span></td>
+          <td class="conf-high">high</td>
+        </tr>
+        <tr>
+          <td class="ts">2026-03-15T18:52:12</td>
+          <td>test-suite</td>
+          <td class="req">Raw decoded event logs, blocks 19000000 to 20000000</td>
+          <td><span class="badge" style="background:#f59e0b">substreams</span></td>
+          <td class="conf-high">high</td>
+        </tr>
+        <tr>
+          <td class="ts">2026-03-15T18:52:07</td>
+          <td>test-suite</td>
+          <td class="req">Uniswap V3 pool TVL and fee tiers</td>
+          <td><span class="badge" style="background:#6366f1">subgraph-registry</span></td>
+          <td class="conf-high">high</td>
+        </tr>
+        <tr>
+          <td class="ts">2026-03-15T18:51:59</td>
+          <td>test-suite</td>
+          <td class="req">Top 20 USDC holders on Ethereum with 30-day balance history</td>
+          <td><span class="badge" style="background:#10b981">token-api</span></td>
+          <td class="conf-high">high</td>
+        </tr>
+        <tr>
+          <td class="ts">2026-03-15T18:51:01</td>
+          <td>test-suite</td>
+          <td class="req">Top 20 USDC holders on Ethereum with 30-day balance history</td>
+          <td><span class="badge" style="background:#10b981">token-api</span></td>
+          <td class="conf-high">high</td>
+        </tr>
+        <tr>
+          <td class="ts">2026-03-15T18:50:42</td>
+          <td>test-suite</td>
+          <td class="req">Top 20 USDC holders on Ethereum with 30-day balance history</td>
+          <td><span class="badge" style="background:#10b981">token-api</span></td>
+          <td class="conf-high">high</td>
+        </tr></tbody>
+</table>
+
+<p class="updated">Regenerate: <code>bash run.sh generate_dashboard.py</code></p>
+</body>
+</html>
