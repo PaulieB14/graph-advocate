@@ -2,24 +2,23 @@
 Graph Advocate — A2A Server
 Exposes the Graph Advocate as an Agent-to-Agent (A2A) protocol endpoint.
 
-Discovery: GET  /.well-known/agent.json
+Discovery: GET  /.well-known/agent-card.json
 Requests:  POST /  (JSON-RPC 2.0)
-
-Run:
-    bash run.sh a2a_server.py
-Other agents discover it at http://localhost:8765/.well-known/agent.json
+Live logs: GET  /logs  (last 100 requests as JSON)
+Dashboard: GET  /dashboard  (live HTML view)
 """
 
 import os
 import logging
-import uvicorn
+from collections import deque
+from datetime import datetime, timezone
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
-log = logging.getLogger("graph-advocate")
+import uvicorn
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse, HTMLResponse
+from starlette.routing import Mount, Route
+
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
@@ -31,11 +30,33 @@ import json
 
 from advocate import ask_graph_advocate
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+log = logging.getLogger("graph-advocate")
+
 PORT = int(os.environ.get("PORT", 8765))
 PUBLIC_URL = os.environ.get("ADVOCATE_PUBLIC_URL", f"http://localhost:{PORT}")
 
+# ── In-memory log (last 100 requests) ───────────────────────────────────────
 
-# ── Skills ──────────────────────────────────────────────────────────────────
+REQUEST_LOG: deque = deque(maxlen=100)
+
+
+def _log_request(task_id: str, request: str, service: str, confidence: str, tool: str):
+    REQUEST_LOG.append({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "task_id": task_id,
+        "request": request,
+        "service": service,
+        "confidence": confidence,
+        "tool": tool,
+    })
+
+
+# ── Skills ───────────────────────────────────────────────────────────────────
 
 SKILLS = [
     AgentSkill(
@@ -63,7 +84,7 @@ SKILLS = [
         name="Compare Graph services for a use case",
         description=(
             "Compares Token API, Subgraph Registry, Substreams, and protocol-specific "
-            "MCP packages for a given data need. Returns a ranked table with confidence "
+            "MCP packages for a given data need. Returns a ranked list with confidence "
             "scores and specific tool recommendations for each."
         ),
         tags=["graph", "comparison", "routing"],
@@ -96,19 +117,15 @@ SKILLS = [
 ]
 
 
-# ── Agent executor ───────────────────────────────────────────────────────────
+# ── Agent executor ────────────────────────────────────────────────────────────
 
 class GraphAdvocateExecutor(AgentExecutor):
-    """Wraps ask_graph_advocate() as an A2A AgentExecutor."""
-
-    # Per-session conversation history keyed by task ID
     _history: dict[str, list] = {}
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id or "default"
         history = self._history.get(task_id, [])
 
-        # Extract the user's text from the incoming message parts
         user_text = ""
         if context.message and context.message.parts:
             for part in context.message.parts:
@@ -130,14 +147,15 @@ class GraphAdvocateExecutor(AgentExecutor):
             history=history,
             requesting_agent=f"a2a:{task_id}",
         )
-
         self._history[task_id] = updated_history
 
         service = rec.get("recommendation", "unknown")
         confidence = rec.get("confidence", "?")
-        tool = rec.get("query_ready", {})
-        tool_name = tool.get("tool", "?") if isinstance(tool, dict) else "multi-step"
+        tool_raw = rec.get("query_ready", {})
+        tool_name = tool_raw.get("tool", "?") if isinstance(tool_raw, dict) else "multi-step"
+
         log.info(f"ROUTED   task={task_id} | {service} ({confidence}) → {tool_name}")
+        _log_request(task_id, user_text, service, confidence, tool_name)
 
         await event_queue.enqueue_event(
             new_agent_text_message(json.dumps(rec, indent=2))
@@ -147,7 +165,7 @@ class GraphAdvocateExecutor(AgentExecutor):
         raise NotImplementedError("cancel not supported")
 
 
-# ── Agent card ───────────────────────────────────────────────────────────────
+# ── Agent card ────────────────────────────────────────────────────────────────
 
 agent_card = AgentCard(
     name="Graph Advocate",
@@ -163,7 +181,11 @@ agent_card = AgentCard(
     version="1.0.0",
     default_input_modes=["text"],
     default_output_modes=["text"],
-    capabilities=AgentCapabilities(streaming=False, push_notifications=False, state_transition_history=False),
+    capabilities=AgentCapabilities(
+        streaming=False,
+        push_notifications=False,
+        state_transition_history=False,
+    ),
     skills=SKILLS,
     provider={
         "organization": "PaulieB14",
@@ -172,21 +194,110 @@ agent_card = AgentCard(
 )
 
 
-# ── Server ───────────────────────────────────────────────────────────────────
+# ── /logs and /dashboard endpoints ───────────────────────────────────────────
+
+async def logs_endpoint(request: Request):
+    return JSONResponse(list(reversed(REQUEST_LOG)))
+
+
+async def dashboard_endpoint(request: Request):
+    logs = list(reversed(REQUEST_LOG))
+    total = len(REQUEST_LOG)
+
+    SERVICE_COLORS = {
+        "token-api": "#10b981",
+        "subgraph-registry": "#6366f1",
+        "substreams": "#f59e0b",
+        "graph-aave-mcp": "#3b82f6",
+        "graph-lending-mcp": "#8b5cf6",
+        "graph-polymarket-mcp": "#ec4899",
+        "predictfun-mcp": "#14b8a6",
+        "unknown": "#6b7280",
+    }
+
+    rows = ""
+    for r in logs:
+        color = SERVICE_COLORS.get(r["service"], "#6b7280")
+        badge = f'<span style="background:{color};padding:2px 8px;border-radius:6px;font-size:.75rem;color:#fff;font-weight:600">{r["service"]}</span>'
+        conf_color = {"high": "#10b981", "medium": "#f59e0b", "low": "#ef4444"}.get(r["confidence"], "#6b7280")
+        rows += f"""<tr>
+          <td style="color:#64748b;font-family:monospace;font-size:.78rem">{r['ts'][11:19]}</td>
+          <td style="color:#94a3b8;max-width:350px">{r['request'][:80]}{'…' if len(r['request'])>80 else ''}</td>
+          <td>{badge}</td>
+          <td style="color:{conf_color};font-weight:600">{r['confidence']}</td>
+          <td style="color:#94a3b8;font-family:monospace;font-size:.8rem">{r['tool']}</td>
+        </tr>"""
+
+    html = f"""<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta http-equiv="refresh" content="15">
+<title>Graph Advocate — Live Dashboard</title>
+<style>
+  * {{box-sizing:border-box;margin:0;padding:0}}
+  body {{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:2rem}}
+  h1 {{font-size:1.5rem;font-weight:700;color:#f8fafc}}
+  .sub {{color:#64748b;font-size:.85rem;margin:.25rem 0 2rem}}
+  .stats {{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem;margin-bottom:2rem}}
+  .card {{background:#1e293b;border-radius:12px;padding:1.25rem}}
+  .card .n {{font-size:2rem;font-weight:700;color:#f8fafc}}
+  .card .l {{font-size:.78rem;color:#64748b;margin-top:.2rem}}
+  table {{width:100%;border-collapse:collapse;background:#1e293b;border-radius:12px;overflow:hidden}}
+  th {{text-align:left;padding:.65rem 1rem;font-size:.72rem;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:1px solid #334155}}
+  td {{padding:.6rem 1rem;font-size:.83rem;border-bottom:1px solid #0f172a}}
+  tr:hover td {{background:#243044}}
+  .pulse {{width:8px;height:8px;background:#10b981;border-radius:50%;display:inline-block;margin-right:.5rem;animation:pulse 2s infinite}}
+  @keyframes pulse {{0%,100%{{opacity:1}}50%{{opacity:.4}}}}
+</style>
+</head><body>
+<h1><span class="pulse"></span>Graph Advocate — Live Dashboard</h1>
+<p class="sub">Auto-refreshes every 15s · {total} requests this session · {PUBLIC_URL}</p>
+<div class="stats">
+  <div class="card"><div class="n">{total}</div><div class="l">Total Requests</div></div>
+  <div class="card"><div class="n">{logs[0]['service'] if logs else '—'}</div><div class="l">Last Routed To</div></div>
+  <div class="card"><div class="n">{logs[0]['confidence'] if logs else '—'}</div><div class="l">Last Confidence</div></div>
+  <div class="card"><div class="n">{logs[0]['ts'][11:19] if logs else '—'}</div><div class="l">Last Request (UTC)</div></div>
+</div>
+<table>
+  <thead><tr><th>Time (UTC)</th><th>Request</th><th>Routed To</th><th>Confidence</th><th>Tool</th></tr></thead>
+  <tbody>{rows if rows else '<tr><td colspan="5" style="color:#475569;text-align:center;padding:2rem">No requests yet</td></tr>'}</tbody>
+</table>
+</body></html>"""
+    return HTMLResponse(html)
+
+
+# ── Build app ─────────────────────────────────────────────────────────────────
 
 def build_app():
     handler = DefaultRequestHandler(
         agent_executor=GraphAdvocateExecutor(),
         task_store=InMemoryTaskStore(),
     )
-    return A2AStarletteApplication(
+    a2a_app = A2AStarletteApplication(
         agent_card=agent_card,
         http_handler=handler,
     ).build()
+
+    # Mount /logs and /dashboard on top of the A2A app
+    extra = Starlette(routes=[
+        Route("/logs", logs_endpoint),
+        Route("/dashboard", dashboard_endpoint),
+    ])
+
+    from starlette.middleware import Middleware
+    from starlette.routing import Router
+
+    async def combined(scope, receive, send):
+        if scope["type"] == "http" and scope["path"] in ("/logs", "/dashboard"):
+            await extra(scope, receive, send)
+        else:
+            await a2a_app(scope, receive, send)
+
+    return combined
 
 
 if __name__ == "__main__":
     log.info(f"Graph Advocate A2A server starting on {PUBLIC_URL}")
     log.info(f"Agent card: {PUBLIC_URL}/.well-known/agent-card.json")
-    log.info(f"Skills: {[s.id for s in SKILLS]}")
-    uvicorn.run(build_app(), host="0.0.0.0", port=PORT, log_level="info")
+    log.info(f"Dashboard: {PUBLIC_URL}/dashboard")
+    uvicorn.run(build_app(), host="0.0.0.0", port=PORT, log_level="warning")
