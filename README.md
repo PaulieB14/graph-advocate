@@ -1,5 +1,9 @@
 # Graph Advocate Agent
 
+**Live:** `https://graph-advocate-production.up.railway.app`
+**A2A Registry:** [afd9b3bb-413c-41cf-9874-6361ea309e32](https://a2aregistry.org)
+**Agent card:** `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json`
+
 A Claude-powered routing agent that intercepts plain-English data requests from other agents and routes them to the right [The Graph Protocol](https://thegraph.com) service — returning structured JSON with a ready-to-execute tool call.
 
 Exposes itself as an **A2A (Agent-to-Agent) server** so any A2A-compatible agent can discover and call it over HTTP.
@@ -162,6 +166,40 @@ open dashboard.html             # browser (after running queries)
 | `run.sh` | Loads `.env` + activates venv |
 
 ---
+
+## Deployment
+
+Hosted on Railway. Auto-deploys on every push to `main`.
+
+| | |
+|---|---|
+| **Production URL** | `https://graph-advocate-production.up.railway.app` |
+| **Agent card** | `/.well-known/agent-card.json` |
+| **A2A Registry ID** | `afd9b3bb-413c-41cf-9874-6361ea309e32` |
+| **A2A Registry** | [a2aregistry.org](https://a2aregistry.org) |
+
+### Required env vars (Railway Variables tab)
+```
+ANTHROPIC_API_KEY=sk-ant-...
+ADVOCATE_PUBLIC_URL=https://graph-advocate-production.up.railway.app
+```
+
+### Call it from anywhere (no install needed)
+```bash
+curl -X POST https://graph-advocate-production.up.railway.app \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "messageId": "msg-001",
+        "parts": [{"kind": "text", "text": "Which service should I use for Aave liquidation data?"}]
+      }
+    }
+  }'
+```
 
 ## Model
 
