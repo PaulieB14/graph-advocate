@@ -12,6 +12,7 @@ import os
 import logging
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 
 import uvicorn
 from starlette.applications import Starlette
@@ -40,9 +41,29 @@ log = logging.getLogger("graph-advocate")
 PORT = int(os.environ.get("PORT", 8765))
 PUBLIC_URL = os.environ.get("ADVOCATE_PUBLIC_URL", f"http://localhost:{PORT}")
 
-# ── In-memory log (last 100 requests) ───────────────────────────────────────
+# ── Persistent log (survives redeploys via Railway volume) ──────────────────
 
-REQUEST_LOG: deque = deque(maxlen=100)
+LOG_PATH = Path(os.environ.get("LOG_PATH", "/data/requests.json"))
+REQUEST_LOG: deque = deque(maxlen=200)
+
+
+def _load_log():
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if LOG_PATH.exists():
+            entries = json.loads(LOG_PATH.read_text())
+            REQUEST_LOG.extend(entries[-200:])
+            log.info(f"Loaded {len(REQUEST_LOG)} entries from {LOG_PATH}")
+    except Exception as e:
+        log.warning(f"Could not load log: {e}")
+
+
+def _save_log():
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LOG_PATH.write_text(json.dumps(list(REQUEST_LOG)))
+    except Exception as e:
+        log.warning(f"Could not save log: {e}")
 
 
 def _log_request(task_id: str, request: str, service: str, confidence: str, tool: str):
@@ -54,6 +75,11 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         "confidence": confidence,
         "tool": tool,
     })
+    _save_log()
+
+
+# Load existing log on startup
+_load_log()
 
 
 # ── Skills ───────────────────────────────────────────────────────────────────
