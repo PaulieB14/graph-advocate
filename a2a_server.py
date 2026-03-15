@@ -28,8 +28,29 @@ from a2a.server.events import EventQueue
 from a2a.types import AgentCard, AgentCapabilities, AgentSkill
 from a2a.utils import new_agent_text_message
 import json
+from datetime import timedelta
 
 from advocate import ask_graph_advocate
+
+REPEAT_WINDOW_HOURS = 2
+
+
+def _is_repeat_intro(user_text: str) -> bool:
+    """Return True if this exact intro was already logged in the last REPEAT_WINDOW_HOURS."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=REPEAT_WINDOW_HOURS)
+    text_lower = user_text.lower().strip()
+    for entry in REQUEST_LOG:
+        if entry.get("service") != "introduction":
+            continue
+        try:
+            ts = datetime.fromisoformat(entry["ts"])
+            if ts < cutoff:
+                continue
+        except Exception:
+            continue
+        if entry.get("request", "").lower().strip() == text_lower:
+            return True
+    return False
 
 logging.basicConfig(
     level=logging.INFO,
@@ -168,11 +189,24 @@ class GraphAdvocateExecutor(AgentExecutor):
 
         log.info(f"REQUEST  task={task_id} | {user_text[:120]}")
 
-        rec, updated_history = ask_graph_advocate(
-            user_text,
-            history=history,
-            requesting_agent=f"a2a:{task_id}",
-        )
+        if _is_repeat_intro(user_text):
+            nudge = (
+                "You've already introduced yourself recently — I remember you! "
+                "Do you have an actual onchain data request? I can help with token balances, "
+                "DEX swaps, NFT data, protocol entities, raw block data, and more. "
+                "Just tell me what data you need."
+            )
+            rec, updated_history = ask_graph_advocate(
+                nudge,
+                history=history,
+                requesting_agent=f"a2a:{task_id}",
+            )
+        else:
+            rec, updated_history = ask_graph_advocate(
+                user_text,
+                history=history,
+                requesting_agent=f"a2a:{task_id}",
+            )
         self._history[task_id] = updated_history
 
         service = rec.get("recommendation", "unknown")
