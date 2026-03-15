@@ -10,6 +10,7 @@ Run:
 Other agents discover it at http://localhost:8765/.well-known/agent.json
 """
 
+import os
 import uvicorn
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -23,6 +24,7 @@ import json
 from advocate import ask_graph_advocate
 
 PORT = 8765
+PUBLIC_URL = os.environ.get("ADVOCATE_PUBLIC_URL", f"http://localhost:{PORT}")
 
 
 # ── Skills ──────────────────────────────────────────────────────────────────
@@ -135,7 +137,7 @@ agent_card = AgentCard(
         "(Aave, Polymarket, Lending, Predict.fun). "
         "Returns structured JSON with a ready-to-execute tool call."
     ),
-    url=f"http://localhost:{PORT}/",
+    url=f"{PUBLIC_URL}/",
     version="1.0.0",
     default_input_modes=["text"],
     default_output_modes=["text"],
