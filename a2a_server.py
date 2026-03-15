@@ -143,6 +143,10 @@ agent_card = AgentCard(
     default_output_modes=["text"],
     capabilities=AgentCapabilities(streaming=False),
     skills=SKILLS,
+    provider={
+        "organization": "PaulieB14",
+        "url": "https://github.com/PaulieB14/graph-advocate",
+    },
 )
 
 
