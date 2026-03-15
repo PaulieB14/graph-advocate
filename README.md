@@ -174,7 +174,9 @@ Hosted on Railway. Auto-deploys on every push to `main`.
 | | |
 |---|---|
 | **Production URL** | `https://graph-advocate-production.up.railway.app` |
-| **Agent card** | `/.well-known/agent-card.json` |
+| **Live Dashboard** | `https://graph-advocate-production.up.railway.app/dashboard` |
+| **Live Logs (JSON)** | `https://graph-advocate-production.up.railway.app/logs` |
+| **Agent card** | `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json` |
 | **A2A Registry ID** | `afd9b3bb-413c-41cf-9874-6361ea309e32` |
 | **A2A Registry** | [a2aregistry.org](https://a2aregistry.org) |
 
