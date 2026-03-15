@@ -23,7 +23,7 @@ import json
 
 from advocate import ask_graph_advocate
 
-PORT = 8765
+PORT = int(os.environ.get("PORT", 8765))
 PUBLIC_URL = os.environ.get("ADVOCATE_PUBLIC_URL", f"http://localhost:{PORT}")
 
 
@@ -163,4 +163,4 @@ if __name__ == "__main__":
     print(f"Graph Advocate A2A server starting on http://localhost:{PORT}")
     print(f"Agent card: http://localhost:{PORT}/.well-known/agent.json")
     print(f"Skills: {[s.id for s in SKILLS]}")
-    uvicorn.run(build_app(), host="0.0.0.0", port=PORT)
+    uvicorn.run(build_app(), host="0.0.0.0", port=PORT, log_level="info")

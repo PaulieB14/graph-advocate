@@ -11,20 +11,24 @@ A2A_PID=$!
 sleep 2
 
 echo "Starting ngrok tunnel..."
-ngrok http 8765 --log=stdout --log-format=json > /tmp/ngrok_advocate.log 2>&1 &
+ngrok http 8765 > /tmp/ngrok_advocate.log 2>&1 &
 NGROK_PID=$!
-sleep 3
 
-# Get public URL from ngrok API
-PUBLIC_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "
+# Wait for ngrok API to be ready
+echo "Waiting for ngrok..."
+for i in {1..15}; do
+    PUBLIC_URL=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | python3 -c "
 import sys, json
-data = json.load(sys.stdin)
-tunnels = data.get('tunnels', [])
-for t in tunnels:
-    if t.get('proto') == 'https':
-        print(t['public_url'])
-        break
-")
+try:
+    data = json.load(sys.stdin)
+    for t in data.get('tunnels', []):
+        if t.get('proto') == 'https':
+            print(t['public_url'])
+except: pass
+" 2>/dev/null)
+    [ -n "$PUBLIC_URL" ] && break
+    sleep 1
+done
 
 if [ -z "$PUBLIC_URL" ]; then
     echo "ERROR: Could not get ngrok URL. Is ngrok authenticated?"
