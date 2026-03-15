@@ -166,7 +166,7 @@ def ask_graph_advocate(
         model="claude-opus-4-6",
         system=SYSTEM,
         messages=messages,
-        max_tokens=1000,
+        max_tokens=2000,
         thinking={"type": "adaptive"},
     )
 

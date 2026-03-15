@@ -73,9 +73,12 @@ def run():
             or t["expect_tool_contains"].lower() in tool.lower()
         )
 
+        qr = rec.get("query_ready", {})
+        tool_name = qr.get("tool") if isinstance(qr, dict) else str(qr)
+
         if service_ok and tool_ok:
             print(f"  PASS — service={service}, confidence={rec.get('confidence')}")
-            print(f"  tool={rec.get('query_ready', {}).get('tool')}")
+            print(f"  tool={tool_name}")
             passed += 1
         else:
             print(f"  FAIL")
