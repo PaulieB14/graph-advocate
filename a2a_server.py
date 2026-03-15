@@ -11,7 +11,15 @@ Other agents discover it at http://localhost:8765/.well-known/agent.json
 """
 
 import os
+import logging
 import uvicorn
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+log = logging.getLogger("graph-advocate")
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
@@ -115,6 +123,8 @@ class GraphAdvocateExecutor(AgentExecutor):
             )
             return
 
+        log.info(f"REQUEST  task={task_id} | {user_text[:120]}")
+
         rec, updated_history = ask_graph_advocate(
             user_text,
             history=history,
@@ -122,6 +132,12 @@ class GraphAdvocateExecutor(AgentExecutor):
         )
 
         self._history[task_id] = updated_history
+
+        service = rec.get("recommendation", "unknown")
+        confidence = rec.get("confidence", "?")
+        tool = rec.get("query_ready", {})
+        tool_name = tool.get("tool", "?") if isinstance(tool, dict) else "multi-step"
+        log.info(f"ROUTED   task={task_id} | {service} ({confidence}) → {tool_name}")
 
         await event_queue.enqueue_event(
             new_agent_text_message(json.dumps(rec, indent=2))
@@ -170,7 +186,7 @@ def build_app():
 
 
 if __name__ == "__main__":
-    print(f"Graph Advocate A2A server starting on http://localhost:{PORT}")
-    print(f"Agent card: http://localhost:{PORT}/.well-known/agent.json")
-    print(f"Skills: {[s.id for s in SKILLS]}")
+    log.info(f"Graph Advocate A2A server starting on {PUBLIC_URL}")
+    log.info(f"Agent card: {PUBLIC_URL}/.well-known/agent-card.json")
+    log.info(f"Skills: {[s.id for s in SKILLS]}")
     uvicorn.run(build_app(), host="0.0.0.0", port=PORT, log_level="info")
