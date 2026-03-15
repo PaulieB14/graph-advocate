@@ -47,6 +47,8 @@ SKILLS = [
             "Solana NFT sales last 7 days",
             "Raw event logs blocks 19M to 20M",
         ],
+        input_modes=["text"],
+        output_modes=["text"],
     ),
     AgentSkill(
         id="compare_services",
@@ -62,6 +64,8 @@ SKILLS = [
             "What's the best way to get Aave liquidations?",
             "Can't I just use Etherscan?",
         ],
+        input_modes=["text"],
+        output_modes=["text"],
     ),
     AgentSkill(
         id="recommend_npm_package",
@@ -78,6 +82,8 @@ SKILLS = [
             "How do I query Polymarket via MCP?",
             "What package lets me sink Substreams data to Postgres?",
         ],
+        input_modes=["text"],
+        output_modes=["text"],
     ),
 ]
 
@@ -141,7 +147,7 @@ agent_card = AgentCard(
     version="1.0.0",
     default_input_modes=["text"],
     default_output_modes=["text"],
-    capabilities=AgentCapabilities(streaming=False),
+    capabilities=AgentCapabilities(streaming=False, push_notifications=False, state_transition_history=False),
     skills=SKILLS,
     provider={
         "organization": "PaulieB14",
