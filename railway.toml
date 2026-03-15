@@ -1,0 +1,11 @@
+[build]
+builder = "dockerfile"
+
+[[services]]
+name = "graph-advocate"
+source = "Dockerfile"
+
+[[services]]
+name = "outreach-cron"
+cronSchedule = "0 9 * * *"
+startCommand = "python outreach.py"
