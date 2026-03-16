@@ -100,6 +100,8 @@ log = logging.getLogger("graph-advocate")
 PORT = int(os.environ.get("PORT", 8765))
 PUBLIC_URL = os.environ.get("ADVOCATE_PUBLIC_URL", f"http://localhost:{PORT}")
 
+DISCOVERY_COUNT = 0  # agent card hits since last restart
+
 # ── Persistent log (survives redeploys via Railway volume) ──────────────────
 
 LOG_PATH = Path(os.environ.get("LOG_PATH", "/data/requests.json"))
@@ -464,6 +466,10 @@ async def dashboard_endpoint(request: Request):
     <div class="n">{logs[0]["ts"][11:19] if logs else "—"}</div>
     <div class="l">Last request (UTC)</div>
   </div>
+  <div class="card" style="border-color:#f59e0b">
+    <div class="n">{DISCOVERY_COUNT}</div>
+    <div class="l">Agent card hits</div>
+  </div>
 </div>
 
 <!-- chart + breakdown -->
@@ -535,6 +541,9 @@ def build_app():
     from starlette.routing import Router
 
     async def combined(scope, receive, send):
+        global DISCOVERY_COUNT
+        if scope["type"] == "http" and scope["path"] == "/.well-known/agent-card.json":
+            DISCOVERY_COUNT += 1
         if scope["type"] == "http" and scope["path"] in ("/logs", "/dashboard"):
             await extra(scope, receive, send)
         else:
