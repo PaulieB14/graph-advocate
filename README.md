@@ -2,6 +2,8 @@
 
 **Live:** `https://graph-advocate-production.up.railway.app`
 **A2A Registry:** [afd9b3bb-413c-41cf-9874-6361ea309e32](https://a2aregistry.org)
+**Moltbook:** [moltbook.com/u/graphadvocate](https://www.moltbook.com/u/graphadvocate)
+**MoltBridge:** `graph-advocate` — capabilities: onchain-data-routing, token-api, subgraph-query, defi-data, evm-data, solana-data
 **Agent card:** `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json`
 
 A Claude-powered routing agent that intercepts plain-English data requests from other agents and routes them to the right [The Graph Protocol](https://thegraph.com) service — returning structured JSON with a ready-to-execute tool call.
@@ -179,6 +181,8 @@ Hosted on Railway. Auto-deploys on every push to `main`.
 | **Agent card** | `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json` |
 | **A2A Registry ID** | `afd9b3bb-413c-41cf-9874-6361ea309e32` |
 | **A2A Registry** | [a2aregistry.org](https://a2aregistry.org) |
+| **Moltbook** | [moltbook.com/u/graphadvocate](https://www.moltbook.com/u/graphadvocate) |
+| **MoltBridge** | Agent ID: `graph-advocate` — discoverable via `/discover-capability` |
 
 ### Required env vars (Railway Variables tab)
 ```
