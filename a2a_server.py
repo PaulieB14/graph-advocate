@@ -198,7 +198,8 @@ try:
         _FETCH_ENABLED = True
         log.info(f"Fetch.ai uAgent initialised — address: {_fetch_agent.address}")
     else:
-        log.info("AGENTVERSE_API_KEY not set — Fetch.ai integration disabled")
+        matching = [k for k in os.environ if "AGENTVERSE" in k.upper() or "FETCH" in k.upper()]
+        log.info(f"AGENTVERSE_API_KEY not set (len={len(_agentverse_key)}) — matching env keys: {matching}")
 except ImportError:
     log.warning("uagents package not installed — Fetch.ai integration disabled")
 except Exception as _fe:
