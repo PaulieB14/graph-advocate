@@ -143,6 +143,68 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
 _load_log()
 
 
+# ── Fetch.ai uAgents integration (optional) ───────────────────────────────────
+# Enabled automatically when AGENTVERSE_API_KEY is set.
+# The agent runs in mailbox mode — no extra port, polls Agentverse as a
+# background asyncio task alongside the existing uvicorn server.
+
+import asyncio as _asyncio
+
+FETCH_SEED = os.environ.get("FETCH_SEED", "graph-advocate-prod-v1")
+_fetch_agent = None
+_FETCH_ENABLED = False
+
+try:
+    _agentverse_key = os.environ.get("AGENTVERSE_API_KEY", "")
+    if _agentverse_key:
+        from uagents import Agent as _UAgent, Context as _UCtx, Model as _UModel  # type: ignore
+
+        class _FetchMsg(_UModel):
+            text: str
+
+        class _FetchResp(_UModel):
+            text: str
+
+        _fetch_agent = _UAgent(
+            name="graph-advocate",
+            seed=FETCH_SEED,
+            mailbox=True,
+        )
+
+        @_fetch_agent.on_message(model=_FetchMsg, replies=_FetchResp)
+        async def _on_fetch_message(ctx: _UCtx, sender: str, msg: _FetchMsg) -> None:
+            log.info(f"FETCH    sender={sender[:24]} | {msg.text[:80]}")
+            try:
+                loop = _asyncio.get_event_loop()
+                rec, _ = await loop.run_in_executor(
+                    None,
+                    lambda: ask_graph_advocate(
+                        msg.text,
+                        requesting_agent=f"fetch:{sender}",
+                    ),
+                )
+                _log_request(
+                    sender,
+                    msg.text,
+                    rec.get("recommendation", "unknown"),
+                    rec.get("confidence", "?"),
+                    (rec.get("query_ready") or {}).get("tool", "multi-step"),
+                )
+                await ctx.send(sender, _FetchResp(text=json.dumps(rec, indent=2)))
+            except Exception as exc:
+                log.error(f"FETCH error: {exc}")
+                await ctx.send(sender, _FetchResp(text=json.dumps({"error": str(exc)})))
+
+        _FETCH_ENABLED = True
+        log.info(f"Fetch.ai uAgent initialised — address: {_fetch_agent.address}")
+    else:
+        log.info("AGENTVERSE_API_KEY not set — Fetch.ai integration disabled")
+except ImportError:
+    log.warning("uagents package not installed — Fetch.ai integration disabled")
+except Exception as _fe:
+    log.warning(f"Fetch.ai init error (non-fatal): {_fe}")
+
+
 # ── Skills ───────────────────────────────────────────────────────────────────
 
 SKILLS = [
@@ -470,6 +532,10 @@ async def dashboard_endpoint(request: Request):
     <div class="n">{DISCOVERY_COUNT}</div>
     <div class="l">Agent card hits</div>
   </div>
+  <div class="card" style="border-color:#14b8a6">
+    <div class="n" style="font-size:.65rem;font-family:monospace;color:{'#10b981' if _FETCH_ENABLED else '#475569'}">{(_fetch_agent.address[:20] + '…') if _FETCH_ENABLED and _fetch_agent else 'disabled'}</div>
+    <div class="l">Fetch.ai address {'✓' if _FETCH_ENABLED else '(set AGENTVERSE_API_KEY)'}</div>
+  </div>
 </div>
 
 <!-- chart + breakdown -->
@@ -540,8 +606,27 @@ def build_app():
     from starlette.middleware import Middleware
     from starlette.routing import Router
 
+    state = {"fetch_task": None}
+
     async def combined(scope, receive, send):
         global DISCOVERY_COUNT
+
+        # Handle ASGI lifespan to start/stop the Fetch.ai background task
+        if scope["type"] == "lifespan":
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    if _FETCH_ENABLED and _fetch_agent is not None:
+                        state["fetch_task"] = _asyncio.create_task(_fetch_agent.run_async())
+                        log.info("Fetch.ai uAgent background task started")
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    if state["fetch_task"] is not None:
+                        state["fetch_task"].cancel()
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+            return
+
         if scope["type"] == "http" and scope["path"] == "/.well-known/agent-card.json":
             DISCOVERY_COUNT += 1
         if scope["type"] == "http" and scope["path"] in ("/logs", "/dashboard"):
