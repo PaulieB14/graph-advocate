@@ -317,67 +317,195 @@ async def logs_endpoint(request: Request):
 
 
 async def dashboard_endpoint(request: Request):
+    from collections import Counter
     logs = list(reversed(REQUEST_LOG))
     total = len(REQUEST_LOG)
 
-    SERVICE_COLORS = {
-        "token-api": "#10b981",
-        "subgraph-registry": "#6366f1",
-        "substreams": "#f59e0b",
-        "graph-aave-mcp": "#3b82f6",
-        "graph-lending-mcp": "#8b5cf6",
-        "graph-polymarket-mcp": "#ec4899",
-        "predictfun-mcp": "#14b8a6",
-        "unknown": "#6b7280",
-    }
+    # Categorise every request
+    legit, spam, intro, fast_rejected = 0, 0, 0, 0
+    service_counts: Counter = Counter()
+    for r in REQUEST_LOG:
+        svc = r.get("service", "unknown")
+        tool = r.get("tool", "")
+        service_counts[svc] += 1
+        if tool == "fast-reject":
+            fast_rejected += 1
+            spam += 1
+        elif svc == "out-of-scope":
+            spam += 1
+        elif svc in ("introduction", "awaiting-request"):
+            intro += 1
+        else:
+            legit += 1
 
-    rows = ""
+    reject_pct = int(fast_rejected / total * 100) if total else 0
+    legit_pct  = int(legit / total * 100) if total else 0
+
+    # Health signal: green if last real query ≤ 5 min ago, amber ≤ 30, else grey
+    health_color = "#475569"
+    health_label = "No data yet"
     for r in logs:
-        color = SERVICE_COLORS.get(r["service"], "#6b7280")
-        badge = f'<span style="background:{color};padding:2px 8px;border-radius:6px;font-size:.75rem;color:#fff;font-weight:600">{r["service"]}</span>'
-        conf_color = {"high": "#10b981", "medium": "#f59e0b", "low": "#ef4444"}.get(r["confidence"], "#6b7280")
-        rows += f"""<tr>
-          <td style="color:#64748b;font-family:monospace;font-size:.78rem">{r['ts'][11:19]}</td>
-          <td style="color:#94a3b8;max-width:350px">{r['request'][:80]}{'…' if len(r['request'])>80 else ''}</td>
-          <td>{badge}</td>
-          <td style="color:{conf_color};font-weight:600">{r['confidence']}</td>
-          <td style="color:#94a3b8;font-family:monospace;font-size:.8rem">{r['tool']}</td>
-        </tr>"""
+        if r.get("service") not in ("introduction", "awaiting-request", "out-of-scope", "unknown"):
+            try:
+                from datetime import timezone as tz
+                age = (datetime.now(timezone.utc) - datetime.fromisoformat(r["ts"])).total_seconds()
+                if age < 300:
+                    health_color, health_label = "#10b981", "Healthy"
+                elif age < 1800:
+                    health_color, health_label = "#f59e0b", "Idle"
+                else:
+                    health_color, health_label = "#ef4444", "Stale"
+            except Exception:
+                pass
+            break
 
+    # Donut chart data — top services excluding noise categories
+    NOISE = {"out-of-scope", "introduction", "awaiting-request", "unknown"}
+    SERVICE_COLORS = {
+        "token-api":            "#10b981",
+        "subgraph-registry":    "#6366f1",
+        "substreams":           "#f59e0b",
+        "graph-aave-mcp":       "#3b82f6",
+        "graph-lending-mcp":    "#8b5cf6",
+        "graph-polymarket-mcp": "#ec4899",
+        "predictfun-mcp":       "#14b8a6",
+    }
+    donut_labels  = [k for k in service_counts if k not in NOISE]
+    donut_values  = [service_counts[k] for k in donut_labels]
+    donut_colors  = [SERVICE_COLORS.get(k, "#64748b") for k in donut_labels]
+    # fallback so chart always has something
+    if not donut_labels:
+        donut_labels, donut_values, donut_colors = ["no legit queries yet"], [1], ["#334155"]
+
+    # Table rows
+    rows = ""
+    for r in logs[:50]:
+        svc = r.get("service", "unknown")
+        tool = r.get("tool", "?")
+        color = SERVICE_COLORS.get(svc, "#ef4444" if svc == "out-of-scope" else "#475569")
+        badge = (f'<span style="background:{color};padding:2px 8px;border-radius:6px;'
+                 f'font-size:.75rem;color:#fff;font-weight:600">{svc}</span>')
+        tool_color = "#ef4444" if tool == "fast-reject" else "#64748b"
+        rows += (f'<tr>'
+                 f'<td style="color:#64748b;font-family:monospace;font-size:.78rem">{r["ts"][11:19]}</td>'
+                 f'<td style="color:#94a3b8;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+                 f'{r["request"][:90]}{"…" if len(r["request"])>90 else ""}</td>'
+                 f'<td>{badge}</td>'
+                 f'<td style="color:{tool_color};font-family:monospace;font-size:.78rem">{tool}</td>'
+                 f'</tr>')
+
+    import json as _json
     html = f"""<!DOCTYPE html>
-<html><head>
+<html lang="en"><head>
 <meta charset="UTF-8">
 <meta http-equiv="refresh" content="15">
-<title>Graph Advocate — Live Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Graph Advocate — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
-  * {{box-sizing:border-box;margin:0;padding:0}}
-  body {{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:2rem}}
-  h1 {{font-size:1.5rem;font-weight:700;color:#f8fafc}}
-  .sub {{color:#64748b;font-size:.85rem;margin:.25rem 0 2rem}}
-  .stats {{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem;margin-bottom:2rem}}
-  .card {{background:#1e293b;border-radius:12px;padding:1.25rem}}
-  .card .n {{font-size:2rem;font-weight:700;color:#f8fafc}}
-  .card .l {{font-size:.78rem;color:#64748b;margin-top:.2rem}}
-  table {{width:100%;border-collapse:collapse;background:#1e293b;border-radius:12px;overflow:hidden}}
-  th {{text-align:left;padding:.65rem 1rem;font-size:.72rem;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:1px solid #334155}}
-  td {{padding:.6rem 1rem;font-size:.83rem;border-bottom:1px solid #0f172a}}
-  tr:hover td {{background:#243044}}
-  .pulse {{width:8px;height:8px;background:#10b981;border-radius:50%;display:inline-block;margin-right:.5rem;animation:pulse 2s infinite}}
-  @keyframes pulse {{0%,100%{{opacity:1}}50%{{opacity:.4}}}}
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:1.5rem}}
+  h1{{font-size:1.3rem;font-weight:700;color:#f8fafc;display:flex;align-items:center;gap:.5rem}}
+  .sub{{color:#475569;font-size:.8rem;margin:.2rem 0 1.5rem}}
+  /* stat cards */
+  .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1.5rem}}
+  .card{{background:#1e293b;border-radius:10px;padding:1rem 1.25rem;border-left:3px solid transparent}}
+  .card .n{{font-size:1.8rem;font-weight:700;color:#f8fafc;line-height:1}}
+  .card .l{{font-size:.72rem;color:#64748b;margin-top:.3rem;text-transform:uppercase;letter-spacing:.04em}}
+  /* two-col layout */
+  .grid2{{display:grid;grid-template-columns:1fr 280px;gap:1rem;margin-bottom:1.5rem}}
+  @media(max-width:700px){{.grid2{{grid-template-columns:1fr}}}}
+  .panel{{background:#1e293b;border-radius:10px;padding:1rem}}
+  .panel h2{{font-size:.78rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}}
+  /* health pill */
+  .pill{{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;font-weight:600;
+         padding:.3rem .8rem;border-radius:999px;background:#0f172a}}
+  .dot{{width:9px;height:9px;border-radius:50%}}
+  /* table */
+  table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;font-size:.8rem}}
+  th{{text-align:left;padding:.55rem 1rem;font-size:.68rem;font-weight:600;color:#475569;
+      text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #334155}}
+  td{{padding:.5rem 1rem;border-bottom:1px solid #0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0}}
+  td:nth-child(2){{width:99%;max-width:1px}}
+  tr:last-child td{{border-bottom:none}}
+  tr:hover td{{background:#243044}}
+  @keyframes blink{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
+  .live{{animation:blink 2s infinite;font-size:.65rem;color:#10b981;font-weight:700;letter-spacing:.08em;text-transform:uppercase}}
 </style>
 </head><body>
-<h1><span class="pulse"></span>Graph Advocate — Live Dashboard</h1>
-<p class="sub">Auto-refreshes every 15s · {total} requests this session · {PUBLIC_URL}</p>
-<div class="stats">
-  <div class="card"><div class="n">{total}</div><div class="l">Total Requests</div></div>
-  <div class="card"><div class="n">{logs[0]['service'] if logs else '—'}</div><div class="l">Last Routed To</div></div>
-  <div class="card"><div class="n">{logs[0]['confidence'] if logs else '—'}</div><div class="l">Last Confidence</div></div>
-  <div class="card"><div class="n">{logs[0]['ts'][11:19] if logs else '—'}</div><div class="l">Last Request (UTC)</div></div>
+<h1>
+  Graph Advocate
+  <span class="live">● live</span>
+</h1>
+<p class="sub">Auto-refreshes every 15s · {total} total requests · {PUBLIC_URL}</p>
+
+<!-- stat cards -->
+<div class="cards">
+  <div class="card" style="border-color:{health_color}">
+    <div class="n"><span class="pill"><span class="dot" style="background:{health_color}"></span>{health_label}</span></div>
+    <div class="l">Agent status</div>
+  </div>
+  <div class="card" style="border-color:#10b981">
+    <div class="n">{legit}</div>
+    <div class="l">Legit queries ({legit_pct}%)</div>
+  </div>
+  <div class="card" style="border-color:#ef4444">
+    <div class="n">{fast_rejected}</div>
+    <div class="l">Fast-rejected ({reject_pct}%)</div>
+  </div>
+  <div class="card" style="border-color:#475569">
+    <div class="n">{intro}</div>
+    <div class="l">Introductions</div>
+  </div>
+  <div class="card" style="border-color:#6366f1">
+    <div class="n">{logs[0]["ts"][11:19] if logs else "—"}</div>
+    <div class="l">Last request (UTC)</div>
+  </div>
 </div>
-<table>
-  <thead><tr><th>Time (UTC)</th><th>Request</th><th>Routed To</th><th>Confidence</th><th>Tool</th></tr></thead>
-  <tbody>{rows if rows else '<tr><td colspan="5" style="color:#475569;text-align:center;padding:2rem">No requests yet</td></tr>'}</tbody>
-</table>
+
+<!-- chart + breakdown -->
+<div class="grid2">
+  <div class="panel">
+    <h2>Recent requests (last 50)</h2>
+    <table>
+      <thead><tr><th style="width:70px">Time</th><th>Request</th><th style="width:160px">Service</th><th style="width:100px">Tool</th></tr></thead>
+      <tbody>{rows if rows else '<tr><td colspan="4" style="color:#475569;text-align:center;padding:2rem">No requests yet</td></tr>'}</tbody>
+    </table>
+  </div>
+  <div class="panel" style="display:flex;flex-direction:column;align-items:center">
+    <h2 style="align-self:flex-start">Legit routing breakdown</h2>
+    <canvas id="donut" width="220" height="220"></canvas>
+    <div id="legend" style="margin-top:.75rem;font-size:.75rem;display:flex;flex-direction:column;gap:.3rem;align-self:flex-start"></div>
+  </div>
+</div>
+
+<script>
+const labels = {_json.dumps(donut_labels)};
+const values = {_json.dumps(donut_values)};
+const colors = {_json.dumps(donut_colors)};
+
+const ctx = document.getElementById('donut').getContext('2d');
+new Chart(ctx, {{
+  type: 'doughnut',
+  data: {{ labels, datasets: [{{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#1e293b' }}] }},
+  options: {{
+    cutout: '65%',
+    plugins: {{ legend: {{ display: false }}, tooltip: {{ callbacks: {{
+      label: (c) => ` ${{c.label}}: ${{c.parsed}}`
+    }}}}}}
+  }}
+}});
+
+const leg = document.getElementById('legend');
+labels.forEach((l,i) => {{
+  const d = document.createElement('div');
+  d.style.display = 'flex'; d.style.alignItems = 'center'; d.style.gap = '.4rem';
+  d.innerHTML = `<span style="width:10px;height:10px;border-radius:2px;background:${{colors[i]}};flex-shrink:0"></span>
+    <span style="color:#94a3b8">${{l}}</span>
+    <span style="color:#f8fafc;font-weight:600;margin-left:auto;padding-left:.5rem">${{values[i]}}</span>`;
+  leg.appendChild(d);
+}});
+</script>
 </body></html>"""
     return HTMLResponse(html)
 
