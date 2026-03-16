@@ -32,15 +32,28 @@ from datetime import timedelta
 
 from advocate import ask_graph_advocate
 
-REPEAT_WINDOW_HOURS = 2
+REPEAT_WINDOW_MINUTES = 30
+
+# Prefixes that indicate a known non-Graph payment/protocol blob — reject immediately
+_JUNK_PREFIXES = (
+    "clawpay_v",
+    '{"p":"clawpay',
+    '{"p": "clawpay',
+)
+
+
+def _is_junk(user_text: str) -> bool:
+    """Return True for known out-of-scope protocol blobs that should be fast-rejected."""
+    t = user_text.strip().lower()
+    return any(t.startswith(p) for p in _JUNK_PREFIXES)
 
 
 def _is_repeat_intro(user_text: str) -> bool:
-    """Return True if this exact intro was already logged in the last REPEAT_WINDOW_HOURS."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=REPEAT_WINDOW_HOURS)
+    """Return True if this exact intro was already logged in the last REPEAT_WINDOW_MINUTES."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=REPEAT_WINDOW_MINUTES)
     text_lower = user_text.lower().strip()
     for entry in REQUEST_LOG:
-        if entry.get("service") != "introduction":
+        if entry.get("service") not in ("introduction", "awaiting-request"):
             continue
         try:
             ts = datetime.fromisoformat(entry["ts"])
@@ -189,24 +202,42 @@ class GraphAdvocateExecutor(AgentExecutor):
 
         log.info(f"REQUEST  task={task_id} | {user_text[:120]}")
 
+        # ── Fast-reject: known junk protocols (no Claude call) ───────────────
+        if _is_junk(user_text):
+            log.info(f"JUNK     task={task_id} | fast-rejected")
+            _log_request(task_id, user_text, "out-of-scope", "high", "fast-reject")
+            await event_queue.enqueue_event(
+                new_agent_text_message(json.dumps({
+                    "recommendation": "out-of-scope",
+                    "reason": "This payload format is not an onchain data request. Graph Advocate routes queries for token balances, swaps, NFT data, subgraph entities, and raw block data. Send a plain-English data request to get a tool recommendation.",
+                    "confidence": "high",
+                    "query_ready": None,
+                    "alternatives": [],
+                }))
+            )
+            return
+
+        # ── Repeat-intro throttle (no extra Claude call) ─────────────────────
         if _is_repeat_intro(user_text):
-            nudge = (
-                "You've already introduced yourself recently — I remember you! "
-                "Do you have an actual onchain data request? I can help with token balances, "
-                "DEX swaps, NFT data, protocol entities, raw block data, and more. "
-                "Just tell me what data you need."
+            log.info(f"REPEAT   task={task_id} | throttled intro")
+            _log_request(task_id, user_text, "introduction", "high", "throttled")
+            await event_queue.enqueue_event(
+                new_agent_text_message(json.dumps({
+                    "recommendation": "introduction",
+                    "reason": "You've introduced yourself recently — I remember you. Send an onchain data request and I'll return the exact tool call to run.",
+                    "confidence": "high",
+                    "query_ready": None,
+                    "alternatives": [],
+                    "hint": "Try: 'Top 20 USDC holders on Ethereum' or 'Uniswap V3 swaps last 100 blocks'",
+                }))
             )
-            rec, updated_history = ask_graph_advocate(
-                nudge,
-                history=history,
-                requesting_agent=f"a2a:{task_id}",
-            )
-        else:
-            rec, updated_history = ask_graph_advocate(
-                user_text,
-                history=history,
-                requesting_agent=f"a2a:{task_id}",
-            )
+            return
+
+        rec, updated_history = ask_graph_advocate(
+            user_text,
+            history=history,
+            requesting_agent=f"a2a:{task_id}",
+        )
         self._history[task_id] = updated_history
 
         service = rec.get("recommendation", "unknown")
