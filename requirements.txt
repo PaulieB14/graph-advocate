@@ -1,3 +1,4 @@
+# graph-advocate dependencies
 anthropic>=0.40.0
 a2a-sdk>=0.2.0
 uvicorn>=0.30.0
