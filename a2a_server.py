@@ -387,11 +387,11 @@ async def dashboard_endpoint(request: Request):
                  f'font-size:.75rem;color:#fff;font-weight:600">{svc}</span>')
         tool_color = "#ef4444" if tool == "fast-reject" else "#64748b"
         rows += (f'<tr>'
-                 f'<td style="color:#64748b;font-family:monospace;font-size:.78rem">{r["ts"][11:19]}</td>'
-                 f'<td style="color:#94a3b8;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+                 f'<td style="color:#64748b;font-family:monospace">{r["ts"][11:19]}</td>'
+                 f'<td style="color:#94a3b8" title="{r["request"][:200]}">'
                  f'{r["request"][:90]}{"…" if len(r["request"])>90 else ""}</td>'
                  f'<td>{badge}</td>'
-                 f'<td style="color:{tool_color};font-family:monospace;font-size:.78rem">{tool}</td>'
+                 f'<td style="color:{tool_color};font-family:monospace" title="{tool}">{tool}</td>'
                  f'</tr>')
 
     import json as _json
@@ -422,11 +422,14 @@ async def dashboard_endpoint(request: Request):
          padding:.3rem .8rem;border-radius:999px;background:#0f172a}}
   .dot{{width:9px;height:9px;border-radius:50%}}
   /* table */
-  table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;font-size:.8rem}}
-  th{{text-align:left;padding:.55rem 1rem;font-size:.68rem;font-weight:600;color:#475569;
+  table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;font-size:.8rem;table-layout:fixed}}
+  th{{text-align:left;padding:.55rem .75rem;font-size:.68rem;font-weight:600;color:#475569;
       text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #334155}}
-  td{{padding:.5rem 1rem;border-bottom:1px solid #0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0}}
-  td:nth-child(2){{width:99%;max-width:1px}}
+  td{{padding:.5rem .75rem;border-bottom:1px solid #0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+  td:nth-child(1){{width:68px}}
+  td:nth-child(2){{width:auto}}
+  td:nth-child(3){{width:155px}}
+  td:nth-child(4){{width:110px}}
   tr:last-child td{{border-bottom:none}}
   tr:hover td{{background:#243044}}
   @keyframes blink{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
