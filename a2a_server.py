@@ -39,6 +39,8 @@ _JUNK_PREFIXES = (
     "clawpay_v",
     '{"p":"clawpay',
     '{"p": "clawpay',
+    "clawpay a2a payment layer",
+    "activate for $1: https://buy.stripe.com",
 )
 
 # Messages that are agent-to-agent replies/acks, not data requests — skip Claude call
