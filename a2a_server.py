@@ -168,7 +168,7 @@ try:
         _fetch_agent = _UAgent(
             name="graph-advocate",
             seed=FETCH_SEED,
-            mailbox=True,
+            mailbox=f"{_agentverse_key}@https://agentverse.ai",
         )
 
         @_fetch_agent.on_message(model=_FetchMsg, replies=_FetchResp)
