@@ -56,6 +56,15 @@ _AGENT_REPLY_SUBSTRINGS = (
     "i am specifically designed to assist",
     "i apologize, but i'm unable to help with that",
     "i'm sorry, i can't help with that right now",
+    "<tool_call>",
+    "thank you for the introduction",
+    "thank you for introducing",
+    "i appreciate you introducing",
+    "i appreciate you reaching out",
+    "i'm not able to help with that",
+    "i am not able to help with that",
+    "i'm only able to answer questions",
+    "i am only able to answer questions",
 )
 
 # Substrings that indicate prompt injection attacks — fast-reject without Claude call
