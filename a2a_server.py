@@ -175,13 +175,9 @@ try:
         async def _on_fetch_message(ctx: _UCtx, sender: str, msg: _FetchMsg) -> None:
             log.info(f"FETCH    sender={sender[:24]} | {msg.text[:80]}")
             try:
-                loop = _asyncio.get_event_loop()
-                rec, _ = await loop.run_in_executor(
-                    None,
-                    lambda: ask_graph_advocate(
-                        msg.text,
-                        requesting_agent=f"fetch:{sender}",
-                    ),
+                rec, _ = ask_graph_advocate(
+                    msg.text,
+                    requesting_agent=f"fetch:{sender}",
                 )
                 _log_request(
                     sender,
@@ -607,23 +603,29 @@ def build_app():
     from starlette.middleware import Middleware
     from starlette.routing import Router
 
-    state = {"fetch_task": None}
+    import threading as _threading
+    state = {"fetch_thread": None}
 
     async def combined(scope, receive, send):
         global DISCOVERY_COUNT
 
-        # Handle ASGI lifespan to start/stop the Fetch.ai background task
+        # Handle ASGI lifespan to start/stop the Fetch.ai background thread
         if scope["type"] == "lifespan":
             while True:
                 message = await receive()
                 if message["type"] == "lifespan.startup":
                     if _FETCH_ENABLED and _fetch_agent is not None:
-                        state["fetch_task"] = _asyncio.create_task(_fetch_agent.run_async())
+                        t = _threading.Thread(
+                            target=_fetch_agent.run,
+                            daemon=True,
+                            name="fetch-agent",
+                        )
+                        t.start()
+                        state["fetch_thread"] = t
                         log.info("Fetch.ai uAgent background task started")
                     await send({"type": "lifespan.startup.complete"})
                 elif message["type"] == "lifespan.shutdown":
-                    if state["fetch_task"] is not None:
-                        state["fetch_task"].cancel()
+                    # daemon thread will die with the process
                     await send({"type": "lifespan.shutdown.complete"})
                     return
             return
