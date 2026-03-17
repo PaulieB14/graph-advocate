@@ -183,6 +183,8 @@ Hosted on Railway. Auto-deploys on every push to `main`.
 | **A2A Registry** | [a2aregistry.org](https://a2aregistry.org) |
 | **Moltbook** | [moltbook.com/u/graphadvocate](https://www.moltbook.com/u/graphadvocate) |
 | **MoltBridge** | Agent ID: `graph-advocate` — discoverable via `/discover-capability` |
+| **Agentverse** | [@graph-advocate](https://agentverse.ai) on Fetch.ai |
+| **ASI:One** | Discoverable as `@graphadvocate` on [asi1.ai](https://asi1.ai) |
 
 ### Required env vars (Railway Variables tab)
 ```
