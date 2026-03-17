@@ -41,6 +41,23 @@ _JUNK_PREFIXES = (
     '{"p": "clawpay',
 )
 
+# Messages that are agent-to-agent replies/acks, not data requests — skip Claude call
+_AGENT_REPLY_SUBSTRINGS = (
+    "an error occurred while processing your query",
+    "error code: 422",
+    "thanks for the introduction",
+    "thank you for the introduction",
+    "thank you for introducing",
+    "thanks for introducing",
+    "i appreciate the introduction",
+    "i'm only able to help with questions about",
+    "i am only able to help with questions about",
+    "i'm specifically designed to assist",
+    "i am specifically designed to assist",
+    "i apologize, but i'm unable to help with that",
+    "i'm sorry, i can't help with that right now",
+)
+
 # Substrings that indicate prompt injection attacks — fast-reject without Claude call
 _INJECTION_SUBSTRINGS = (
     "ignore all previous instructions",
@@ -66,11 +83,13 @@ _INJECTION_SUBSTRINGS = (
 
 
 def _is_junk(user_text: str) -> bool:
-    """Return True for known out-of-scope protocol blobs or prompt injection attempts."""
+    """Return True for known out-of-scope protocol blobs, prompt injection, or agent ack replies."""
     t = user_text.strip().lower()
     if any(t.startswith(p) for p in _JUNK_PREFIXES):
         return True
-    return any(s in t for s in _INJECTION_SUBSTRINGS)
+    if any(s in t for s in _INJECTION_SUBSTRINGS):
+        return True
+    return any(s in t for s in _AGENT_REPLY_SUBSTRINGS)
 
 
 def _is_repeat_intro(user_text: str) -> bool:
