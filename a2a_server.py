@@ -329,7 +329,13 @@ class GraphAdvocateExecutor(AgentExecutor):
         service = rec.get("recommendation", "unknown")
         confidence = rec.get("confidence", "?")
         tool_raw = rec.get("query_ready", {})
-        tool_name = tool_raw.get("tool", "?") if isinstance(tool_raw, dict) else "multi-step"
+        if isinstance(tool_raw, dict) and tool_raw.get("tool"):
+            tool_name = tool_raw["tool"]
+        elif rec.get("services_ranked"):
+            # overview responses embed query_ready inside each ranked service
+            tool_name = "multi-service"
+        else:
+            tool_name = "?"
 
         log.info(f"ROUTED   task={task_id} | {service} ({confidence}) → {tool_name}")
         _log_request(task_id, user_text, service, confidence, tool_name)
