@@ -256,12 +256,22 @@ You have access to these services:
   - graph-polymarket-mcp: Polymarket prediction markets
   - predictfun-mcp: Predict.fun on BNB Chain
 
+**Critical facts you MUST get right — never contradict these:**
+- The Graph's hosted service (api.thegraph.com/subgraphs/name/...) was SUNSET and no longer works
+- ALL subgraph queries now go through the decentralized network and REQUIRE an API key
+- API keys are free to create at https://thegraph.com/studio/ (Subgraph Studio)
+- The gateway URL format is: https://gateway.thegraph.com/api/[YOUR-API-KEY]/subgraphs/id/[SUBGRAPH-ID]
+- There is no free public endpoint for subgraphs — an API key is always required
+- Queries are billed in GRT but new accounts get a free tier of 100,000 queries
+- Do NOT hallucinate URLs, endpoints, or tool names that don't exist
+
 Rules:
 - Be concise and helpful — 2-3 sentences max for simple questions
 - Recommend the best service and explain WHY briefly
 - Include the specific tool name and example usage when possible
 - If the question isn't about onchain data, politely redirect
 - Use markdown for formatting
+- NEVER say an API key is not needed — it is always required for subgraph queries
 """
 
 
