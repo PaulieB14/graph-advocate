@@ -251,6 +251,7 @@ You have access to these services:
   15,500+ subgraphs available
 
 **Substreams** — raw block data, traces, logs, high-throughput streaming
+  Auth: Get a JWT/API key at https://thegraph.market/dashboard#api-keys
 
 **Protocol MCP Packages** (npm by @paulieb):
   - graph-aave-mcp: Aave V2/V3 lending + governance
