@@ -33,6 +33,37 @@ from datetime import timedelta
 from advocate import ask_graph_advocate
 
 REPEAT_WINDOW_MINUTES = 30
+RATE_LIMIT_WINDOW_SECONDS = 60
+RATE_LIMIT_MAX_REQUESTS = 5
+
+# Trivial greetings — respond instantly without a Claude call
+_GREETING_WORDS = {
+    "hi", "hi!", "hello", "hello!", "hey", "hey!", "yo", "sup",
+    "greetings", "howdy", "hola", "hiya", "hi there", "hello there",
+    "hey there", "good morning", "good afternoon", "good evening",
+    "what's up", "whats up",
+}
+
+# Per-sender sliding window rate limiter
+_sender_timestamps: dict[str, list[float]] = {}
+
+
+def _is_rate_limited(task_id: str) -> bool:
+    """Return True if this sender has exceeded RATE_LIMIT_MAX_REQUESTS in the window."""
+    import time
+    now = time.time()
+    cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+    timestamps = _sender_timestamps.get(task_id, [])
+    timestamps = [t for t in timestamps if t > cutoff]
+    timestamps.append(now)
+    _sender_timestamps[task_id] = timestamps
+    return len(timestamps) > RATE_LIMIT_MAX_REQUESTS
+
+
+def _is_greeting(text: str) -> bool:
+    """Return True for trivial greeting messages."""
+    return text.strip().lower().rstrip("!?.") in _GREETING_WORDS or text.strip().lower() in _GREETING_WORDS
+
 
 # Prefixes that indicate a known non-Graph payment/protocol blob — reject immediately
 _JUNK_PREFIXES = (
@@ -318,6 +349,40 @@ class GraphAdvocateExecutor(AgentExecutor):
 
         log.info(f"REQUEST  task={task_id} | {user_text[:120]}")
 
+        # ── Rate limit per sender (no Claude call) ───────────────────────────
+        if _is_rate_limited(task_id):
+            log.info(f"RATELIM  task={task_id} | blocked")
+            _log_request(task_id, user_text, "rate-limited", "high", "blocked")
+            await event_queue.enqueue_event(
+                new_agent_text_message(json.dumps({
+                    "recommendation": "rate-limited",
+                    "reason": "Too many requests. Please wait before sending another.",
+                    "confidence": "high",
+                    "query_ready": None,
+                    "alternatives": [],
+                }))
+            )
+            return
+
+        # ── Fast-handle trivial greetings (no Claude call) ───────────────────
+        if _is_greeting(user_text):
+            log.info(f"GREETING task={task_id} | fast-handled")
+            _log_request(task_id, user_text, "introduction", "high", "greeting")
+            await event_queue.enqueue_event(
+                new_agent_text_message(json.dumps({
+                    "recommendation": "introduction",
+                    "name": "Graph Advocate",
+                    "description": "I route onchain data requests to the right Graph Protocol service.",
+                    "confidence": "high",
+                    "services": ["token-api", "subgraph-registry", "substreams", "graph-aave-mcp", "graph-lending-mcp", "graph-polymarket-mcp", "predictfun-mcp"],
+                    "example_requests": ["Top 20 USDC holders on Ethereum", "Uniswap V3 pool TVL", "Aave liquidation events"],
+                    "query_ready": None,
+                    "alternatives": [],
+                    "hint": "Send an onchain data request and I'll return the exact tool call to run.",
+                }))
+            )
+            return
+
         # ── Fast-reject: known junk protocols (no Claude call) ───────────────
         if _is_junk(user_text):
             log.info(f"JUNK     task={task_id} | fast-rejected")
@@ -419,13 +484,16 @@ async def dashboard_endpoint(request: Request):
     total = len(REQUEST_LOG)
 
     # Categorise every request
-    legit, spam, intro, fast_rejected = 0, 0, 0, 0
+    legit, spam, intro, fast_rejected, rate_limited = 0, 0, 0, 0, 0
     service_counts: Counter = Counter()
     for r in REQUEST_LOG:
         svc = r.get("service", "unknown")
         tool = r.get("tool", "")
         service_counts[svc] += 1
-        if tool == "fast-reject":
+        if svc == "rate-limited":
+            rate_limited += 1
+            spam += 1
+        elif tool == "fast-reject":
             fast_rejected += 1
             spam += 1
         elif svc == "out-of-scope":
@@ -552,6 +620,10 @@ async def dashboard_endpoint(request: Request):
   <div class="card" style="border-color:#ef4444">
     <div class="n">{fast_rejected}</div>
     <div class="l">Fast-rejected ({reject_pct}%)</div>
+  </div>
+  <div class="card" style="border-color:#f97316">
+    <div class="n">{rate_limited}</div>
+    <div class="l">Rate-limited</div>
   </div>
   <div class="card" style="border-color:#475569">
     <div class="n">{intro}</div>
