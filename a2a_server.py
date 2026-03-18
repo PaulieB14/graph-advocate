@@ -30,7 +30,7 @@ from a2a.utils import new_agent_text_message
 import json
 from datetime import timedelta
 
-from advocate import ask_graph_advocate
+from advocate import ask_graph_advocate, ask_graph_advocate_chat
 
 REPEAT_WINDOW_MINUTES = 30
 RATE_LIMIT_WINDOW_SECONDS = 60
@@ -690,6 +690,515 @@ labels.forEach((l,i) => {{
     return HTMLResponse(html)
 
 
+# ── /chat web UI (Haiku-powered, for human users) ─────────────────────────────
+
+# In-memory session store for chat history (keyed by session cookie)
+_chat_sessions: dict[str, list] = {}
+
+CHAT_HTML = """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Graph Advocate — Chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #06080f;
+    --bg-main: #0a0e1a;
+    --bg-card: #111827;
+    --bg-card-hover: #1a2236;
+    --bg-input: #0f1629;
+    --border: rgba(99,102,241,.12);
+    --border-light: rgba(99,102,241,.25);
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --accent-glow: rgba(99,102,241,.15);
+    --graph-purple: #6747ed;
+    --graph-blue: #2563eb;
+    --text: #c7cee5;
+    --text-bright: #f1f5f9;
+    --text-muted: #4b5675;
+    --green: #34d399;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0 }
+  html, body { height: 100% }
+  body {
+    font-family: var(--sans);
+    background: var(--bg-deep);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  /* Animated gradient background */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(99,102,241,.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 90%, rgba(103,71,237,.06) 0%, transparent 60%),
+      radial-gradient(ellipse 40% 40% at 50% 50%, rgba(37,99,235,.04) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Header */
+  .header {
+    position: relative; z-index: 1;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,14,26,.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .logo {
+    width: 38px; height: 38px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--graph-purple) 0%, var(--accent) 50%, var(--graph-blue) 100%);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 20px rgba(99,102,241,.3), 0 0 40px rgba(103,71,237,.1);
+    flex-shrink: 0;
+  }
+  .logo svg { width: 20px; height: 20px; }
+  .header-text { display: flex; flex-direction: column; gap: 1px; }
+  .header-text h1 { font-size: 1rem; font-weight: 700; color: var(--text-bright); letter-spacing: -.02em; }
+  .header-text span { font-size: .7rem; color: var(--text-muted); font-weight: 500; letter-spacing: .02em; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 8px rgba(52,211,153,.5);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.85)} }
+  .status-label { font-size: .72rem; color: var(--green); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  .dash-link {
+    font-size: .72rem; color: var(--text-muted); text-decoration: none;
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
+    transition: all .2s;
+  }
+  .dash-link:hover { border-color: var(--border-light); color: var(--text); background: var(--accent-glow); }
+
+  /* Welcome card */
+  .welcome {
+    position: relative; z-index: 1;
+    margin: 24px auto 0;
+    max-width: 560px;
+    text-align: center;
+    padding: 32px 28px 24px;
+    animation: fadeUp .5s ease-out;
+  }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
+  .welcome h2 {
+    font-size: 1.35rem; font-weight: 700; color: var(--text-bright);
+    margin-bottom: 8px; letter-spacing: -.02em;
+  }
+  .welcome p { font-size: .88rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px; }
+  .suggestions {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+  }
+  .suggestion {
+    padding: 8px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--text);
+    font-size: .8rem;
+    cursor: pointer;
+    transition: all .2s;
+    font-family: var(--sans);
+  }
+  .suggestion:hover {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+    color: var(--text-bright);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99,102,241,.15);
+  }
+
+  /* Messages */
+  .messages {
+    position: relative; z-index: 1;
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    scroll-behavior: smooth;
+  }
+  .messages::-webkit-scrollbar { width: 5px; }
+  .messages::-webkit-scrollbar-track { background: transparent; }
+  .messages::-webkit-scrollbar-thumb { background: rgba(99,102,241,.2); border-radius: 3px; }
+  .messages::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,.35); }
+
+  .msg-row {
+    display: flex; gap: 12px; max-width: 85%;
+    animation: msgIn .3s ease-out;
+  }
+  @keyframes msgIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
+  .msg-row.user { align-self: flex-end; flex-direction: row-reverse; }
+  .msg-row.assistant { align-self: flex-start; }
+
+  .avatar {
+    width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .75rem; font-weight: 700;
+  }
+  .msg-row.user .avatar {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+  }
+  .msg-row.assistant .avatar {
+    background: linear-gradient(135deg, var(--graph-purple), var(--accent));
+    color: #fff;
+    box-shadow: 0 0 12px rgba(99,102,241,.2);
+  }
+  .msg-row.assistant .avatar svg { width: 16px; height: 16px; }
+
+  .bubble {
+    padding: 12px 16px;
+    border-radius: 16px;
+    font-size: .88rem;
+    line-height: 1.65;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+  .msg-row.user .bubble {
+    background: linear-gradient(135deg, #6366f1, #7c3aed);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+    box-shadow: 0 2px 12px rgba(99,102,241,.25);
+  }
+  .msg-row.assistant .bubble {
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .bubble a { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 2px; }
+  .bubble a:hover { color: #a5b4fc; }
+  .bubble code {
+    background: rgba(99,102,241,.1);
+    border: 1px solid rgba(99,102,241,.15);
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: .82rem;
+    font-family: var(--mono);
+    color: var(--accent-hover);
+  }
+  .bubble pre {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 10px;
+    overflow-x: auto;
+    margin: 10px 0;
+    font-size: .8rem;
+    line-height: 1.5;
+  }
+  .bubble pre code {
+    background: none; border: none; padding: 0; color: var(--text);
+    font-family: var(--mono);
+  }
+  .bubble strong { color: var(--text-bright); font-weight: 600; }
+  .bubble ul, .bubble ol { margin: 6px 0 6px 20px; }
+  .bubble li { margin: 3px 0; }
+
+  /* Typing indicator */
+  .typing-row {
+    display: none; align-self: flex-start;
+    gap: 12px; max-width: 85%;
+    animation: msgIn .3s ease-out;
+  }
+  .typing-row.show { display: flex; }
+  .typing-dots {
+    display: flex; gap: 5px; padding: 16px 20px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 16px; border-bottom-left-radius: 4px;
+  }
+  .typing-dots span {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-muted);
+    animation: bounce 1.4s ease-in-out infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: .2s; }
+  .typing-dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes bounce {
+    0%,60%,100% { transform: translateY(0); opacity:.4 }
+    30% { transform: translateY(-8px); opacity:1 }
+  }
+
+  /* Input area */
+  .input-area {
+    position: relative; z-index: 1;
+    padding: 16px 24px 20px;
+    background: rgba(10,14,26,.9);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border);
+  }
+  .input-row {
+    display: flex;
+    gap: 10px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  .input-wrapper {
+    flex: 1;
+    position: relative;
+  }
+  .input-wrapper input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    color: var(--text-bright);
+    font-size: .9rem;
+    font-family: var(--sans);
+    outline: none;
+    transition: all .25s;
+  }
+  .input-wrapper input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow), 0 0 20px rgba(99,102,241,.1);
+  }
+  .input-wrapper input::placeholder { color: var(--text-muted); }
+  .send-btn {
+    width: 48px; height: 48px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--graph-purple), var(--accent));
+    color: #fff;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .2s;
+    flex-shrink: 0;
+    box-shadow: 0 2px 12px rgba(99,102,241,.3);
+  }
+  .send-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,.4); }
+  .send-btn:active { transform: translateY(0); }
+  .send-btn:disabled { background: var(--bg-card); color: var(--text-muted); box-shadow: none; cursor: default; transform: none; }
+  .send-btn svg { width: 20px; height: 20px; }
+  .input-hint {
+    text-align: center;
+    margin-top: 8px;
+    font-size: .7rem;
+    color: var(--text-muted);
+  }
+  .input-hint a { color: var(--accent); text-decoration: none; }
+  .input-hint a:hover { text-decoration: underline; }
+
+  @media (max-width: 640px) {
+    .msg-row { max-width: 95%; }
+    .welcome { padding: 24px 16px 20px; }
+    .suggestions { gap: 6px; }
+    .header { padding: 12px 16px; }
+    .messages { padding: 16px; }
+    .input-area { padding: 12px 16px 16px; }
+    .avatar { width: 28px; height: 28px; border-radius: 6px; }
+    .dash-link { display: none; }
+  }
+</style>
+</head><body>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+    </svg>
+  </div>
+  <div class="header-text">
+    <h1>Graph Advocate</h1>
+    <span>Your onchain data routing assistant</span>
+  </div>
+  <div class="header-right">
+    <div class="status-dot"></div>
+    <span class="status-label">Online</span>
+    <a href="/dashboard" class="dash-link">Dashboard</a>
+  </div>
+</div>
+
+<!-- Messages -->
+<div class="messages" id="messages">
+  <div class="welcome" id="welcome">
+    <h2>What onchain data do you need?</h2>
+    <p>I know every Graph Protocol service inside out. Tell me what you're looking for and I'll point you to the exact right tool, API, or subgraph.</p>
+    <div class="suggestions">
+      <button class="suggestion" onclick="useSuggestion(this)">Top USDC holders on Ethereum</button>
+      <button class="suggestion" onclick="useSuggestion(this)">Uniswap V3 pool TVL</button>
+      <button class="suggestion" onclick="useSuggestion(this)">Aave liquidation events</button>
+      <button class="suggestion" onclick="useSuggestion(this)">Solana NFT sales this week</button>
+      <button class="suggestion" onclick="useSuggestion(this)">Raw event logs from block range</button>
+    </div>
+  </div>
+</div>
+
+<!-- Typing indicator -->
+<div class="typing-row" id="typing">
+  <div class="avatar" style="background:linear-gradient(135deg,var(--graph-purple),var(--accent))">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px">
+      <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+    </svg>
+  </div>
+  <div class="typing-dots"><span></span><span></span><span></span></div>
+</div>
+
+<!-- Input -->
+<div class="input-area">
+  <div class="input-row">
+    <div class="input-wrapper">
+      <input type="text" id="input" placeholder="Ask about token data, subgraphs, streaming..." autocomplete="off" />
+    </div>
+    <button class="send-btn" id="send" onclick="sendMsg()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9z"/>
+      </svg>
+    </button>
+  </div>
+  <div class="input-hint">
+    Powered by <a href="https://thegraph.com" target="_blank">The Graph Protocol</a> &middot;
+    Token API &middot; Subgraphs &middot; Substreams
+  </div>
+</div>
+
+<script>
+const messagesEl = document.getElementById('messages');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const typingEl = document.getElementById('typing');
+const welcomeEl = document.getElementById('welcome');
+
+inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !sendBtn.disabled) sendMsg(); });
+
+function useSuggestion(btn) {
+  inputEl.value = btn.textContent;
+  sendMsg();
+}
+
+function appendMsg(role, html) {
+  // Hide welcome card on first message
+  if (welcomeEl) welcomeEl.style.display = 'none';
+
+  const row = document.createElement('div');
+  row.className = 'msg-row ' + role;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  if (role === 'user') {
+    avatar.textContent = 'You';
+  } else {
+    avatar.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
+  }
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.innerHTML = html;
+
+  row.appendChild(avatar);
+  row.appendChild(bubble);
+  messagesEl.appendChild(row);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderMd(text) {
+  let s = escapeHtml(text);
+  // code blocks
+  s = s.replace(/```(\\w*)\\n([\\s\\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // inline code
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // bold
+  s = s.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+  // links
+  s = s.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // unordered lists
+  s = s.replace(/^- (.+)/gm, '<li>$1</li>');
+  s = s.replace(/(<li>.*<\\/li>)/gs, '<ul>$1</ul>');
+  // line breaks (but not inside pre/code)
+  s = s.replace(/\\n/g, '<br>');
+  return s;
+}
+
+async function sendMsg() {
+  const text = inputEl.value.trim();
+  if (!text) return;
+  inputEl.value = '';
+  appendMsg('user', escapeHtml(text));
+  sendBtn.disabled = true;
+  typingEl.classList.add('show');
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: text}),
+    });
+    const data = await res.json();
+    typingEl.classList.remove('show');
+    appendMsg('assistant', renderMd(data.reply || 'Sorry, something went wrong.'));
+  } catch (e) {
+    typingEl.classList.remove('show');
+    appendMsg('assistant', 'Network error — please try again.');
+  }
+  sendBtn.disabled = false;
+  inputEl.focus();
+}
+
+inputEl.focus();
+</script>
+</body></html>"""
+
+
+async def chat_get(request: Request):
+    """Serve the chat web UI."""
+    return HTMLResponse(CHAT_HTML)
+
+
+async def chat_post(request: Request):
+    """Handle chat messages via Haiku."""
+    import uuid
+
+    body = await request.json()
+    message = (body.get("message") or "").strip()
+    if not message:
+        return JSONResponse({"reply": "Please enter a message."})
+
+    # Session tracking via cookie
+    session_id = request.cookies.get("ga_session")
+    if not session_id:
+        session_id = str(uuid.uuid4())
+
+    history = _chat_sessions.get(session_id, [])
+
+    try:
+        reply, updated_history = ask_graph_advocate_chat(message, history=history)
+        _chat_sessions[session_id] = updated_history[-20:]  # keep last 20 turns
+    except Exception as exc:
+        log.error(f"CHAT error: {exc}")
+        reply = "Sorry, I hit an error. Please try again."
+
+    _log_request(f"chat:{session_id[:8]}", message, "chat", "n/a", "haiku")
+
+    resp = JSONResponse({"reply": reply})
+    resp.set_cookie("ga_session", session_id, max_age=3600, httponly=True, samesite="lax")
+    return resp
+
+
 # ── Build app ─────────────────────────────────────────────────────────────────
 
 def build_app():
@@ -702,10 +1211,12 @@ def build_app():
         http_handler=handler,
     ).build()
 
-    # Mount /logs and /dashboard on top of the A2A app
+    # Mount /logs, /dashboard, /chat on top of the A2A app
     extra = Starlette(routes=[
         Route("/logs", logs_endpoint),
         Route("/dashboard", dashboard_endpoint),
+        Route("/chat", chat_get, methods=["GET"]),
+        Route("/chat", chat_post, methods=["POST"]),
     ])
 
     from starlette.middleware import Middleware
@@ -740,7 +1251,7 @@ def build_app():
 
         if scope["type"] == "http" and scope["path"] == "/.well-known/agent-card.json":
             DISCOVERY_COUNT += 1
-        if scope["type"] == "http" and scope["path"] in ("/logs", "/dashboard"):
+        if scope["type"] == "http" and scope["path"] in ("/logs", "/dashboard", "/chat"):
             await extra(scope, receive, send)
         else:
             await a2a_app(scope, receive, send)
@@ -752,4 +1263,5 @@ if __name__ == "__main__":
     log.info(f"Graph Advocate A2A server starting on {PUBLIC_URL}")
     log.info(f"Agent card: {PUBLIC_URL}/.well-known/agent-card.json")
     log.info(f"Dashboard: {PUBLIC_URL}/dashboard")
+    log.info(f"Chat UI:   {PUBLIC_URL}/chat")
     uvicorn.run(build_app(), host="0.0.0.0", port=PORT, log_level="warning")

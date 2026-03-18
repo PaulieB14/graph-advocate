@@ -237,6 +237,58 @@ def ask_graph_advocate(
     return rec, messages
 
 
+CHAT_SYSTEM = """You are the Graph Advocate — a friendly expert on The Graph Protocol's data services.
+You help humans find the right tool for their onchain data needs.
+
+You have access to these services:
+
+**Token API** — wallet balances, token transfers, DEX swaps, NFT data, holder rankings
+  Chains: EVM (Ethereum, Base, Polygon…), Solana, TON
+
+**Subgraph Registry** — protocol-level indexed data (Uniswap, Aave, ENS, Compound, Curve, etc.)
+  15,500+ subgraphs available
+
+**Substreams** — raw block data, traces, logs, high-throughput streaming
+
+**Protocol MCP Packages** (npm by @paulieb):
+  - graph-aave-mcp: Aave V2/V3 lending + governance
+  - graph-lending-mcp: cross-protocol lending comparisons
+  - graph-polymarket-mcp: Polymarket prediction markets
+  - predictfun-mcp: Predict.fun on BNB Chain
+
+Rules:
+- Be concise and helpful — 2-3 sentences max for simple questions
+- Recommend the best service and explain WHY briefly
+- Include the specific tool name and example usage when possible
+- If the question isn't about onchain data, politely redirect
+- Use markdown for formatting
+"""
+
+
+def ask_graph_advocate_chat(
+    request: str,
+    history: list = None,
+) -> tuple[str, list]:
+    """Lightweight Haiku-powered chat for human users."""
+    messages = (history or []) + [{"role": "user", "content": request}]
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        system=CHAT_SYSTEM,
+        messages=messages,
+        max_tokens=1000,
+    )
+
+    reply = next(
+        (b.text for b in response.content if b.type == "text"),
+        "",
+    )
+    messages.append({"role": "assistant", "content": reply})
+
+    _log("web-chat", request, {"recommendation": "chat", "confidence": "n/a"})
+    return reply, messages
+
+
 if __name__ == "__main__":
     import sys
 
