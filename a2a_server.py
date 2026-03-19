@@ -65,9 +65,51 @@ GREETING_LIMIT_MAX = 2        # max 2 greeting responses per sender per hour
 _greeting_timestamps: dict[str, list[float]] = {}
 
 
+# Longer intro phrases that should also be fast-handled (no Claude call)
+_GREETING_PHRASES = (
+    "what can you help me with",
+    "what can you do",
+    "what do you do",
+    "what services do you offer",
+    "what are your capabilities",
+    "tell me about yourself",
+    "introduce yourself",
+    "who are you",
+    "what is this",
+    "how can you help",
+    "how do you work",
+    "can you help me",
+    "are you there",
+    "anyone there",
+    "is this working",
+    "test",
+    "testing",
+    "ping",
+)
+
+# Global greeting rate limit (across ALL senders)
+GLOBAL_GREETING_LIMIT = 10  # max per minute
+_global_greeting_times: list[float] = []
+
+
+def _is_global_greeting_spam() -> bool:
+    """Return True if too many greetings globally — likely a bot swarm."""
+    import time
+    global _global_greeting_times
+    now = time.time()
+    _global_greeting_times = [t for t in _global_greeting_times if t > now - 60]
+    _global_greeting_times.append(now)
+    return len(_global_greeting_times) > GLOBAL_GREETING_LIMIT
+
+
 def _is_greeting(text: str) -> bool:
-    """Return True for trivial greeting messages."""
-    return text.strip().lower().rstrip("!?.") in _GREETING_WORDS or text.strip().lower() in _GREETING_WORDS
+    """Return True for trivial greeting messages and intro questions."""
+    t = text.strip().lower().rstrip("!?.")
+    if t in _GREETING_WORDS or text.strip().lower() in _GREETING_WORDS:
+        return True
+    # Check longer intro phrases
+    t_full = text.strip().lower()
+    return any(p in t_full for p in _GREETING_PHRASES)
 
 
 def _is_greeting_spam(task_id: str) -> bool:
@@ -383,8 +425,8 @@ class GraphAdvocateExecutor(AgentExecutor):
 
         # ── Fast-handle trivial greetings (no Claude call) ───────────────────
         if _is_greeting(user_text):
-            # Silently drop if this sender keeps spamming greetings
-            if _is_greeting_spam(task_id):
+            # Silently drop if per-sender OR global limit exceeded
+            if _is_greeting_spam(task_id) or _is_global_greeting_spam():
                 log.info(f"GREET-DROP task={task_id} | silently dropped")
                 return
 
