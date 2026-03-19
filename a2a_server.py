@@ -780,12 +780,79 @@ CHAT_HTML = """<!DOCTYPE html>
   }
   @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.85)} }
   .status-label { font-size: .72rem; color: var(--green); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  .connect-btn {
+    font-size: .72rem; font-weight: 600; color: #fff; background: linear-gradient(135deg, var(--graph-purple), var(--accent));
+    border: none; border-radius: 6px; padding: 5px 12px; cursor: pointer;
+    transition: all .2s; font-family: var(--sans);
+    box-shadow: 0 2px 8px rgba(99,102,241,.25);
+  }
+  .connect-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(99,102,241,.35); }
   .dash-link {
     font-size: .72rem; color: var(--text-muted); text-decoration: none;
     padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
     transition: all .2s;
   }
   .dash-link:hover { border-color: var(--border-light); color: var(--text); background: var(--accent-glow); }
+
+  /* Connect modal */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.6); backdrop-filter: blur(4px); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 28px; max-width: 560px; width: 90%;
+    max-height: 85vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    animation: modalIn .25s ease-out;
+  }
+  @keyframes modalIn { from { opacity:0; transform:scale(.95) translateY(10px) } to { opacity:1; transform:scale(1) translateY(0) } }
+  .modal h2 { font-size: 1.1rem; font-weight: 700; color: var(--text-bright); margin-bottom: 6px; }
+  .modal .modal-sub { font-size: .82rem; color: var(--text-muted); margin-bottom: 20px; }
+  .modal-close {
+    position: absolute; top: 16px; right: 18px; background: none; border: none;
+    color: var(--text-muted); font-size: 1.3rem; cursor: pointer; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text-bright); }
+  .option {
+    background: var(--bg-deep); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 12px;
+    transition: border-color .2s;
+  }
+  .option:hover { border-color: var(--border-light); }
+  .option-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+  }
+  .option-num {
+    width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .7rem; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, var(--graph-purple), var(--accent));
+  }
+  .option-title { font-size: .9rem; font-weight: 600; color: var(--text-bright); }
+  .option-badge {
+    font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+    padding: 2px 8px; border-radius: 10px; margin-left: auto;
+  }
+  .badge-easy { background: rgba(52,211,153,.15); color: var(--green); }
+  .badge-proto { background: rgba(99,102,241,.15); color: var(--accent-hover); }
+  .option-desc { font-size: .8rem; color: var(--text-muted); margin-bottom: 10px; line-height: 1.5; }
+  .option-code {
+    background: var(--bg-main); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; font-family: var(--mono);
+    font-size: .75rem; color: var(--text); overflow-x: auto;
+    position: relative; line-height: 1.6;
+  }
+  .option-code .cp {
+    position: absolute; top: 6px; right: 6px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px;
+    font-size: .65rem; color: var(--text-muted); cursor: pointer;
+    font-family: var(--sans); transition: all .15s;
+  }
+  .option-code .cp:hover { border-color: var(--accent); color: var(--accent-hover); }
+  .option-works { font-size: .72rem; color: var(--text-muted); margin-top: 8px; }
 
   /* Welcome card */
   .welcome {
@@ -1025,6 +1092,7 @@ CHAT_HTML = """<!DOCTYPE html>
   <div class="header-right">
     <div class="status-dot"></div>
     <span class="status-label">Online</span>
+    <button class="connect-btn" onclick="toggleConnect()">Add to Agent</button>
     <a href="/dashboard" class="dash-link">Dashboard</a>
   </div>
 </div>
@@ -1161,7 +1229,100 @@ async function sendMsg() {
 }
 
 inputEl.focus();
+
+// Connect modal
+function toggleConnect() {
+  const m = document.getElementById('connectModal');
+  m.classList.toggle('show');
+}
+function copyCode(btn) {
+  const code = btn.parentElement.querySelector('.code-text');
+  navigator.clipboard.writeText(code.textContent.trim());
+  btn.textContent = 'Copied!';
+  setTimeout(() => btn.textContent = 'Copy', 1500);
+}
+// Close on overlay click
+document.addEventListener('click', e => {
+  const m = document.getElementById('connectModal');
+  if (e.target === m) m.classList.remove('show');
+});
 </script>
+
+<!-- Connect Modal -->
+<div class="modal-overlay" id="connectModal">
+  <div class="modal" style="position:relative">
+    <button class="modal-close" onclick="toggleConnect()">&times;</button>
+    <h2>Add Graph Advocate to Your Agent</h2>
+    <p class="modal-sub">Choose the integration that fits your stack. All options return the same real search results.</p>
+
+    <div class="option">
+      <div class="option-header">
+        <span class="option-num">1</span>
+        <span class="option-title">Simple HTTP API</span>
+        <span class="option-badge badge-easy">Easiest</span>
+      </div>
+      <div class="option-desc">Works with any framework — LangChain, CrewAI, AutoGPT, or plain code. Just POST a JSON message.</div>
+      <div class="option-code">
+        <button class="cp" onclick="copyCode(this)">Copy</button>
+        <span class="code-text">curl -X POST https://graph-advocate-production.up.railway.app/chat \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "Find me Uniswap subgraphs"}'</span>
+      </div>
+      <div class="option-works">Response: <code>{"reply": "..."}</code> — works with any HTTP client</div>
+    </div>
+
+    <div class="option">
+      <div class="option-header">
+        <span class="option-num">2</span>
+        <span class="option-title">A2A Protocol</span>
+        <span class="option-badge badge-proto">Agent-to-Agent</span>
+      </div>
+      <div class="option-desc">Google's Agent-to-Agent protocol. Discover the agent card and send JSON-RPC 2.0 requests.</div>
+      <div class="option-code">
+        <button class="cp" onclick="copyCode(this)">Copy</button>
+        <span class="code-text">Agent Card: https://graph-advocate-production.up.railway.app/.well-known/agent-card.json
+Endpoint:   POST https://graph-advocate-production.up.railway.app/</span>
+      </div>
+      <div class="option-works">Works with: A2A-compatible agents (Google, Fetch.ai, etc.)</div>
+    </div>
+
+    <div class="option">
+      <div class="option-header">
+        <span class="option-num">3</span>
+        <span class="option-title">MCP (Model Context Protocol)</span>
+        <span class="option-badge badge-proto">AI IDEs</span>
+      </div>
+      <div class="option-desc">Add as an MCP server in Claude Code, Cursor, Windsurf, or any MCP-compatible client.</div>
+      <div class="option-code">
+        <button class="cp" onclick="copyCode(this)">Copy</button>
+        <span class="code-text">{
+  "mcpServers": {
+    "graph-advocate": {
+      "command": "npx",
+      "args": ["-y", "graph-advocate-mcp"]
+    }
+  }
+}</span>
+      </div>
+      <div class="option-works">Works with: Claude Code, Cursor, Windsurf, Zed, any MCP client</div>
+    </div>
+
+    <div class="option">
+      <div class="option-header">
+        <span class="option-num">4</span>
+        <span class="option-title">OpenClaw Skill</span>
+        <span class="option-badge badge-proto">OpenClaw</span>
+      </div>
+      <div class="option-desc">Install as a skill in any OpenClaw-compatible agent.</div>
+      <div class="option-code">
+        <button class="cp" onclick="copyCode(this)">Copy</button>
+        <span class="code-text">Skill: graph-advocate
+GitHub: https://github.com/PaulieB14/graph-advocate</span>
+      </div>
+      <div class="option-works">Works with: OpenClaw agents</div>
+    </div>
+  </div>
+</div>
 </body></html>"""
 
 

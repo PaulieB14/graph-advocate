@@ -399,9 +399,29 @@ Rules:
 - If the question isn't about onchain data, politely redirect
 - Use markdown for formatting
 - NEVER say an API key is not needed — it is always required for subgraph queries
-- If a user asks how to connect the Graph Advocate to their agent, explain the A2A endpoint:
-  POST https://graph-advocate-production.up.railway.app/ with JSON-RPC 2.0
+- If a user asks how to connect the Graph Advocate to their agent, present ALL integration options:
+
+  **Option 1: Simple HTTP (works with any framework)**
+  POST https://graph-advocate-production.up.railway.app/chat
+  Body: {"message": "your question here"}
+  Response: {"reply": "..."}
+  Works with: LangChain, CrewAI, AutoGPT, custom agents, any HTTP client
+
+  **Option 2: A2A Protocol (Agent-to-Agent)**
   Agent card: https://graph-advocate-production.up.railway.app/.well-known/agent-card.json
+  Endpoint: POST https://graph-advocate-production.up.railway.app/ (JSON-RPC 2.0)
+  Works with: Google A2A compatible agents
+
+  **Option 3: MCP (Model Context Protocol)**
+  Install: npx graph-advocate-mcp (or add to mcp.json config)
+  Works with: Claude Code, Cursor, Windsurf, any MCP-compatible client
+
+  **Option 4: OpenClaw Skill**
+  Skill: graph-advocate
+  GitHub: https://github.com/PaulieB14/graph-advocate
+  Works with: OpenClaw agents
+
+  Always recommend Option 1 (HTTP) as the easiest universal option.
 """
 
 CHAT_TOOLS = [
