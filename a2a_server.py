@@ -1035,11 +1035,12 @@ CHAT_HTML = """<!DOCTYPE html>
     <h2>What onchain data do you need?</h2>
     <p>I know every Graph Protocol service inside out. Tell me what you're looking for and I'll point you to the exact right tool, API, or subgraph.</p>
     <div class="suggestions">
-      <button class="suggestion" onclick="useSuggestion(this)">Top USDC holders on Ethereum</button>
-      <button class="suggestion" onclick="useSuggestion(this)">Uniswap V3 pool TVL</button>
-      <button class="suggestion" onclick="useSuggestion(this)">Aave liquidation events</button>
-      <button class="suggestion" onclick="useSuggestion(this)">Solana NFT sales this week</button>
-      <button class="suggestion" onclick="useSuggestion(this)">Raw event logs from block range</button>
+      <button class="suggestion" onclick="useSuggestion(this)">What Token API endpoints are available?</button>
+      <button class="suggestion" onclick="useSuggestion(this)">Find me Uniswap subgraphs</button>
+      <button class="suggestion" onclick="useSuggestion(this)">Search substreams for ERC20 transfers</button>
+      <button class="suggestion" onclick="useSuggestion(this)">How do I get an API key for The Graph?</button>
+      <button class="suggestion" onclick="useSuggestion(this)">What Aave subgraphs are available?</button>
+      <button class="suggestion" onclick="useSuggestion(this)">How do I connect Graph Advocate to my agent?</button>
     </div>
   </div>
 </div>
