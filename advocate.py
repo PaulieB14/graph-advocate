@@ -388,29 +388,11 @@ def _search_subgraphs(keyword: str) -> str:
         if not rows:
             return json.dumps({"results": [], "message": f"No subgraphs found for '{keyword}'"})
 
-        # Map network names to Graph Explorer chain param
-        CHAIN_MAP = {
-            "mainnet": "mainnet",
-            "arbitrum-one": "arbitrum-one",
-            "base": "base",
-            "polygon": "matic",
-            "optimism": "optimism",
-            "bsc": "bsc",
-            "avalanche": "avalanche",
-            "celo": "celo",
-            "gnosis": "gnosis",
-            "fantom": "fantom",
-            "linea": "linea",
-            "scroll": "scroll",
-            "blast-mainnet": "blast-mainnet",
-        }
-
         results = []
         for r in rows:
             subgraph_id = r["id"].split("|")[0] if "|" in r["id"] else r["id"]
             network = r["network"] or "unknown"
-            chain_param = CHAIN_MAP.get(network, "arbitrum-one")
-            playground_url = f"https://thegraph.com/explorer/subgraphs/{subgraph_id}?view=playground&chain={chain_param}"
+            playground_url = f"https://thegraph.com/explorer/subgraphs/{subgraph_id}?view=Query&chain=arbitrum-one"
             results.append({
                 "name": r["display_name"] or subgraph_id[:16],
                 "network": network,
