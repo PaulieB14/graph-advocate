@@ -202,12 +202,130 @@ def _log(agent: str, request: str, rec: dict):
         pass
 
 
+def _auto_search(request: str) -> str:
+    """Run automatic searches based on the request and return context to inject."""
+    import logging
+    log = logging.getLogger("graph-advocate")
+    results = []
+
+    req_lower = request.lower()
+
+    # Determine which searches to run
+    run_subgraph = False
+    run_substreams = False
+    run_token_api = False
+
+    # Keywords that suggest subgraph search
+    SUBGRAPH_KEYWORDS = [
+        "subgraph", "uniswap", "aave", "compound", "curve", "ens", "balancer",
+        "sushi", "maker", "lido", "yearn", "synthetix", "protocol", "tvl",
+        "liquidity", "pool", "swap", "lending", "governance", "dao",
+        "nft marketplace", "opensea", "decentraland", "the graph",
+    ]
+    # Keywords that suggest substreams
+    SUBSTREAMS_KEYWORDS = [
+        "substream", "raw block", "event log", "trace", "streaming",
+        "real-time", "block data", "decode", "spkg",
+    ]
+    # Keywords that suggest Token API
+    TOKEN_API_KEYWORDS = [
+        "balance", "holder", "transfer", "token", "wallet", "nft",
+        "erc20", "erc721", "swap", "dex", "ohlc", "price",
+        "solana", "ton", "svm", "tvm",
+    ]
+
+    for kw in SUBGRAPH_KEYWORDS:
+        if kw in req_lower:
+            run_subgraph = True
+            break
+    for kw in SUBSTREAMS_KEYWORDS:
+        if kw in req_lower:
+            run_substreams = True
+            break
+    for kw in TOKEN_API_KEYWORDS:
+        if kw in req_lower:
+            run_token_api = True
+            break
+
+    # If nothing matched, run subgraph search as default (most common)
+    if not run_subgraph and not run_substreams and not run_token_api:
+        run_subgraph = True
+
+    # Extract a search keyword from the request (first meaningful noun/protocol name)
+    import re
+    # Try to find a protocol name
+    protocol_match = re.search(
+        r'\b(uniswap|aave|compound|curve|ens|balancer|sushi|maker|lido|yearn|'
+        r'synthetix|opensea|chainlink|the graph|polymarket|pancakeswap|'
+        r'gmx|arbitrum|optimism|polygon|base|ethereum|solana|'
+        r'erc20|erc721|nft|defi|lending|dex)\b',
+        req_lower
+    )
+    search_term = protocol_match.group(1) if protocol_match else ""
+
+    # Fallback: use first 1-2 significant words
+    if not search_term:
+        words = [w for w in re.findall(r'[a-z]+', req_lower)
+                 if w not in {"what", "how", "can", "i", "get", "find", "show", "me",
+                              "the", "a", "an", "for", "on", "in", "of", "to", "and",
+                              "is", "are", "do", "does", "data", "need", "want", "about"}]
+        search_term = words[0] if words else ""
+
+    if not search_term:
+        return ""
+
+    try:
+        if run_subgraph:
+            sg_results = _search_subgraphs(search_term)
+            sg_data = json.loads(sg_results)
+            if sg_data.get("results"):
+                results.append(f"[LIVE SUBGRAPH SEARCH for '{search_term}']\n{sg_results}")
+
+        if run_substreams:
+            ss_results = _search_substreams(search_term)
+            ss_data = json.loads(ss_results)
+            if ss_data.get("results"):
+                results.append(f"[LIVE SUBSTREAMS SEARCH for '{search_term}']\n{ss_results}")
+
+        if run_token_api:
+            ta_results = _lookup_token_api(search_term)
+            results.append(f"[TOKEN API ENDPOINTS for '{search_term}']\n{ta_results}")
+
+    except Exception as e:
+        log.error(f"Auto-search error: {e}")
+
+    return "\n\n".join(results)
+
+
 def ask_graph_advocate(
     request: str,
     history: list = None,
     requesting_agent: str = "unknown",
 ) -> tuple[dict, list]:
-    messages = (history or []) + [{"role": "user", "content": request}]
+    import logging
+    log = logging.getLogger("graph-advocate")
+
+    # Run real searches and inject results as context
+    search_context = ""
+    try:
+        search_context = _auto_search(request)
+    except Exception as e:
+        log.error(f"Auto-search failed: {e}")
+
+    # Build the user message with search context
+    if search_context:
+        augmented_request = (
+            f"{request}\n\n"
+            f"--- LIVE SEARCH RESULTS (use these real results in your response) ---\n"
+            f"{search_context}\n"
+            f"--- END SEARCH RESULTS ---\n"
+            f"Use the subgraph IDs and playground URLs from the search results above. "
+            f"Do NOT make up subgraph IDs — only use ones from the search results."
+        )
+    else:
+        augmented_request = request
+
+    messages = (history or []) + [{"role": "user", "content": augmented_request}]
 
     response = client.messages.create(
         model="claude-opus-4-6",
