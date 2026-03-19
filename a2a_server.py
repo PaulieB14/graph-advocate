@@ -60,9 +60,26 @@ def _is_rate_limited(task_id: str) -> bool:
     return len(timestamps) > RATE_LIMIT_MAX_REQUESTS
 
 
+GREETING_LIMIT_WINDOW = 3600  # 1 hour
+GREETING_LIMIT_MAX = 2        # max 2 greeting responses per sender per hour
+_greeting_timestamps: dict[str, list[float]] = {}
+
+
 def _is_greeting(text: str) -> bool:
     """Return True for trivial greeting messages."""
     return text.strip().lower().rstrip("!?.") in _GREETING_WORDS or text.strip().lower() in _GREETING_WORDS
+
+
+def _is_greeting_spam(task_id: str) -> bool:
+    """Return True if this sender has exceeded greeting limit — silently drop."""
+    import time
+    now = time.time()
+    cutoff = now - GREETING_LIMIT_WINDOW
+    timestamps = _greeting_timestamps.get(task_id, [])
+    timestamps = [t for t in timestamps if t > cutoff]
+    timestamps.append(now)
+    _greeting_timestamps[task_id] = timestamps
+    return len(timestamps) > GREETING_LIMIT_MAX
 
 
 # Prefixes that indicate a known non-Graph payment/protocol blob — reject immediately
@@ -366,6 +383,11 @@ class GraphAdvocateExecutor(AgentExecutor):
 
         # ── Fast-handle trivial greetings (no Claude call) ───────────────────
         if _is_greeting(user_text):
+            # Silently drop if this sender keeps spamming greetings
+            if _is_greeting_spam(task_id):
+                log.info(f"GREET-DROP task={task_id} | silently dropped")
+                return
+
             log.info(f"GREETING task={task_id} | fast-handled")
             _log_request(task_id, user_text, "introduction", "high", "greeting")
             await event_queue.enqueue_event(
