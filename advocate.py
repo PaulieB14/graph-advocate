@@ -492,48 +492,49 @@ def _lookup_token_api(data_type: str) -> str:
 import urllib.parse
 
 
+def _content_to_dicts(content) -> list:
+    """Convert Anthropic SDK content blocks to plain dicts for message history."""
+    result = []
+    for block in content:
+        if block.type == "text":
+            result.append({"type": "text", "text": block.text})
+        elif block.type == "tool_use":
+            result.append({
+                "type": "tool_use",
+                "id": block.id,
+                "name": block.name,
+                "input": block.input,
+            })
+    return result
+
+
 def ask_graph_advocate_chat(
     request: str,
     history: list = None,
 ) -> tuple[str, list]:
     """Haiku-powered chat with tool use for real subgraph/substreams search."""
-    messages = (history or []) + [{"role": "user", "content": request}]
+    import logging
+    log = logging.getLogger("graph-advocate")
 
-    # Initial call — may trigger tool use
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        system=CHAT_SYSTEM,
-        messages=messages,
-        max_tokens=1500,
-        tools=CHAT_TOOLS,
-    )
+    # Build fresh messages — don't reuse history with tool calls (session state
+    # can contain non-serializable objects). Keep only user/assistant text turns.
+    clean_history = []
+    for msg in (history or []):
+        role = msg.get("role")
+        content = msg.get("content")
+        # Only keep simple text messages
+        if role in ("user", "assistant") and isinstance(content, str):
+            clean_history.append(msg)
+        elif role in ("user", "assistant") and isinstance(content, list):
+            # Keep if all items are text blocks
+            text_parts = [b for b in content if isinstance(b, dict) and b.get("type") == "text"]
+            if text_parts:
+                combined = " ".join(b["text"] for b in text_parts)
+                clean_history.append({"role": role, "content": combined})
 
-    # Handle tool use loop (max 3 rounds to prevent runaway)
-    for _ in range(3):
-        if response.stop_reason != "tool_use":
-            break
+    messages = clean_history + [{"role": "user", "content": request}]
 
-        # Collect all tool calls and results
-        tool_results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                if block.name == "search_subgraphs":
-                    result = _search_subgraphs(block.input.get("keyword", ""))
-                elif block.name == "search_substreams":
-                    result = _search_substreams(block.input.get("keyword", ""))
-                elif block.name == "lookup_token_api":
-                    result = _lookup_token_api(block.input.get("data_type", ""))
-                else:
-                    result = json.dumps({"error": f"Unknown tool: {block.name}"})
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result,
-                })
-
-        messages.append({"role": "assistant", "content": response.content})
-        messages.append({"role": "user", "content": tool_results})
-
+    try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             system=CHAT_SYSTEM,
@@ -542,15 +543,63 @@ def ask_graph_advocate_chat(
             tools=CHAT_TOOLS,
         )
 
-    # Extract final text reply
-    reply = next(
-        (b.text for b in response.content if b.type == "text"),
-        "",
-    )
-    messages.append({"role": "assistant", "content": response.content})
+        # Handle tool use loop (max 3 rounds to prevent runaway)
+        for _ in range(3):
+            if response.stop_reason != "tool_use":
+                break
+
+            # Collect all tool calls and results
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    try:
+                        if block.name == "search_subgraphs":
+                            result = _search_subgraphs(block.input.get("keyword", ""))
+                        elif block.name == "search_substreams":
+                            result = _search_substreams(block.input.get("keyword", ""))
+                        elif block.name == "lookup_token_api":
+                            result = _lookup_token_api(block.input.get("data_type", ""))
+                        else:
+                            result = json.dumps({"error": f"Unknown tool: {block.name}"})
+                    except Exception as te:
+                        log.error(f"CHAT tool error ({block.name}): {te}")
+                        result = json.dumps({"error": str(te)})
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    })
+
+            # Convert content blocks to plain dicts for the API
+            messages.append({"role": "assistant", "content": _content_to_dicts(response.content)})
+            messages.append({"role": "user", "content": tool_results})
+
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                system=CHAT_SYSTEM,
+                messages=messages,
+                max_tokens=1500,
+                tools=CHAT_TOOLS,
+            )
+
+        # Extract final text reply
+        reply = next(
+            (b.text for b in response.content if b.type == "text"),
+            "",
+        )
+
+    except Exception as e:
+        log.error(f"CHAT error: {e}")
+        reply = f"Sorry, I hit an error: {e}"
+
+    # Store only the final text exchange for session history
+    out_history = clean_history + [
+        {"role": "user", "content": request},
+        {"role": "assistant", "content": reply},
+    ]
 
     _log("web-chat", request, {"recommendation": "chat", "confidence": "n/a"})
-    return reply, messages
+    return reply, out_history
 
 
 if __name__ == "__main__":
