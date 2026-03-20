@@ -531,7 +531,7 @@ agent_card = AgentCard(
     skills=SKILLS,
     provider={
         "organization": "PaulieB14",
-        "url": "https://github.com/PaulieB14/graph-advocate",
+        "url": f"{PUBLIC_URL}/chat",
     },
 )
 
