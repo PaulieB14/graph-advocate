@@ -1445,6 +1445,32 @@ def build_app():
         Route("/chat", chat_post, methods=["POST"]),
     ])
 
+    # ── Remote MCP endpoint (Claude.ai + any MCP client) ─────────────────────
+    from mcp.server.fastmcp import FastMCP as _FastMCP
+    _mcp = _FastMCP(
+        "Graph Advocate",
+        instructions=(
+            "Routes onchain data requests to the right Graph Protocol service. "
+            "Call route_data_request FIRST for any blockchain, DeFi, NFT, or token data need. "
+            "Returns JSON with recommendation, reason, confidence, and a ready-to-execute tool call."
+        ),
+    )
+
+    @_mcp.tool()
+    def route_data_request(request: str) -> str:
+        """
+        Route a plain-English onchain data request to the right Graph Protocol service.
+        Returns JSON: recommendation, reason, confidence, query_ready (tool + args), alternatives.
+        Use this before any token-api, subgraph, or substreams tool.
+        """
+        rec, _ = ask_graph_advocate(request, requesting_agent="mcp-client")
+        _log_request("mcp", request, rec.get("recommendation", "unknown"),
+                     rec.get("confidence", "?"),
+                     (rec.get("query_ready") or {}).get("tool", "multi-step"))
+        return json.dumps(rec, indent=2)
+
+    mcp_asgi = _mcp.sse_app()
+
     from starlette.middleware import Middleware
     from starlette.routing import Router
 
@@ -1477,7 +1503,9 @@ def build_app():
 
         if scope["type"] == "http" and scope["path"] == "/.well-known/agent-card.json":
             DISCOVERY_COUNT += 1
-        if scope["type"] == "http" and scope["path"] in ("/logs", "/dashboard", "/chat"):
+        if scope["type"] == "http" and scope["path"].startswith("/mcp"):
+            await mcp_asgi(scope, receive, send)
+        elif scope["type"] == "http" and scope["path"] in ("/logs", "/dashboard", "/chat"):
             await extra(scope, receive, send)
         else:
             await a2a_app(scope, receive, send)
