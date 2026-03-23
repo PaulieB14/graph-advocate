@@ -352,7 +352,109 @@ def ask_graph_advocate(
         rec = {"raw": raw, "parse_error": True}
 
     _log(requesting_agent, request, rec)
+
+    # Execute the recommendation if we have credentials
+    if not rec.get("parse_error") and rec.get("query_ready"):
+        try:
+            execution_result = _execute_recommendation(rec)
+            if execution_result:
+                rec["execution_result"] = execution_result
+        except Exception as e:
+            log.error(f"Execution error: {e}")
+            rec["execution_error"] = str(e)
+
     return rec, messages
+
+
+def _execute_recommendation(rec: dict) -> dict | None:
+    """Execute a routing recommendation by calling the actual API."""
+    import httpx
+    import logging
+    log = logging.getLogger("graph-advocate")
+
+    query_ready = rec.get("query_ready", {})
+    tool = query_ready.get("tool", "")
+    args = query_ready.get("args", {})
+    service = rec.get("recommendation", "")
+
+    if not tool or not args:
+        return None
+
+    # --- Token API execution ---
+    if service == "token-api":
+        jwt = os.environ.get("TOKEN_API_JWT", "")
+        if not jwt:
+            return None
+
+        # Map tool names to Token API endpoints
+        TOOL_TO_PATH = {
+            "getV1EvmHolders": "/v1/evm/holders",
+            "getV1EvmBalances": "/v1/evm/balances",
+            "getV1EvmBalancesNative": "/v1/evm/balances/native",
+            "getV1EvmBalancesHistorical": "/v1/evm/balances/historical",
+            "getV1EvmTransfers": "/v1/evm/transfers",
+            "getV1EvmSwaps": "/v1/evm/swaps",
+            "getV1EvmPools": "/v1/evm/pools",
+            "getV1EvmPoolsOhlc": "/v1/evm/pools/ohlc",
+            "getV1EvmTokens": "/v1/evm/tokens",
+            "getV1EvmNftSales": "/v1/evm/nft/sales",
+            "getV1EvmNftItems": "/v1/evm/nft/items",
+            "getV1EvmNftHolders": "/v1/evm/nft/holders",
+            "getV1EvmNftCollections": "/v1/evm/nft/collections",
+            "getV1EvmNftTransfers": "/v1/evm/nft/transfers",
+            "getV1EvmNftOwnerships": "/v1/evm/nft/ownerships",
+            "getV1EvmDexes": "/v1/evm/dexes",
+            "getV1SvmBalances": "/v1/svm/balances",
+            "getV1SvmSwaps": "/v1/svm/swaps",
+            "getV1SvmTokens": "/v1/svm/tokens",
+            "getV1SvmPools": "/v1/svm/pools",
+            "getV1SvmHolders": "/v1/svm/holders",
+        }
+
+        path = TOOL_TO_PATH.get(tool)
+        if not path:
+            return None
+
+        # Normalize arg keys (network_id -> network)
+        params = dict(args)
+        if "network_id" in params and "network" not in params:
+            params["network"] = params.pop("network_id")
+
+        try:
+            r = httpx.get(
+                f"https://token-api.thegraph.com{path}",
+                params=params,
+                headers={"Authorization": f"Bearer {jwt}"},
+                timeout=15,
+            )
+            data = r.json()
+            # Truncate large responses to avoid bloating A2A messages
+            if isinstance(data.get("data"), list) and len(data["data"]) > 20:
+                data["data"] = data["data"][:20]
+                data["_truncated"] = True
+            log.info(f"EXECUTE  token-api {tool} -> {r.status_code}")
+            return {"source": "token-api", "status": r.status_code, "data": data}
+        except Exception as e:
+            log.error(f"Token API call failed: {e}")
+            return {"source": "token-api", "error": str(e)}
+
+    # --- Subgraph Gateway execution ---
+    if service == "subgraph-registry":
+        api_key = os.environ.get("GATEWAY_API_KEY", "")
+        gql = query_ready.get("gql") or query_ready.get("query")
+        subgraph_id = args.get("subgraph_id") or query_ready.get("subgraph_id")
+
+        if gql and subgraph_id and api_key:
+            url = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{subgraph_id}"
+            try:
+                r = httpx.post(url, json={"query": gql}, timeout=15)
+                log.info(f"EXECUTE  subgraph {subgraph_id} -> {r.status_code}")
+                return {"source": "subgraph-gateway", "status": r.status_code, "data": r.json()}
+            except Exception as e:
+                log.error(f"Subgraph query failed: {e}")
+                return {"source": "subgraph-gateway", "error": str(e)}
+
+    return None
 
 
 CHAT_SYSTEM = """You are the Graph Advocate — a friendly expert on The Graph Protocol's data services.
