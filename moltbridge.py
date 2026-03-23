@@ -334,6 +334,163 @@ def update_profile(capabilities: list = None, clusters: list = None) -> dict:
     return _request("PUT", "/profile", payload)
 
 
+# --- Webhooks ---
+
+def register_webhook(url: str, events: list[str] = None) -> dict:
+    """Register a webhook endpoint for event notifications."""
+    payload = {"url": url}
+    if events:
+        payload["events"] = events
+    return _request("POST", "/webhooks/register", payload)
+
+
+def unregister_webhook(url: str) -> dict:
+    """Unregister a webhook endpoint."""
+    return _request("DELETE", "/webhooks/unregister", {"url": url})
+
+
+def list_webhooks() -> dict:
+    """List all registered webhook endpoints."""
+    return _request("GET", "/webhooks")
+
+
+# --- Connection Goals ---
+
+def create_connection_goal(target: str, reason: str, capabilities_needed: list[str] = None) -> dict:
+    """Register a connection goal — 'I want to reach agents that can do X'."""
+    payload = {"target_identifier": target, "reason": reason}
+    if capabilities_needed:
+        payload["capabilities_needed"] = capabilities_needed
+    return _request("POST", "/connection-goals", payload)
+
+
+def list_connection_goals() -> dict:
+    """List your active connection goals."""
+    return _request("GET", "/connection-goals")
+
+
+def get_goals_targeting_me() -> dict:
+    """See connection goals from other agents targeting you."""
+    return _request("GET", "/connection-goals/targeting-me")
+
+
+def delete_targeting_goal(goal_id: str) -> dict:
+    """Request removal of a goal targeting you."""
+    return _request("DELETE", f"/connection-goals/targeting-me/{goal_id}")
+
+
+def get_connection_goal(goal_id: str) -> dict:
+    """Get a connection goal with cached score."""
+    return _request("GET", f"/connection-goals/{goal_id}")
+
+
+def delete_connection_goal(goal_id: str) -> dict:
+    """Delete a connection goal."""
+    return _request("DELETE", f"/connection-goals/{goal_id}")
+
+
+def rescore_connection_goal(goal_id: str) -> dict:
+    """Force fresh rescore of a connection goal."""
+    return _request("POST", f"/connection-goals/{goal_id}/rescore")
+
+
+# --- Payments ---
+
+def create_payment_account() -> dict:
+    """Create a USDC micropayment account on MoltBridge."""
+    return _request("POST", "/payments/account")
+
+
+def get_balance() -> dict:
+    """Get current payment account balance."""
+    return _request("GET", "/payments/balance")
+
+
+def deposit(amount: float) -> dict:
+    """Deposit funds into payment account."""
+    return _request("POST", "/payments/deposit", {"amount": amount})
+
+
+def get_payment_history() -> dict:
+    """Get transaction history."""
+    return _request("GET", "/payments/history")
+
+
+# --- Outcomes ---
+
+def create_outcome(introduction_id: str, description: str) -> dict:
+    """Create an outcome record for a completed introduction."""
+    return _request("POST", "/outcomes", {
+        "introduction_id": introduction_id,
+        "description": description,
+    })
+
+
+def report_outcome(introduction_id: str, success: bool, value: float = 0, comment: str = "") -> dict:
+    """Submit bilateral outcome report."""
+    payload = {
+        "introduction_id": introduction_id,
+        "success": success,
+        "value": value,
+    }
+    if comment:
+        payload["comment"] = comment
+    return _request("POST", "/report-outcome", payload)
+
+
+def get_pending_outcomes() -> dict:
+    """List outcomes needing resolution."""
+    return _request("GET", "/outcomes/pending")
+
+
+def get_outcome_stats(agent_id: str = None) -> dict:
+    """Get agent outcome statistics."""
+    target = agent_id or AGENT_ID
+    return _request("GET", f"/outcomes/agent/{target}/stats")
+
+
+def get_outcome(introduction_id: str) -> dict:
+    """Get outcome by introduction ID."""
+    return _request("GET", f"/outcomes/{introduction_id}")
+
+
+# --- IQS (Introduction Quality Score) ---
+
+def evaluate_introduction(introduction_id: str, context: dict = None) -> dict:
+    """Evaluate introduction quality score."""
+    payload = {"introduction_id": introduction_id}
+    if context:
+        payload["context"] = context
+    return _request("POST", "/iqs/evaluate", payload)
+
+
+# --- Consent (GDPR) ---
+
+def get_consent() -> dict:
+    """Get current consent status."""
+    return _request("GET", "/consent")
+
+
+def grant_consent(purpose: str) -> dict:
+    """Grant consent for a purpose."""
+    return _request("POST", "/consent/grant", {"purpose": purpose})
+
+
+def withdraw_consent(purpose: str) -> dict:
+    """Withdraw consent."""
+    return _request("POST", "/consent/withdraw", {"purpose": purpose})
+
+
+def export_consent_data() -> dict:
+    """Export consent data (GDPR Article 20)."""
+    return _request("GET", "/consent/export")
+
+
+def erase_consent_data() -> dict:
+    """Erase consent data (GDPR Article 17)."""
+    return _request("DELETE", "/consent/erase")
+
+
 # --- CLI ---
 
 if __name__ == "__main__":
