@@ -390,9 +390,14 @@ def _execute_recommendation(rec: dict) -> dict | None:
 
     # --- Token API execution ---
     if service == "token-api":
-        jwt = os.environ.get("TOKEN_API_JWT", "")
+        jwt = os.environ.get("TOKEN_API_JWT", "") or os.environ.get("TOKEN_API_ACCESS_TOKEN", "")
         if not jwt:
-            return None
+            # Fallback: free-tier JWT (rate-limited, 200 req/min, 2500 credits)
+            jwt = (
+                "eyJhbGciOiJLTVNFUzI1NiIsInR5cCI6IkpXVCJ9."
+                "eyJleHAiOjE4MDUyMTk1MzQsImp0aSI6IjE4ZTU3Mjk2LTcyYTktNDVlYi1iNDlhLWY0MWFlMzIzYTUzOCIsImlhdCI6MTc2OTIxOTUzNCwiaXNzIjoiZGZ1c2UuaW8iLCJzdWIiOiIwYm9qaTQ5NTUyMjg5MjIwYzVkYjciLCJ2IjoyLCJha2kiOiIzNjJiNDU5NGI1NmFkYWE0YzIxZWNhYzE3M2M4MTEyZDM3OGMyMWY1MjM1MDUzZWYwYmJkYjVlZjJkZWY2NDViIiwidWlkIjoiMGJvamk0OTU1MjI4OTIyMGM1ZGI3Iiwic3Vic3RyZWFtc19wbGFuX3RpZXIiOiJGUkVFIiwiY2ZnIjp7IlNVQlNUUkVBTVNfTUFYX1JFUVVFU1RTIjoiMiIsIlNVQlNUUkVBTVNfUEFSQUxMRUxfSk9CUyI6IjUiLCJTVUJTVFJFQU1TX1BBUkFMTEVMX1dPUktFUlMiOiI1In0sInRva2VuX2FwaV9wbGFuX3RpZXIiOiJGUkVFIiwidG9rZW5fYXBpX2ZlYXR1cmVfY29uZmlncyI6eyJUT0tFTl9BUElfQkFUQ0hfU0laRSI6IjEiLCJUT0tFTl9BUElfSVRFTVNfUkVUVVJORUQiOiIxMCIsIlRPS0VOX0FQSV9NQVhJTVVNX0FMTE9XRURfRU5EUE9JTlRfR1JPVVAiOiJuZnQiLCJUT0tFTl9BUElfUExBTl9DUkVESVRTX0NFTlRTIjoiMjUwMCIsIlRPS0VOX0FQSV9SQVRFX0xJTUlUX1BFUl9NSU5VVEUiOiIyMDAiLCJUT0tFTl9BUElfUkVBTF9USU1FX0RBVEEiOiJ0cnVlIn19."
+                "pXh91NO328L1rs9AinFazARJSqEq6dSBeTjxrrDM-pO2BN71VUHBXwJVgH8kNxxw33BgI8SkhZL6cCDjgxwkVw"
+            )
 
         # Map tool names to Token API endpoints
         TOOL_TO_PATH = {
@@ -441,12 +446,17 @@ def _execute_recommendation(rec: dict) -> dict | None:
                 data["data"] = data["data"][:20]
                 data["_truncated"] = True
             log.info(f"EXECUTE  token-api {tool} -> {r.status_code}")
+            if r.status_code == 429 or r.status_code == 401:
+                return {
+                    "source": "token-api",
+                    "status": r.status_code,
+                    "error": "Rate limit or auth exceeded. Get your own free JWT at https://thegraph.market/auth/tokenapi-env",
+                    "data": data,
+                }
             return {"source": "token-api", "status": r.status_code, "data": data}
         except Exception as e:
             log.error(f"Token API call failed: {e}")
             return {"source": "token-api", "error": str(e)}
-
-    # --- Subgraph Gateway execution ---
     if service == "subgraph-registry":
         api_key = os.environ.get("GATEWAY_API_KEY", "")
         gql = query_ready.get("gql") or query_ready.get("query")
