@@ -22,11 +22,15 @@ KEY_PATH = Path(os.getenv("MOLTBRIDGE_KEY_PATH", ".moltbridge_key"))
 
 CAPABILITIES = [
     "onchain-data-routing",
-    "token-api",
-    "subgraph-query",
-    "defi-data",
-    "evm-data",
+    "subgraph-query-15k",
+    "token-balances-swaps-nfts",
+    "defi-protocol-data",
+    "evm-multichain",
     "solana-data",
+    "prediction-market-data",
+    "graphql-query-builder",
+    "substreams-streaming",
+    "aave-lending-data",
 ]
 
 
@@ -278,7 +282,7 @@ def register(verification_token: str) -> dict:
         "platform": "moltbridge",
         "pubkey": get_public_key_b64url(),
         "capabilities": CAPABILITIES,
-        "clusters": ["blockchain", "defi", "web3-data"],
+        "clusters": ["blockchain-data", "defi-analytics", "web3-infrastructure", "prediction-markets", "nft-data"],
         "a2a_endpoint": os.getenv(
             "ADVOCATE_PUBLIC_URL",
             "https://graph-advocate-production.up.railway.app",
