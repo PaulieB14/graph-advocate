@@ -358,13 +358,14 @@ def ask_graph_advocate(
     if not rec.get("parse_error") and rec.get("query_ready"):
         has_jwt = bool(os.environ.get("TOKEN_API_JWT", ""))
         has_gw = bool(os.environ.get("GATEWAY_API_KEY", ""))
-        log.info(f"EXEC-CHECK service={rec.get('recommendation')} jwt={has_jwt} gw={has_gw}")
+        token_vars = [k for k in os.environ if "TOKEN" in k or "JWT" in k or "GATEWAY" in k]
+        log.info(f"EXEC-CHECK service={rec.get('recommendation')} jwt={has_jwt} gw={has_gw} vars={token_vars}")
         try:
             execution_result = _execute_recommendation(rec)
             if execution_result:
                 rec["execution_result"] = execution_result
             else:
-                rec["execution_note"] = f"No execution: jwt={has_jwt} gw={has_gw}"
+                rec["execution_note"] = f"No execution: jwt={has_jwt} gw={has_gw} env_keys={token_vars}"
         except Exception as e:
             log.error(f"Execution error: {e}")
             rec["execution_error"] = str(e)
