@@ -458,16 +458,24 @@ def _execute_recommendation(rec: dict) -> dict | None:
             log.error(f"Token API call failed: {e}")
             return {"source": "token-api", "error": str(e)}
     if service == "subgraph-registry":
-        api_key = os.environ.get("GATEWAY_API_KEY", "")
+        api_key = os.environ.get("GATEWAY_API_KEY", "") or "7006f39fbab470711f44a5195b4d97c0"
         gql = query_ready.get("gql") or query_ready.get("query")
         subgraph_id = args.get("subgraph_id") or query_ready.get("subgraph_id")
 
-        if gql and subgraph_id and api_key:
+        if gql and subgraph_id:
             url = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{subgraph_id}"
             try:
                 r = httpx.post(url, json={"query": gql}, timeout=15)
                 log.info(f"EXECUTE  subgraph {subgraph_id} -> {r.status_code}")
-                return {"source": "subgraph-gateway", "status": r.status_code, "data": r.json()}
+                data = r.json()
+                if r.status_code == 429 or r.status_code == 401:
+                    return {
+                        "source": "subgraph-gateway",
+                        "status": r.status_code,
+                        "error": "Rate limit exceeded. Get your own free API key at https://thegraph.market/dashboard#api-keys",
+                        "data": data,
+                    }
+                return {"source": "subgraph-gateway", "status": r.status_code, "data": data}
             except Exception as e:
                 log.error(f"Subgraph query failed: {e}")
                 return {"source": "subgraph-gateway", "error": str(e)}
