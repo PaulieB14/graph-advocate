@@ -107,9 +107,14 @@ def _is_greeting(text: str) -> bool:
     t = text.strip().lower().rstrip("!?.")
     if t in _GREETING_WORDS or text.strip().lower() in _GREETING_WORDS:
         return True
-    # Check longer intro phrases
+    # Check longer intro phrases — use word boundary matching to avoid
+    # false positives like "attestations" matching "test"
     t_full = text.strip().lower()
-    return any(p in t_full for p in _GREETING_PHRASES)
+    import re
+    for p in _GREETING_PHRASES:
+        if re.search(r'\b' + re.escape(p) + r'\b', t_full):
+            return True
+    return False
 
 
 def _is_greeting_spam(task_id: str) -> bool:
