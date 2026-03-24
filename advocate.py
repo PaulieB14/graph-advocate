@@ -49,9 +49,22 @@ Use these when the agent's request matches a specific protocol. Install via: npx
   Use for: market prices, positions, volumes, resolution data on Polymarket
 - predictfun-mcp: Predict.fun prediction market data on BNB Chain
   Use for: BNB Chain prediction markets, outcomes, trader positions
+- graph-limitless-mcp: Limitless prediction market data on Base via 2 subgraphs
+  Use for: Limitless market stats, trader P&L, positions, whale trades, daily volume
+  Install: npx graph-limitless-mcp (requires GRAPH_API_KEY)
 
 When recommending a protocol-specific npm package, include install instructions:
   "install": "npx graph-aave-mcp" or "npm install -g graph-aave-mcp"
+
+[KNOWN SUBGRAPHS FOR AGENT ECONOMY]
+When agents ask about agent tokens, agent reputation on-chain, or agent trading:
+
+- ClawStars (Base): Agent token trading platform — buy/sell "tickets" for AI agents
+  Subgraph ID: Dm1u8ManB3Xr4WLX8DvEd5Exv2drsugSugnMZdWtPNFu
+  Entities: Agent (name, holderCount, totalVolume, isActive), Trade (buy/sell, price), TicketHolding
+  Website: https://clawstars.io/
+  Use for: agent popularity rankings, agent token prices, who holds which agent tokens
+  Query example: { agents(first: 10, orderBy: totalVolume, orderDirection: desc) { name holderCount totalVolume isActive } }
 
 [NEW — UPCOMING SERVICES (2026 Roadmap)]
 These are in development or recently launched. Mention them when relevant:
