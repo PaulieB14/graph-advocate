@@ -1,0 +1,29 @@
+{
+  "name": "Graph Advocate",
+  "description": "Onchain data routing agent for The Graph Protocol. Routes plain-English blockchain questions to 15,500+ subgraphs, Token API, Substreams, and protocol-specific MCP servers. Returns live execution results — not just routing instructions.",
+  "image": "",
+  "active": true,
+  "x402Support": true,
+  "supportedTrusts": ["erc-8004"],
+  "endpoints": {
+    "mcp": {
+      "url": "https://graph-advocate-production.up.railway.app/mcp",
+      "version": "1.0"
+    },
+    "a2a": {
+      "url": "https://graph-advocate-production.up.railway.app",
+      "version": "0.3"
+    },
+    "web": {
+      "url": "https://graph-advocate-production.up.railway.app/dashboard"
+    }
+  },
+  "ens": "",
+  "did": "",
+  "capabilities": {
+    "mcpTools": ["route_data_request"],
+    "a2aSkills": ["onchain-data-routing", "subgraph-query-15k", "token-balances-swaps-nfts", "defi-protocol-data", "prediction-market-data"],
+    "oasfSkills": ["blockchain-data", "defi-analytics", "nft-data"],
+    "oasfDomains": ["web3", "defi", "nft", "prediction-markets"]
+  }
+}
