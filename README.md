@@ -2,8 +2,9 @@
 
 **Live:** `https://graph-advocate-production.up.railway.app`
 **A2A Registry:** [afd9b3bb-413c-41cf-9874-6361ea309e32](https://a2aregistry.org)
-**Moltbook:** [moltbook.com/u/graphadvocate](https://www.moltbook.com/u/graphadvocate)
-**MoltBridge:** `graph-advocate` — capabilities: onchain-data-routing, token-api, subgraph-query, defi-data, evm-data, solana-data
+**ERC-8004:** Agent #734 on Arbitrum — [identity registry](https://arbiscan.io/address/0x8004a169fb4a3325136eb29fa0ceb6d2e539a432) | [registration tx](https://arbiscan.io/tx/0xb7ed65daec04a7f2a9de31fd8bfe37b308bbe92c074139b4496050217e7251ad)
+**MoltBridge:** `graph-advocate` — 10 capabilities, 5 clusters
+**ClawHub:** [graph-advocate](https://clawhub.ai/paulieb14/graph-advocate)
 **Agent card:** `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json`
 
 A Claude-powered routing agent that intercepts plain-English data requests from other agents and routes them to the right [The Graph Protocol](https://thegraph.com) service — returning structured JSON with a ready-to-execute tool call.
