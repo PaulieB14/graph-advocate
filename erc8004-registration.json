@@ -2,7 +2,27 @@
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Graph Advocate",
   "description": "Onchain data routing agent for The Graph Protocol. Routes plain-English blockchain questions to 15,500+ subgraphs, Token API, Substreams, and protocol-specific MCP servers. Returns live execution results — not just routing instructions.",
-  "image": "",
+  "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
+  "active": true,
+  "x402Support": true,
+  "updatedAt": "2026-03-26T00:00:00Z",
+  "skills": [
+    "onchain-data-routing",
+    "subgraph-query",
+    "token-balances",
+    "defi-analytics",
+    "nft-data",
+    "prediction-markets",
+    "whale-tracking",
+    "protocol-discovery"
+  ],
+  "domains": [
+    "blockchain-data",
+    "defi",
+    "nft",
+    "prediction-markets",
+    "web3-infrastructure"
+  ],
   "services": [
     {
       "name": "MCP",
@@ -11,7 +31,7 @@
     },
     {
       "name": "A2A",
-      "endpoint": "https://graph-advocate-production.up.railway.app",
+      "endpoint": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
       "version": "0.3.0"
     },
     {
@@ -21,6 +41,14 @@
     {
       "name": "ENS",
       "endpoint": "graphadvocate.eth"
+    },
+    {
+      "name": "agentWallet",
+      "endpoint": "eip155:42161:0x575267eED09c338FAE5716A486A7B58A5749A292"
+    },
+    {
+      "name": "github",
+      "endpoint": "https://github.com/PaulieB14/graph-advocate"
     }
   ],
   "registrations": [
@@ -29,7 +57,5 @@
       "agentRegistry": "eip155:42161:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
     }
   ],
-  "supportedTrust": ["reputation"],
-  "active": true,
-  "x402Support": true
+  "supportedTrust": ["reputation"]
 }
