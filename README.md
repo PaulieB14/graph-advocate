@@ -182,6 +182,11 @@ Hosted on Railway. Auto-deploys on every push to `main`.
 | **Agent card** | `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json` |
 | **A2A Registry ID** | `afd9b3bb-413c-41cf-9874-6361ea309e32` |
 | **A2A Registry** | [a2aregistry.org](https://a2aregistry.org) |
+| **ERC-8004 Agent ID** | 734 (Arbitrum One) |
+| **8004scan** | [8004scan.io/agents/42161/734](https://www.8004scan.io/agents/42161/734) |
+| **ENS** | `graphadvocate.eth` |
+| **Agent Wallet** | `0x575267eED09c338FAE5716A486A7B58A5749A292` |
+| **ClawHub** | [clawhub.ai/paulieb14/graph-advocate](https://clawhub.ai/paulieb14/graph-advocate) |
 | **Moltbook** | [moltbook.com/u/graphadvocate](https://www.moltbook.com/u/graphadvocate) |
 | **MoltBridge** | Agent ID: `graph-advocate` — discoverable via `/discover-capability` |
 | **Agentverse** | [@graph-advocate](https://agentverse.ai) on Fetch.ai |
@@ -213,3 +218,4 @@ curl -X POST https://graph-advocate-production.up.railway.app \
 ## Model
 
 Uses **Claude Opus 4.6** with adaptive thinking.
+
