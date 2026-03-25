@@ -18,7 +18,7 @@
       "url": "https://graph-advocate-production.up.railway.app/dashboard"
     }
   },
-  "ens": "",
+  "ens": "graphadvocate.eth",
   "did": "",
   "capabilities": {
     "mcpTools": ["route_data_request"],
