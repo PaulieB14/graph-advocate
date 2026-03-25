@@ -1,29 +1,35 @@
 {
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Graph Advocate",
   "description": "Onchain data routing agent for The Graph Protocol. Routes plain-English blockchain questions to 15,500+ subgraphs, Token API, Substreams, and protocol-specific MCP servers. Returns live execution results — not just routing instructions.",
   "image": "",
-  "active": true,
-  "x402Support": true,
-  "supportedTrusts": ["erc-8004"],
-  "endpoints": {
-    "mcp": {
-      "url": "https://graph-advocate-production.up.railway.app/mcp",
-      "version": "1.0"
+  "services": [
+    {
+      "name": "MCP",
+      "endpoint": "https://graph-advocate-production.up.railway.app/mcp",
+      "version": "2025-06-18"
     },
-    "a2a": {
-      "url": "https://graph-advocate-production.up.railway.app",
-      "version": "0.3"
+    {
+      "name": "A2A",
+      "endpoint": "https://graph-advocate-production.up.railway.app",
+      "version": "0.3.0"
     },
-    "web": {
-      "url": "https://graph-advocate-production.up.railway.app/dashboard"
+    {
+      "name": "web",
+      "endpoint": "https://graph-advocate-production.up.railway.app/dashboard"
+    },
+    {
+      "name": "ENS",
+      "endpoint": "graphadvocate.eth"
     }
-  },
-  "ens": "graphadvocate.eth",
-  "did": "",
-  "capabilities": {
-    "mcpTools": ["route_data_request"],
-    "a2aSkills": ["onchain-data-routing", "subgraph-query-15k", "token-balances-swaps-nfts", "defi-protocol-data", "prediction-market-data"],
-    "oasfSkills": ["blockchain-data", "defi-analytics", "nft-data"],
-    "oasfDomains": ["web3", "defi", "nft", "prediction-markets"]
-  }
+  ],
+  "registrations": [
+    {
+      "agentId": 734,
+      "agentRegistry": "eip155:42161:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+    }
+  ],
+  "supportedTrust": ["reputation"],
+  "active": true,
+  "x402Support": true
 }
