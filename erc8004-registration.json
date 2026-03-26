@@ -5,27 +5,7 @@
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-03-26T12:30:00Z",
-  "oasfSkills": [
-    "information_retrieval_synthesis",
-    "question_answering",
-    "api_schema_understanding",
-    "analytical_reasoning",
-    "search",
-    "data_analysis",
-    "blockchain_analysis",
-    "knowledge_synthesis"
-  ],
-  "oasfDomains": [
-    "technology/blockchain",
-    "technology/blockchain/cryptocurrency",
-    "finance_and_business",
-    "defi",
-    "nft",
-    "prediction_markets",
-    "web3_infrastructure",
-    "data_science"
-  ],
+  "updatedAt": "2026-03-26T13:00:00Z",
   "mcpTools": ["route_data_request"],
   "a2aSkills": ["route_data_request", "compare_services", "recommend_npm_package"],
   "services": [
@@ -38,6 +18,31 @@
       "name": "A2A",
       "endpoint": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
       "version": "0.3.0"
+    },
+    {
+      "name": "OASF",
+      "endpoint": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
+      "version": "0.8.0",
+      "skills": [
+        "information_retrieval_synthesis",
+        "question_answering",
+        "api_schema_understanding",
+        "analytical_reasoning",
+        "search",
+        "data_analysis",
+        "blockchain_analysis",
+        "knowledge_synthesis"
+      ],
+      "domains": [
+        "technology/blockchain",
+        "technology/blockchain/cryptocurrency",
+        "finance_and_business",
+        "defi",
+        "nft",
+        "prediction_markets",
+        "web3_infrastructure",
+        "data_science"
+      ]
     },
     {
       "name": "web",
