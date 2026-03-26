@@ -88,7 +88,7 @@ _GREETING_PHRASES = (
 )
 
 # Global greeting rate limit (across ALL senders)
-GLOBAL_GREETING_LIMIT = 3  # max per minute — tightened to reduce spam noise
+GLOBAL_GREETING_LIMIT = 1  # max per minute — only 1 greeting response per minute globally
 _global_greeting_times: list[float] = []
 
 
