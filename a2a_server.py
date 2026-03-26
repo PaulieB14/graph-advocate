@@ -1508,6 +1508,23 @@ def build_app():
 
         if scope["type"] == "http" and scope["path"] == "/.well-known/agent-card.json":
             DISCOVERY_COUNT += 1
+        if scope["type"] == "http" and scope["path"] == "/mcp" and scope.get("method", "GET") == "GET":
+            # Health check endpoint for MCP — returns JSON for 8004scan and other validators
+            body = json.dumps({
+                "name": "Graph Advocate MCP",
+                "status": "healthy",
+                "version": "1.0.0",
+                "transport": "sse",
+                "description": "Onchain data routing for The Graph Protocol. Connect via SSE at /mcp/sse",
+                "tools": ["route_data_request"],
+            }).encode()
+            await receive()
+            await send({"type": "http.response.start", "status": 200, "headers": [
+                [b"content-type", b"application/json"],
+                [b"access-control-allow-origin", b"*"],
+            ]})
+            await send({"type": "http.response.body", "body": body})
+            return
         if scope["type"] == "http" and scope["path"].startswith("/mcp"):
             await mcp_asgi(scope, receive, send)
         elif scope["type"] == "http" and scope["path"] in ("/logs", "/dashboard", "/chat"):
@@ -1524,3 +1541,4 @@ if __name__ == "__main__":
     log.info(f"Dashboard: {PUBLIC_URL}/dashboard")
     log.info(f"Chat UI:   {PUBLIC_URL}/chat")
     uvicorn.run(build_app(), host="0.0.0.0", port=PORT, log_level="warning")
+
