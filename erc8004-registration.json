@@ -5,7 +5,7 @@
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-03-26T13:00:00Z",
+  "updatedAt": "2026-03-26T17:00:00Z",
   "mcpTools": ["route_data_request"],
   "a2aSkills": ["route_data_request", "compare_services", "recommend_npm_package"],
   "services": [
@@ -24,24 +24,24 @@
       "endpoint": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
       "version": "0.8.0",
       "skills": [
-        "information_retrieval_synthesis",
-        "question_answering",
-        "api_schema_understanding",
-        "analytical_reasoning",
-        "search",
-        "data_analysis",
-        "blockchain_analysis",
-        "knowledge_synthesis"
+        "Information Retrieval and Synthesis",
+        "Analytical and Logical Reasoning",
+        "API Schema Understanding",
+        "Workflow Automation",
+        "Tool Use Planning",
+        "Strategic Planning",
+        "Data Transformation Pipeline",
+        "Schema Inference"
       ],
       "domains": [
+        "finance_and_business/investment_services",
         "technology/blockchain",
         "technology/blockchain/cryptocurrency",
-        "finance_and_business",
-        "defi",
-        "nft",
-        "prediction_markets",
-        "web3_infrastructure",
-        "data_science"
+        "technology/blockchain/defi",
+        "technology/blockchain/smart_contracts",
+        "technology/software_engineering/apis_integration",
+        "research_and_development/research_data_management",
+        "technology/artificial_intelligence"
       ]
     },
     {
