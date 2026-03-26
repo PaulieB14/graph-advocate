@@ -5,24 +5,29 @@
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-03-26T00:00:00Z",
-  "skills": [
-    "onchain-data-routing",
-    "subgraph-query",
-    "token-balances",
-    "defi-analytics",
-    "nft-data",
-    "prediction-markets",
-    "whale-tracking",
-    "protocol-discovery"
+  "updatedAt": "2026-03-26T12:30:00Z",
+  "oasfSkills": [
+    "information_retrieval_synthesis",
+    "question_answering",
+    "api_schema_understanding",
+    "analytical_reasoning",
+    "search",
+    "data_analysis",
+    "blockchain_analysis",
+    "knowledge_synthesis"
   ],
-  "domains": [
-    "blockchain-data",
+  "oasfDomains": [
+    "technology/blockchain",
+    "technology/blockchain/cryptocurrency",
+    "finance_and_business",
     "defi",
     "nft",
-    "prediction-markets",
-    "web3-infrastructure"
+    "prediction_markets",
+    "web3_infrastructure",
+    "data_science"
   ],
+  "mcpTools": ["route_data_request"],
+  "a2aSkills": ["route_data_request", "compare_services", "recommend_npm_package"],
   "services": [
     {
       "name": "MCP",
@@ -57,5 +62,5 @@
       "agentRegistry": "eip155:42161:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
     }
   ],
-  "supportedTrust": ["reputation"]
+  "supportedTrust": ["reputation", "crypto-economic"]
 }
