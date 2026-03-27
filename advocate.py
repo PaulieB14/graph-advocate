@@ -285,6 +285,14 @@ def _auto_search(request: str) -> str:
         "erc20", "erc721", "swap", "dex", "ohlc", "price",
         "solana", "ton", "svm", "tvm",
     ]
+    # Keywords that suggest 8004scan agent search
+    AGENT_SEARCH_KEYWORDS = [
+        "find agent", "discover agent", "search agent", "agent that",
+        "which agent", "any agent", "erc-8004", "erc8004", "8004",
+        "agent identity", "agent reputation", "registered agent",
+        "mcp agent", "a2a agent", "x402 agent",
+    ]
+    run_agent_search = any(kw in req_lower for kw in AGENT_SEARCH_KEYWORDS)
 
     for kw in SUBGRAPH_KEYWORDS:
         if kw in req_lower:
@@ -342,6 +350,11 @@ def _auto_search(request: str) -> str:
         if run_token_api:
             ta_results = _lookup_token_api(search_term)
             results.append(f"[TOKEN API ENDPOINTS for '{search_term}']\n{ta_results}")
+
+        if run_agent_search:
+            agent_results = _search_8004_agents(search_term)
+            if agent_results:
+                results.append(f"[ERC-8004 AGENT SEARCH for '{search_term}']\n{agent_results}")
 
     except Exception as e:
         log.error(f"Auto-search error: {e}")
@@ -674,6 +687,74 @@ CHAT_TOOLS = [
         },
     },
 ]
+
+
+def _search_8004_agents(query: str) -> str:
+    """Search for AI agents on the ERC-8004 registry via 8004scan API."""
+    import httpx
+    import logging
+    log = logging.getLogger("graph-advocate")
+
+    try:
+        # Try semantic search first
+        r = httpx.get(
+            f"https://8004scan.io/api/v1/public/agents/search",
+            params={"q": query, "limit": 10},
+            timeout=10,
+            follow_redirects=True,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            agents = data.get("data", data.get("agents", []))
+            if not agents:
+                return ""
+            results = []
+            for a in agents[:10]:
+                name = a.get("name", "unnamed")
+                chain = a.get("chain_id", "?")
+                token_id = a.get("token_id", "?")
+                score = a.get("total_score", 0)
+                desc = (a.get("description") or "")[:100]
+                mcp = a.get("services", {}).get("mcp", {}).get("endpoint", "")
+                a2a = a.get("services", {}).get("a2a", {}).get("endpoint", "")
+                x402 = a.get("x402_supported", False)
+                ens = a.get("ens", "")
+                entry = f"- {name} (#{token_id}, score: {score})"
+                if desc:
+                    entry += f"\n  {desc}"
+                if mcp:
+                    entry += f"\n  MCP: {mcp}"
+                if a2a:
+                    entry += f"\n  A2A: {a2a}"
+                if x402:
+                    entry += f"\n  x402: enabled"
+                if ens:
+                    entry += f"\n  ENS: {ens}"
+                results.append(entry)
+            return json.dumps({
+                "source": "8004scan.io",
+                "registry": "ERC-8004 on Arbitrum",
+                "total_agents": data.get("total", len(agents)),
+                "results": "\n".join(results),
+                "note": "Agents registered on the ERC-8004 Identity Registry with on-chain reputation and discovery.",
+            }, indent=2)
+        else:
+            # Fallback: list agents
+            r2 = httpx.get(
+                "https://8004scan.io/api/v1/public/agents",
+                params={"limit": 10, "sort": "score", "order": "desc"},
+                timeout=10,
+                follow_redirects=True,
+            )
+            if r2.status_code == 200:
+                data = r2.json()
+                agents = data.get("data", [])
+                results = [f"- {a.get('name','unnamed')} (score: {a.get('total_score',0)})" for a in agents[:10]]
+                return json.dumps({"source": "8004scan.io", "top_agents": "\n".join(results)})
+            return ""
+    except Exception as e:
+        log.error(f"8004scan search error: {e}")
+        return ""
 
 
 def _search_subgraphs(keyword: str) -> str:
