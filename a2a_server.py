@@ -55,6 +55,43 @@ X402_WALLET = "0x575267eED09c338FAE5716A486A7B58A5749A292"
 X402_PRICE_CENTS = 1  # $0.01 per query after free tier
 X402_NETWORK = "base"
 
+# ── x402 Payment Verification ────────────────────────────────────────────────
+_x402_server = None
+
+def _get_x402_server():
+    """Lazy-init the x402 resource server."""
+    global _x402_server
+    if _x402_server is None:
+        try:
+            from x402.server import x402ResourceServer
+            _x402_server = x402ResourceServer()
+            _x402_server.initialize()
+            log.info("x402 resource server initialized")
+        except Exception as e:
+            log.error(f"x402 init failed: {e}")
+    return _x402_server
+
+async def _verify_x402_payment(payment_header: str) -> bool:
+    """Verify an x402 payment from the X-PAYMENT or PAYMENT-SIGNATURE header."""
+    server = _get_x402_server()
+    if not server:
+        return False
+    try:
+        from x402 import parse_payment_payload
+        payload = parse_payment_payload(payment_header)
+        result = await server.verify_payment(payload)
+        if result.valid:
+            # Settle the payment
+            settle = await server.settle_payment(payload)
+            log.info(f"x402 payment settled: {settle}")
+            return True
+        else:
+            log.warning(f"x402 payment invalid: {result}")
+            return False
+    except Exception as e:
+        log.error(f"x402 verify error: {e}")
+        return False
+
 
 def _check_daily_limit(task_id: str) -> bool:
     """Return True if sender has exceeded daily free query limit."""
@@ -472,12 +509,40 @@ class GraphAdvocateExecutor(AgentExecutor):
         # Exempt health checks and conformance probes from daily limit
         is_health_check = "conformance probe" in user_text.lower() or "please acknowledge" in user_text.lower()
         if not is_health_check and _check_daily_limit(task_id):
-            log.info(f"X402     task={task_id} | daily limit exceeded, payment required")
-            _log_request(task_id, user_text, "payment-required", "high", "x402")
-            await event_queue.enqueue_event(
-                new_agent_text_message(json.dumps(_x402_payment_required_response()))
-            )
-            return
+            # Check if payment was included in the request context
+            # A2A doesn't have HTTP headers, so check for payment in message text
+            payment_header = None
+            for part in context.message.parts if hasattr(context, 'message') else []:
+                text = getattr(part, 'text', '') or ''
+                if text.startswith('x402:') or 'PAYMENT-SIGNATURE' in text:
+                    payment_header = text.replace('x402:', '').strip()
+                    break
+
+            if payment_header:
+                paid = await _verify_x402_payment(payment_header)
+                if paid:
+                    log.info(f"X402-PAID task={task_id} | payment verified, proceeding")
+                    _log_request(task_id, user_text, "x402-paid", "high", "verified")
+                    # Reset daily count for this paid request
+                    pass  # Continue to normal processing below
+                else:
+                    log.info(f"X402-FAIL task={task_id} | payment verification failed")
+                    _log_request(task_id, user_text, "x402-failed", "high", "invalid")
+                    await event_queue.enqueue_event(
+                        new_agent_text_message(json.dumps({
+                            "recommendation": "payment-failed",
+                            "reason": "x402 payment verification failed. Please retry with a valid payment.",
+                            "x402": _x402_payment_required_response()["x402"],
+                        }))
+                    )
+                    return
+            else:
+                log.info(f"X402     task={task_id} | daily limit exceeded, payment required")
+                _log_request(task_id, user_text, "payment-required", "high", "x402")
+                await event_queue.enqueue_event(
+                    new_agent_text_message(json.dumps(_x402_payment_required_response()))
+                )
+                return
 
         # ── Fast-handle trivial greetings (no Claude call) ───────────────────
         if _is_greeting(user_text):
