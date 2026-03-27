@@ -106,20 +106,32 @@ def _check_daily_limit(task_id: str) -> bool:
 
 
 def _x402_payment_required_response() -> dict:
-    """Return a 402 Payment Required response with x402 details."""
+    """Return a 402 Payment Required response with x402 v2 details."""
     return {
         "recommendation": "payment-required",
         "reason": f"You have exceeded the free tier of {DAILY_FREE_QUERIES} queries/day. Additional queries require x402 payment.",
         "confidence": "high",
-        "x402": {
-            "version": 1,
-            "price_cents": X402_PRICE_CENTS,
-            "currency": "USDC",
-            "network": X402_NETWORK,
-            "pay_to": X402_WALLET,
-            "description": f"${X402_PRICE_CENTS / 100:.2f} USDC per query on Base L2",
-            "ens": "graphadvocate.eth",
+        "x402Version": 2,
+        "resource": {
+            "url": "https://graph-advocate-production.up.railway.app",
+            "method": "POST",
+            "description": "Graph Advocate onchain data routing — 15,500+ subgraphs, Token API, Substreams",
+            "mimeType": "application/json",
         },
+        "accepts": [{
+            "scheme": "exact",
+            "network": "eip155:8453",
+            "amount": str(X402_PRICE_CENTS * 10000),  # $0.01 = 10000 in USDC 6 decimals
+            "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "payTo": X402_WALLET,
+            "maxTimeoutSeconds": 300,
+            "extra": {
+                "name": "USD Coin",
+                "version": "2",
+                "facilitator": "https://x402.org/facilitator",
+                "provider": "Graph Advocate (graphadvocate.eth)",
+            },
+        }],
         "query_ready": None,
         "alternatives": [],
     }
