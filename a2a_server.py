@@ -469,7 +469,9 @@ class GraphAdvocateExecutor(AgentExecutor):
             return
 
         # ── Daily free tier check — x402 paywall after limit ────────────────
-        if _check_daily_limit(task_id):
+        # Exempt health checks and conformance probes from daily limit
+        is_health_check = "conformance probe" in user_text.lower() or "please acknowledge" in user_text.lower()
+        if not is_health_check and _check_daily_limit(task_id):
             log.info(f"X402     task={task_id} | daily limit exceeded, payment required")
             _log_request(task_id, user_text, "payment-required", "high", "x402")
             await event_queue.enqueue_event(
