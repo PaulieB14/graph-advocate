@@ -47,6 +47,46 @@ _GREETING_WORDS = {
 # Per-sender sliding window rate limiter
 _sender_timestamps: dict[str, list[float]] = {}
 
+# Daily per-sender query cap (free tier)
+DAILY_FREE_QUERIES = 10
+_daily_query_counts: dict[str, dict] = {}  # {sender: {"date": "2026-03-27", "count": 5}}
+
+X402_WALLET = "0x575267eED09c338FAE5716A486A7B58A5749A292"
+X402_PRICE_CENTS = 1  # $0.01 per query after free tier
+X402_NETWORK = "base"
+
+
+def _check_daily_limit(task_id: str) -> bool:
+    """Return True if sender has exceeded daily free query limit."""
+    from datetime import date
+    today = date.today().isoformat()
+    entry = _daily_query_counts.get(task_id, {"date": "", "count": 0})
+    if entry["date"] != today:
+        entry = {"date": today, "count": 0}
+    entry["count"] += 1
+    _daily_query_counts[task_id] = entry
+    return entry["count"] > DAILY_FREE_QUERIES
+
+
+def _x402_payment_required_response() -> dict:
+    """Return a 402 Payment Required response with x402 details."""
+    return {
+        "recommendation": "payment-required",
+        "reason": f"You have exceeded the free tier of {DAILY_FREE_QUERIES} queries/day. Additional queries require x402 payment.",
+        "confidence": "high",
+        "x402": {
+            "version": 1,
+            "price_cents": X402_PRICE_CENTS,
+            "currency": "USDC",
+            "network": X402_NETWORK,
+            "pay_to": X402_WALLET,
+            "description": f"${X402_PRICE_CENTS / 100:.2f} USDC per query on Base L2",
+            "ens": "graphadvocate.eth",
+        },
+        "query_ready": None,
+        "alternatives": [],
+    }
+
 
 def _is_rate_limited(task_id: str) -> bool:
     """Return True if this sender has exceeded RATE_LIMIT_MAX_REQUESTS in the window."""
@@ -425,6 +465,15 @@ class GraphAdvocateExecutor(AgentExecutor):
                     "query_ready": None,
                     "alternatives": [],
                 }))
+            )
+            return
+
+        # ── Daily free tier check — x402 paywall after limit ────────────────
+        if _check_daily_limit(task_id):
+            log.info(f"X402     task={task_id} | daily limit exceeded, payment required")
+            _log_request(task_id, user_text, "payment-required", "high", "x402")
+            await event_queue.enqueue_event(
+                new_agent_text_message(json.dumps(_x402_payment_required_response()))
             )
             return
 
