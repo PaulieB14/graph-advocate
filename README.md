@@ -177,6 +177,7 @@ Hosted on Railway. Auto-deploys on every push to `main`.
 | | |
 |---|---|
 | **Production URL** | `https://graph-advocate-production.up.railway.app` |
+| **Chat UI** | `https://graph-advocate-production.up.railway.app/chat` |
 | **Live Dashboard** | `https://graph-advocate-production.up.railway.app/dashboard` |
 | **Live Logs (JSON)** | `https://graph-advocate-production.up.railway.app/logs` |
 | **Agent card** | `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json` |
