@@ -395,6 +395,8 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         elif task_id.startswith("a2a:"): sender_type = "a2a"
         elif task_id.startswith("chat:"): sender_type = "web-chat"
         elif task_id == "mcp": sender_type = "mcp-client"
+        # Plain UUIDs (xxxxxxxx-xxxx-...) are A2A task IDs
+        elif len(task_id) == 36 and task_id.count("-") == 4: sender_type = "a2a"
 
         reason = ""
         graph_subgraphs = ""
@@ -555,6 +557,17 @@ class GraphAdvocateExecutor(AgentExecutor):
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id or "default"
+        context_id = context.context_id or ""
+        metadata = {}
+        try:
+            metadata = context.metadata or {}
+        except Exception:
+            pass
+        # Log sender info for debugging — helps identify which agents contact us
+        sender_address = metadata.get("sender", metadata.get("address", metadata.get("from", "")))
+        sender_name = metadata.get("name", metadata.get("agent_name", ""))
+        if sender_address or sender_name or metadata:
+            log.info(f"SENDER   task={task_id} context={context_id} name={sender_name} addr={sender_address} meta={list(metadata.keys()) if metadata else '(none)'}")
         history = self._history.get(task_id, [])
 
         user_text = ""
@@ -812,14 +825,52 @@ async def export_stats_endpoint(request: Request):
         ).fetchone()[0]
         conn.close()
 
+        # Group by unique caller (task_id prefix → agent identity)
+        by_agent = conn.execute(
+            "SELECT task_id, sender_type, COUNT(*) as cnt, "
+            "MIN(timestamp) as first_seen, MAX(timestamp) as last_seen, "
+            "GROUP_CONCAT(DISTINCT service) as services_used "
+            "FROM activity GROUP BY task_id ORDER BY cnt DESC LIMIT 50"
+        ).fetchall()
+
+        # Aggregate: unique callers count
+        unique_callers = conn.execute(
+            "SELECT COUNT(DISTINCT task_id) FROM activity"
+        ).fetchone()[0]
+
+        # Top queries (most common requests)
+        top_queries = conn.execute(
+            "SELECT request, service, COUNT(*) as cnt FROM activity "
+            "WHERE service NOT IN ('introduction', 'out-of-scope', 'rate-limited') "
+            "GROUP BY request ORDER BY cnt DESC LIMIT 10"
+        ).fetchall()
+
+        conn.close()
+
         return JSONResponse({
             "total_requests": total,
             "legit_queries": legit,
+            "unique_callers": unique_callers,
             "first_request": first,
             "last_request": last,
             "by_service": [{"service": r[0], "count": r[1]} for r in by_service],
             "by_sender_type": [{"sender": r[0], "count": r[1]} for r in by_sender],
             "daily_volume": [{"date": r[0], "count": r[1]} for r in by_day],
+            "by_agent": [
+                {
+                    "task_id": r[0][:16] + "..." if len(r[0]) > 16 else r[0],
+                    "sender_type": r[1],
+                    "request_count": r[2],
+                    "first_seen": r[3],
+                    "last_seen": r[4],
+                    "services_used": r[5],
+                }
+                for r in by_agent
+            ],
+            "top_queries": [
+                {"query": r[0][:100], "service": r[1], "count": r[2]}
+                for r in top_queries
+            ],
         })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
