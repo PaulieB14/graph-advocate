@@ -319,7 +319,40 @@ DISCOVERY_COUNT = 0  # agent card hits since last restart
 # ── Persistent log (survives redeploys via Railway volume) ──────────────────
 
 LOG_PATH = Path(os.environ.get("LOG_PATH", "/data/requests.json"))
+DB_PATH = Path(os.environ.get("ACTIVITY_DB_PATH", "/data/activity.db"))
 REQUEST_LOG: deque = deque(maxlen=200)
+
+
+def _init_activity_db():
+    """Initialize persistent SQLite database for grant reporting."""
+    try:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        import sqlite3
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS activity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                task_id TEXT,
+                sender_type TEXT,
+                request TEXT,
+                service TEXT,
+                confidence TEXT,
+                tool TEXT,
+                response_json TEXT,
+                reason TEXT,
+                graph_subgraphs TEXT,
+                alternatives TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity(timestamp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_service ON activity(service)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_sender ON activity(sender_type)")
+        conn.commit()
+        conn.close()
+        log.info(f"Activity DB ready at {DB_PATH}")
+    except Exception as e:
+        log.warning(f"Could not init activity DB: {e}")
 
 
 def _load_log():
@@ -342,8 +375,9 @@ def _save_log():
 
 
 def _log_request(task_id: str, request: str, service: str, confidence: str, tool: str, response: dict | None = None):
+    ts = datetime.now(timezone.utc).isoformat()
     REQUEST_LOG.append({
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": ts,
         "task_id": task_id,
         "request": request,
         "service": service,
@@ -353,9 +387,45 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
     })
     _save_log()
 
+    # Persist to SQLite (never capped — keeps full history for grant reporting)
+    try:
+        import sqlite3
+        sender_type = "unknown"
+        if task_id.startswith("fetch:"): sender_type = "fetch.ai"
+        elif task_id.startswith("a2a:"): sender_type = "a2a"
+        elif task_id.startswith("chat:"): sender_type = "web-chat"
+        elif task_id == "mcp": sender_type = "mcp-client"
+
+        reason = ""
+        graph_subgraphs = ""
+        alternatives = ""
+        if response and isinstance(response, dict):
+            reason = str(response.get("reason", ""))[:500]
+            sgs = response.get("graph_subgraphs") or []
+            graph_subgraphs = ", ".join(str(s) for s in sgs) if sgs else ""
+            alts = response.get("alternatives") or []
+            alt_strs = []
+            for a in alts[:3]:
+                if isinstance(a, dict):
+                    alt_strs.append(f'{a.get("service","?")} ({a.get("confidence","?")})')
+            alternatives = "; ".join(alt_strs)
+
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.execute(
+            "INSERT INTO activity (timestamp, task_id, sender_type, request, service, confidence, tool, response_json, reason, graph_subgraphs, alternatives) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ts, task_id, sender_type, request, service, confidence, tool,
+             json.dumps(response) if response else None,
+             reason, graph_subgraphs, alternatives),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning(f"Activity DB write failed: {e}")
+
 
 # Load existing log on startup
 _load_log()
+_init_activity_db()
 
 
 # ── Fetch.ai uAgents integration (optional) ───────────────────────────────────
@@ -668,6 +738,91 @@ agent_card = AgentCard(
         "url": f"{PUBLIC_URL}/chat",
     },
 )
+
+
+# ── /export endpoints (grant reporting) ──────────────────────────────────────
+
+async def export_json_endpoint(request: Request):
+    """Export full activity history as JSON for grant reporting."""
+    try:
+        import sqlite3 as _sq
+        conn = _sq.connect(str(DB_PATH))
+        conn.row_factory = _sq.Row
+        rows = conn.execute(
+            "SELECT timestamp, task_id, sender_type, request, service, confidence, tool, reason, graph_subgraphs, alternatives FROM activity ORDER BY timestamp"
+        ).fetchall()
+        conn.close()
+        data = [dict(r) for r in rows]
+        return JSONResponse({
+            "total": len(data),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "activity": data,
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def export_csv_endpoint(request: Request):
+    """Export full activity history as CSV for grant reporting."""
+    try:
+        import sqlite3 as _sq
+        import csv, io
+        conn = _sq.connect(str(DB_PATH))
+        conn.row_factory = _sq.Row
+        rows = conn.execute(
+            "SELECT timestamp, task_id, sender_type, request, service, confidence, tool, reason, graph_subgraphs, alternatives FROM activity ORDER BY timestamp"
+        ).fetchall()
+        conn.close()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["timestamp", "task_id", "sender_type", "request", "service", "confidence", "tool", "reason", "graph_subgraphs", "alternatives"])
+        for r in rows:
+            writer.writerow([r["timestamp"], r["task_id"], r["sender_type"], r["request"], r["service"], r["confidence"], r["tool"], r["reason"], r["graph_subgraphs"], r["alternatives"]])
+
+        from starlette.responses import Response
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=graph-advocate-activity.csv"},
+        )
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def export_stats_endpoint(request: Request):
+    """Export summary stats for grant reporting."""
+    try:
+        import sqlite3 as _sq
+        conn = _sq.connect(str(DB_PATH))
+        total = conn.execute("SELECT COUNT(*) FROM activity").fetchone()[0]
+        by_service = conn.execute(
+            "SELECT service, COUNT(*) as cnt FROM activity GROUP BY service ORDER BY cnt DESC"
+        ).fetchall()
+        by_sender = conn.execute(
+            "SELECT sender_type, COUNT(*) as cnt FROM activity GROUP BY sender_type ORDER BY cnt DESC"
+        ).fetchall()
+        by_day = conn.execute(
+            "SELECT DATE(timestamp) as day, COUNT(*) as cnt FROM activity GROUP BY day ORDER BY day DESC LIMIT 30"
+        ).fetchall()
+        first = conn.execute("SELECT MIN(timestamp) FROM activity").fetchone()[0]
+        last = conn.execute("SELECT MAX(timestamp) FROM activity").fetchone()[0]
+        legit = conn.execute(
+            "SELECT COUNT(*) FROM activity WHERE service NOT IN ('introduction', 'out-of-scope', 'rate-limited', 'awaiting-request')"
+        ).fetchone()[0]
+        conn.close()
+
+        return JSONResponse({
+            "total_requests": total,
+            "legit_queries": legit,
+            "first_request": first,
+            "last_request": last,
+            "by_service": [{"service": r[0], "count": r[1]} for r in by_service],
+            "by_sender_type": [{"sender": r[0], "count": r[1]} for r in by_sender],
+            "daily_volume": [{"date": r[0], "count": r[1]} for r in by_day],
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ── /logs and /dashboard endpoints ───────────────────────────────────────────
@@ -1648,6 +1803,9 @@ def build_app():
     extra = Starlette(routes=[
         Route("/logs", logs_endpoint),
         Route("/dashboard", dashboard_endpoint),
+        Route("/export/json", export_json_endpoint),
+        Route("/export/csv", export_csv_endpoint),
+        Route("/export/stats", export_stats_endpoint),
         Route("/chat", chat_get, methods=["GET"]),
         Route("/chat", chat_post, methods=["POST"]),
     ])
@@ -1729,7 +1887,7 @@ def build_app():
             return
         if scope["type"] == "http" and scope["path"].startswith("/mcp"):
             await mcp_asgi(scope, receive, send)
-        elif scope["type"] == "http" and scope["path"] in ("/logs", "/dashboard", "/chat"):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/chat") or scope["path"].startswith("/export/")):
             await extra(scope, receive, send)
         else:
             await a2a_app(scope, receive, send)
