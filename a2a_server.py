@@ -341,7 +341,7 @@ def _save_log():
         log.warning(f"Could not save log: {e}")
 
 
-def _log_request(task_id: str, request: str, service: str, confidence: str, tool: str):
+def _log_request(task_id: str, request: str, service: str, confidence: str, tool: str, response: dict | None = None):
     REQUEST_LOG.append({
         "ts": datetime.now(timezone.utc).isoformat(),
         "task_id": task_id,
@@ -349,6 +349,7 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         "service": service,
         "confidence": confidence,
         "tool": tool,
+        "response": response,
     })
     _save_log()
 
@@ -630,7 +631,7 @@ class GraphAdvocateExecutor(AgentExecutor):
             tool_name = "?"
 
         log.info(f"ROUTED   task={task_id} | {service} ({confidence}) → {tool_name}")
-        _log_request(task_id, user_text, service, confidence, tool_name)
+        _log_request(task_id, user_text, service, confidence, tool_name, response=rec)
 
         await event_queue.enqueue_event(
             new_agent_text_message(json.dumps(rec, indent=2))
@@ -739,22 +740,61 @@ async def dashboard_endpoint(request: Request):
     if not donut_labels:
         donut_labels, donut_values, donut_colors = ["no legit queries yet"], [1], ["#334155"]
 
-    # Table rows
+    # Table rows with expandable response
     rows = ""
-    for r in logs[:50]:
+    for idx, r in enumerate(logs[:50]):
         svc = r.get("service", "unknown")
         tool = r.get("tool", "?")
+        task_id = r.get("task_id", "?")
+        resp = r.get("response")
         color = SERVICE_COLORS.get(svc, "#ef4444" if svc == "out-of-scope" else "#475569")
         badge = (f'<span style="background:{color};padding:2px 8px;border-radius:6px;'
                  f'font-size:.75rem;color:#fff;font-weight:600">{svc}</span>')
         tool_color = "#ef4444" if tool == "fast-reject" else "#64748b"
+        # Sender badge
+        if task_id.startswith("fetch:"):
+            sender_badge = '<span style="color:#14b8a6;font-size:.65rem">fetch.ai</span>'
+        elif task_id.startswith("a2a:"):
+            sender_badge = f'<span style="color:#8b5cf6;font-size:.65rem">a2a:{task_id[4:12]}</span>'
+        elif task_id.startswith("chat:"):
+            sender_badge = '<span style="color:#f59e0b;font-size:.65rem">web chat</span>'
+        elif task_id == "mcp":
+            sender_badge = '<span style="color:#3b82f6;font-size:.65rem">mcp client</span>'
+        else:
+            sender_badge = f'<span style="color:#475569;font-size:.65rem">{task_id[:16]}</span>'
+        # Expand button if response exists
+        has_resp = resp and isinstance(resp, dict) and resp.get("reason")
+        expand_btn = f'<span class="expand-btn" onclick="toggleRow({idx})" style="cursor:pointer;color:#6366f1;font-size:.7rem;margin-left:.4rem" title="Show response">▶</span>' if has_resp else ''
+        # Response detail row (hidden by default)
+        detail_row = ""
+        if has_resp:
+            reason = _json.dumps(resp.get("reason", ""), ensure_ascii=False)[1:-1][:300]
+            subgraphs = resp.get("graph_subgraphs", [])
+            sg_html = " · ".join(f'<span style="color:#10b981">{s}</span>' for s in subgraphs) if subgraphs else ""
+            alternatives = resp.get("alternatives", [])
+            alt_html = ""
+            for alt in alternatives[:2]:
+                alt_html += f'<span style="background:#334155;padding:2px 6px;border-radius:4px;font-size:.7rem;margin-right:.3rem">{alt.get("service","?")} ({alt.get("confidence","?")})</span>'
+            query_ready = resp.get("query_ready", {})
+            qr_html = f'<code style="color:#10b981;font-size:.7rem">{query_ready.get("tool","")}</code>' if query_ready.get("tool") else ""
+            detail_row = (
+                f'<tr id="detail-{idx}" style="display:none">'
+                f'<td colspan="5" style="padding:.75rem 1rem;background:#0f172a;border-bottom:1px solid #1e293b">'
+                f'<div style="font-size:.78rem;color:#94a3b8;line-height:1.5">'
+                f'<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Reason:</strong> {reason}</div>'
+                f'{f"<div style=margin-bottom:.4rem><strong style=color:#e2e8f0>Tool:</strong> {qr_html}</div>" if qr_html else ""}'
+                f'{f"<div style=margin-bottom:.4rem><strong style=color:#e2e8f0>Subgraphs:</strong> {sg_html}</div>" if sg_html else ""}'
+                f'{f"<div><strong style=color:#e2e8f0>Alternatives:</strong> {alt_html}</div>" if alt_html else ""}'
+                f'</div></td></tr>'
+            )
         rows += (f'<tr>'
                  f'<td style="color:#64748b;font-family:monospace">{r["ts"][11:19]}</td>'
                  f'<td style="color:#94a3b8" title="{r["request"][:200]}">'
-                 f'{r["request"][:90]}{"…" if len(r["request"])>90 else ""}</td>'
+                 f'{r["request"][:80]}{"…" if len(r["request"])>80 else ""}{expand_btn}</td>'
                  f'<td>{badge}</td>'
                  f'<td style="color:{tool_color};font-family:monospace" title="{tool}">{tool}</td>'
-                 f'</tr>')
+                 f'<td>{sender_badge}</td>'
+                 f'</tr>{detail_row}')
 
     import json as _json
     html = f"""<!DOCTYPE html>
@@ -796,6 +836,8 @@ async def dashboard_endpoint(request: Request):
   tr:hover td{{background:#243044}}
   @keyframes blink{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
   .live{{animation:blink 2s infinite;font-size:.65rem;color:#10b981;font-weight:700;letter-spacing:.08em;text-transform:uppercase}}
+  .expand-btn{{transition:color .15s}}
+  .expand-btn:hover{{color:#818cf8!important}}
 </style>
 </head><body>
 <h1>
@@ -845,8 +887,8 @@ async def dashboard_endpoint(request: Request):
   <div class="panel">
     <h2>Recent requests (last 50)</h2>
     <table>
-      <thead><tr><th style="width:70px">Time</th><th>Request</th><th style="width:160px">Service</th><th style="width:100px">Tool</th></tr></thead>
-      <tbody>{rows if rows else '<tr><td colspan="4" style="color:#475569;text-align:center;padding:2rem">No requests yet</td></tr>'}</tbody>
+      <thead><tr><th style="width:70px">Time</th><th>Request</th><th style="width:155px">Service</th><th style="width:100px">Tool</th><th style="width:80px">From</th></tr></thead>
+      <tbody>{rows if rows else '<tr><td colspan="5" style="color:#475569;text-align:center;padding:2rem">No requests yet</td></tr>'}</tbody>
     </table>
   </div>
   <div class="panel" style="display:flex;flex-direction:column;align-items:center">
@@ -856,6 +898,19 @@ async def dashboard_endpoint(request: Request):
   </div>
 </div>
 
+<script>
+function toggleRow(idx) {{
+  const el = document.getElementById('detail-' + idx);
+  const btn = el.previousElementSibling.querySelector('.expand-btn');
+  if (el.style.display === 'none') {{
+    el.style.display = 'table-row';
+    if (btn) btn.textContent = '▼';
+  }} else {{
+    el.style.display = 'none';
+    if (btn) btn.textContent = '▶';
+  }}
+}}
+</script>
 <script>
 const labels = {_json.dumps(donut_labels)};
 const values = {_json.dumps(donut_values)};

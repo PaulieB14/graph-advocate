@@ -287,9 +287,15 @@ def _init_db():
             requesting_agent TEXT,
             request TEXT,
             service_chosen TEXT,
-            confidence TEXT
+            confidence TEXT,
+            response_json TEXT
         )
     """)
+    # Migrate: add response_json column if missing (existing DBs)
+    try:
+        conn.execute("SELECT response_json FROM recommendations LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE recommendations ADD COLUMN response_json TEXT")
     conn.commit()
     return conn
 
@@ -298,13 +304,14 @@ def _log(agent: str, request: str, rec: dict):
     try:
         conn = _init_db()
         conn.execute(
-            "INSERT INTO recommendations VALUES (NULL, ?, ?, ?, ?, ?)",
+            "INSERT INTO recommendations VALUES (NULL, ?, ?, ?, ?, ?, ?)",
             (
                 datetime.utcnow().isoformat(),
                 agent,
                 request,
                 rec.get("recommendation", "unknown"),
                 rec.get("confidence", "unknown"),
+                json.dumps(rec),
             ),
         )
         conn.commit()
