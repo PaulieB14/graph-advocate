@@ -33,7 +33,7 @@ Key tools: getV1EvmBalances, getV1EvmSwaps, getV1EvmNftSales, getV1SvmBalances, 
 Best for: protocol-level indexed data (Uniswap, Aave, ENS, Compound, Curve, Balancer, etc.)
 Use when: the agent needs entities, relationships, or aggregations a subgraph tracks
 Key tools: search_subgraphs_by_keyword, get_schema_by_subgraph_id, execute_query_by_subgraph_id
-npm: subgraph-registry-mcp (15,500+ classified subgraphs, reliability scoring)
+npm: subgraph-registry-mcp (14,700+ classified subgraphs with domain/protocol/reliability scoring, bot-readable category files)
 npm: subgraphs-skills (AI agent skills for developing/testing/optimizing subgraphs)
 npm: subgraph-mcp-skills (AI agent skills for querying subgraphs via MCP tools)
 
@@ -47,16 +47,31 @@ npm: create-substreams-sink-sql (scaffold a Substreams SQL sink for PostgreSQL �
 [PROTOCOL-SPECIFIC MCP SERVERS — npm packages by @paulieb]
 Use these when the agent's request matches a specific protocol. Install via: npx <package-name>
 
-- graph-aave-mcp: Aave V2/V3 lending + governance data across 7 chains, 11 subgraphs
+- graph-aave-mcp: Aave V2/V3 lending + governance data across 7 chains via 11 Graph subgraphs
   Use for: Aave liquidations, deposits, borrows, interest rates, governance votes
+  Powered by Graph subgraphs: Aave V3 on Ethereum, Arbitrum, Optimism, Polygon, Avalanche, Base, Metis + Aave V2 Ethereum + Governance
 - graph-lending-mcp: Unified tools over Messari standardized lending subgraphs (multi-protocol)
   Use for: cross-protocol lending comparisons, TVL, utilization rates
-- graph-polymarket-mcp: Polymarket prediction market data via The Graph subgraphs
-  Use for: market prices, positions, volumes, resolution data on Polymarket
+  Powered by Graph subgraphs: Messari-standardized subgraphs for Aave, Compound, MakerDAO, and other lending protocols
+- graph-polymarket-mcp: Polymarket prediction markets — 31 tools combining The Graph subgraphs + Polymarket REST APIs (Gamma + CLOB)
+  Use for: market search, live prices, order books, spreads, price history, trader P&L, open interest, resolution status
+  REST API tools (no key needed): search_markets, get_market_info, list_polymarket_events, get_live_prices, get_live_spread, get_live_orderbook, get_price_history, get_last_trade, get_clob_market, search_markets_enriched
+  Graph subgraph tools (needs GRAPH_API_KEY): get_market_data, get_account_pnl, get_top_traders, get_market_open_interest, get_market_resolution, get_disputed_markets, get_trader_profile, get_orderbook_trades, and more
+  Powered by 8 Graph subgraphs:
+    - Main (QmdyCgu...): markets, conditions, trader counts
+    - Beefy P&L (QmbHwcG...): trader winRate, profitFactor, maxDrawdown, daily stats
+    - Orderbook (QmVGA9v...): order fills, platform volume ($72B+), fees
+    - Open Interest (QmbT2Mm...): USDC locked per market, hourly OI snapshots
+    - Resolution (QmZnnrH...): UMA oracle lifecycle, disputes, moderator flags
+    - Traders (QmfT4YQ...): per-trader CTF events, USDC deposit/withdrawal flows
+    - Activity (Qmf3qPU...): splits, merges, redemptions
+    - Slimmed P&L (QmZAYiM...): lightweight position tracking
 - predictfun-mcp: Predict.fun prediction market data on BNB Chain
   Use for: BNB Chain prediction markets, outcomes, trader positions
-- graph-limitless-mcp: Limitless prediction market data on Base via 2 subgraphs
+  Powered by: Predict.fun REST API (BNB Chain)
+- graph-limitless-mcp: Limitless prediction market data on Base via 2 Graph subgraphs
   Use for: Limitless market stats, trader P&L, positions, whale trades, daily volume
+  Powered by Graph subgraphs: Limitless main + Limitless orderbook on Base
   Install: npx graph-limitless-mcp (requires GRAPH_API_KEY)
 
 [GRAPH ECOSYSTEM DASHBOARDS — graphtools.pro]
@@ -141,8 +156,8 @@ Response:
   "name": "Graph Advocate",
   "description": "I route onchain data requests to the right Graph Protocol service.",
   "confidence": "high",
-  "services": ["token-api", "subgraph-registry", "substreams", "graph-aave-mcp", "graph-lending-mcp", "graph-polymarket-mcp", "predictfun-mcp"],
-  "example_requests": ["Top 20 USDC holders on Ethereum", "Uniswap V3 pool TVL", "Aave liquidation events"],
+  "services": ["token-api", "subgraph-registry", "substreams", "graph-aave-mcp", "graph-lending-mcp", "graph-polymarket-mcp", "predictfun-mcp", "graph-limitless-mcp"],
+  "example_requests": ["Top 20 USDC holders on Ethereum", "Uniswap V3 pool TVL", "Aave liquidation events", "Hottest prediction markets on Polymarket", "Find a DEX subgraph on Arbitrum"],
   "query_ready": null,
   "alternatives": []
 }
@@ -214,6 +229,30 @@ Response:
     }
   },
   "alternatives": []
+}
+
+Request: "What are the hottest prediction markets on Polymarket right now?"
+Response:
+{
+  "recommendation": "graph-polymarket-mcp",
+  "reason": "graph-polymarket-mcp has search_markets_enriched which searches Polymarket by text, then auto-enriches each result with live CLOB prices AND on-chain resolution status from The Graph — all in one call. 31 tools total combining Gamma API (market search), CLOB API (live prices, order books), and 8 Graph subgraphs (trader P&L, open interest, resolution).",
+  "confidence": "high",
+  "query_ready": {
+    "tool": "search_markets_enriched",
+    "args": {
+      "query": "trending",
+      "limit": 10
+    }
+  },
+  "graph_subgraphs": ["Main (QmdyCgu...)", "Orderbook (QmVGA9v...)", "Open Interest (QmbT2Mm...)", "Resolution (QmZnnrH...)"],
+  "install": "npx graph-polymarket-mcp",
+  "alternatives": [
+    {
+      "service": "token-api",
+      "reason": "Token API can show USDC flows to Polymarket contracts but cannot query market metadata or predictions.",
+      "confidence": "low"
+    }
+  ]
 }
 
 Request: "Can't I just use Etherscan?"
@@ -293,6 +332,8 @@ def _auto_search(request: str) -> str:
         "sushi", "maker", "lido", "yearn", "synthetix", "protocol", "tvl",
         "liquidity", "pool", "swap", "lending", "governance", "dao",
         "nft marketplace", "opensea", "decentraland", "the graph",
+        "polymarket", "prediction market", "limitless", "predict.fun",
+        "open interest", "resolution", "trader p&l", "indexer",
     ]
     # Keywords that suggest substreams
     SUBSTREAMS_KEYWORDS = [
@@ -337,7 +378,8 @@ def _auto_search(request: str) -> str:
     protocol_match = re.search(
         r'\b(uniswap|aave|compound|curve|ens|balancer|sushi|maker|lido|yearn|'
         r'synthetix|opensea|chainlink|the graph|polymarket|pancakeswap|'
-        r'gmx|arbitrum|optimism|polygon|base|ethereum|solana|'
+        r'gmx|arbitrum|optimism|polygon|base|ethereum|solana|limitless|'
+        r'prediction market|predict\.fun|indexer|'
         r'erc20|erc721|nft|defi|lending|dex)\b',
         req_lower
     )
