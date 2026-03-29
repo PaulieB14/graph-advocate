@@ -678,6 +678,7 @@ async def logs_endpoint(request: Request):
 
 async def dashboard_endpoint(request: Request):
     from collections import Counter
+    import json as _json
     logs = list(reversed(REQUEST_LOG))
     total = len(REQUEST_LOG)
 
@@ -796,7 +797,6 @@ async def dashboard_endpoint(request: Request):
                  f'<td>{sender_badge}</td>'
                  f'</tr>{detail_row}')
 
-    import json as _json
     html = f"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
