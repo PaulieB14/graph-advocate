@@ -764,34 +764,53 @@ async def dashboard_endpoint(request: Request):
         else:
             sender_badge = f'<span style="color:#475569;font-size:.65rem">{task_id[:16]}</span>'
         # Expand button if response exists
-        has_resp = resp and isinstance(resp, dict) and resp.get("reason")
-        expand_btn = f'<span class="expand-btn" onclick="toggleRow({idx})" style="cursor:pointer;color:#6366f1;font-size:.7rem;margin-left:.4rem" title="Show response">▶</span>' if has_resp else ''
+        has_resp = False
+        try:
+            has_resp = bool(resp and isinstance(resp, dict) and resp.get("reason"))
+        except Exception:
+            pass
+        expand_btn = f'<span class="expand-btn" onclick="toggleRow({idx})" style="cursor:pointer;color:#6366f1;font-size:.7rem;margin-left:.4rem" title="Show response">&#9654;</span>' if has_resp else ''
         # Response detail row (hidden by default)
         detail_row = ""
         if has_resp:
-            reason = _json.dumps(resp.get("reason", ""), ensure_ascii=False)[1:-1][:300]
-            subgraphs = resp.get("graph_subgraphs", [])
-            sg_html = " · ".join(f'<span style="color:#10b981">{s}</span>' for s in subgraphs) if subgraphs else ""
-            alternatives = resp.get("alternatives", [])
-            alt_html = ""
-            for alt in alternatives[:2]:
-                alt_html += f'<span style="background:#334155;padding:2px 6px;border-radius:4px;font-size:.7rem;margin-right:.3rem">{alt.get("service","?")} ({alt.get("confidence","?")})</span>'
-            query_ready = resp.get("query_ready", {})
-            qr_html = f'<code style="color:#10b981;font-size:.7rem">{query_ready.get("tool","")}</code>' if query_ready.get("tool") else ""
-            detail_row = (
-                f'<tr id="detail-{idx}" style="display:none">'
-                f'<td colspan="5" style="padding:.75rem 1rem;background:#0f172a;border-bottom:1px solid #1e293b">'
-                f'<div style="font-size:.78rem;color:#94a3b8;line-height:1.5">'
-                f'<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Reason:</strong> {reason}</div>'
-                f'{f"<div style=margin-bottom:.4rem><strong style=color:#e2e8f0>Tool:</strong> {qr_html}</div>" if qr_html else ""}'
-                f'{f"<div style=margin-bottom:.4rem><strong style=color:#e2e8f0>Subgraphs:</strong> {sg_html}</div>" if sg_html else ""}'
-                f'{f"<div><strong style=color:#e2e8f0>Alternatives:</strong> {alt_html}</div>" if alt_html else ""}'
-                f'</div></td></tr>'
-            )
+            try:
+                reason_raw = resp.get("reason", "") or ""
+                reason = str(reason_raw)[:300].replace('"', '&quot;').replace('<', '&lt;')
+                subgraphs = resp.get("graph_subgraphs") or []
+                sg_parts = [f'<span style="color:#10b981">{str(s)}</span>' for s in subgraphs]
+                sg_html = " &middot; ".join(sg_parts) if sg_parts else ""
+                alternatives = resp.get("alternatives") or []
+                alt_parts = []
+                for alt in alternatives[:2]:
+                    if isinstance(alt, dict):
+                        alt_parts.append(f'<span style="background:#334155;padding:2px 6px;border-radius:4px;font-size:.7rem;margin-right:.3rem">{alt.get("service","?")} ({alt.get("confidence","?")})</span>')
+                alt_html = "".join(alt_parts)
+                query_ready = resp.get("query_ready") or {}
+                tool_name = query_ready.get("tool", "") if isinstance(query_ready, dict) else ""
+                qr_html = f'<code style="color:#10b981;font-size:.7rem">{tool_name}</code>' if tool_name else ""
+                detail_row = (
+                    f'<tr id="detail-{idx}" style="display:none">'
+                    f'<td colspan="5" style="padding:.75rem 1rem;background:#0f172a;border-bottom:1px solid #1e293b">'
+                    f'<div style="font-size:.78rem;color:#94a3b8;line-height:1.5">'
+                    f'<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Reason:</strong> {reason}</div>'
+                )
+                if qr_html:
+                    detail_row += f'<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Tool:</strong> {qr_html}</div>'
+                if sg_html:
+                    detail_row += f'<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Subgraphs:</strong> {sg_html}</div>'
+                if alt_html:
+                    detail_row += f'<div><strong style="color:#e2e8f0">Alternatives:</strong> {alt_html}</div>'
+                detail_row += '</div></td></tr>'
+            except Exception:
+                detail_row = ""
+                has_resp = False
+                expand_btn = ""
+        req_safe = r["request"][:200].replace('"', '&quot;').replace('<', '&lt;')
+        req_display = r["request"][:80].replace('<', '&lt;')
         rows += (f'<tr>'
                  f'<td style="color:#64748b;font-family:monospace">{r["ts"][11:19]}</td>'
-                 f'<td style="color:#94a3b8" title="{r["request"][:200]}">'
-                 f'{r["request"][:80]}{"…" if len(r["request"])>80 else ""}{expand_btn}</td>'
+                 f'<td style="color:#94a3b8" title="{req_safe}">'
+                 f'{req_display}{"…" if len(r["request"])>80 else ""}{expand_btn}</td>'
                  f'<td>{badge}</td>'
                  f'<td style="color:{tool_color};font-family:monospace" title="{tool}">{tool}</td>'
                  f'<td>{sender_badge}</td>'
