@@ -834,28 +834,73 @@ async def logs_endpoint(request: Request):
 async def dashboard_endpoint(request: Request):
     from collections import Counter
     import json as _json
-    logs = list(reversed(REQUEST_LOG))
-    total = len(REQUEST_LOG)
+    import sqlite3 as _sq
+
+    # ── Read from SQLite (full history) with fallback to in-memory log ───
+    db_rows = []
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        conn.row_factory = _sq.Row
+        db_rows = conn.execute(
+            "SELECT timestamp as ts, task_id, sender_type, request, service, confidence, tool, response_json, reason FROM activity ORDER BY timestamp DESC LIMIT 200"
+        ).fetchall()
+        conn.close()
+    except Exception:
+        pass
+
+    # Convert to dicts, falling back to in-memory if DB is empty
+    if db_rows:
+        logs = []
+        for r in db_rows:
+            resp = None
+            if r["response_json"]:
+                try:
+                    resp = _json.loads(r["response_json"])
+                except Exception:
+                    pass
+            logs.append({
+                "ts": r["ts"], "task_id": r["task_id"] or "?",
+                "request": r["request"] or "", "service": r["service"] or "unknown",
+                "confidence": r["confidence"] or "?", "tool": r["tool"] or "?",
+                "response": resp,
+            })
+    else:
+        logs = list(reversed(REQUEST_LOG))
+
+    # Get total count from DB (full history, not just last 200)
+    total = 0
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        total = conn.execute("SELECT COUNT(*) FROM activity").fetchone()[0]
+        conn.close()
+    except Exception:
+        total = len(logs)
 
     # Categorise every request
     legit, spam, intro, fast_rejected, rate_limited = 0, 0, 0, 0, 0
     service_counts: Counter = Counter()
-    for r in REQUEST_LOG:
-        svc = r.get("service", "unknown")
-        tool = r.get("tool", "")
-        service_counts[svc] += 1
-        if svc == "rate-limited":
-            rate_limited += 1
-            spam += 1
-        elif tool == "fast-reject":
-            fast_rejected += 1
-            spam += 1
-        elif svc == "out-of-scope":
-            spam += 1
-        elif svc in ("introduction", "awaiting-request"):
-            intro += 1
-        else:
-            legit += 1
+
+    # Use DB aggregates for full-history counts
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        for row in conn.execute("SELECT service, tool, COUNT(*) as cnt FROM activity GROUP BY service, tool"):
+            svc, tool_val, cnt = row[0] or "unknown", row[1] or "", row[2]
+            service_counts[svc] += cnt
+            if svc == "rate-limited":
+                rate_limited += cnt; spam += cnt
+            elif tool_val == "fast-reject":
+                fast_rejected += cnt; spam += cnt
+            elif svc == "out-of-scope":
+                spam += cnt
+            elif svc in ("introduction", "awaiting-request"):
+                intro += cnt
+            else:
+                legit += cnt
+        conn.close()
+    except Exception:
+        for r in logs:
+            svc = r.get("service", "unknown")
+            service_counts[svc] += 1
 
     reject_pct = int(fast_rejected / total * 100) if total else 0
     legit_pct  = int(legit / total * 100) if total else 0
@@ -866,7 +911,6 @@ async def dashboard_endpoint(request: Request):
     for r in logs:
         if r.get("service") not in ("introduction", "awaiting-request", "out-of-scope", "unknown"):
             try:
-                from datetime import timezone as tz
                 age = (datetime.now(timezone.utc) - datetime.fromisoformat(r["ts"])).total_seconds()
                 if age < 300:
                     health_color, health_label = "#10b981", "Healthy"
@@ -879,7 +923,8 @@ async def dashboard_endpoint(request: Request):
             break
 
     # Donut chart data — top services excluding noise categories
-    NOISE = {"out-of-scope", "introduction", "awaiting-request", "unknown"}
+    NOISE = {"out-of-scope", "introduction", "awaiting-request", "unknown", "chat",
+             "rate-limited", "payment-required", "x402-paid", "x402-failed"}
     SERVICE_COLORS = {
         "token-api":            "#10b981",
         "subgraph-registry":    "#6366f1",
@@ -888,6 +933,9 @@ async def dashboard_endpoint(request: Request):
         "graph-lending-mcp":    "#8b5cf6",
         "graph-polymarket-mcp": "#ec4899",
         "predictfun-mcp":       "#14b8a6",
+        "graph-limitless-mcp":  "#f97316",
+        "comparison":           "#64748b",
+        "chat":                 "#475569",
     }
     donut_labels  = [k for k in service_counts if k not in NOISE]
     donut_values  = [service_counts[k] for k in donut_labels]
@@ -896,7 +944,7 @@ async def dashboard_endpoint(request: Request):
     if not donut_labels:
         donut_labels, donut_values, donut_colors = ["no legit queries yet"], [1], ["#334155"]
 
-    # Table rows with expandable response
+    # Table rows with expandable response (last 50 from logs)
     rows = ""
     for idx, r in enumerate(logs[:50]):
         svc = r.get("service", "unknown")
@@ -1018,7 +1066,7 @@ async def dashboard_endpoint(request: Request):
   Graph Advocate
   <span class="live">● live</span>
 </h1>
-<p class="sub">Auto-refreshes every 15s · {total} total requests · {PUBLIC_URL}</p>
+<p class="sub">Auto-refreshes every 15s · {total} total requests (all-time) · <a href="/export/csv" style="color:#6366f1;text-decoration:none">Export CSV</a> · <a href="/export/stats" style="color:#6366f1;text-decoration:none">Stats API</a></p>
 
 <!-- stat cards -->
 <div class="cards">
