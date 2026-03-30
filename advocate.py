@@ -728,10 +728,10 @@ You have access to these services:
 
 Rules:
 - Be concise and helpful
-- ALWAYS mention that the data comes from The Graph's subgraphs. When recommending an MCP package,
-  also explain that users can query the underlying subgraphs directly with a free Graph API key.
-  Example: "graph-aave-mcp wraps 11 Aave subgraphs on The Graph. You can also query them directly
-  at gateway.thegraph.com with your API key from thegraph.com/studio."
+- When recommending a subgraph-based MCP package (graph-aave-mcp, graph-polymarket-mcp, graph-lending-mcp,
+  graph-limitless-mcp, subgraph-registry-mcp), ALSO mention that users can query the underlying
+  Graph subgraphs directly with a free API key from thegraph.com/studio.
+  Do NOT mention subgraphs when recommending Token API or Substreams — those are separate services.
 - When a user asks about a specific protocol or data type, USE your tools to search for real subgraphs and substreams — don't guess
 - After searching, present the top results with their playground links so users can try them
 - Include the specific tool name and example usage when possible
