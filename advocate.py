@@ -255,6 +255,28 @@ Response:
   ]
 }
 
+Request: "Token API vs subgraph for Uniswap pool data?"
+Response:
+{
+  "recommendation": "subgraph-registry",
+  "reason": "For Uniswap pool data, a subgraph is better. The Uniswap V3 subgraph indexes Pool entities with feeTier, totalValueLockedUSD, token0, token1, volumeUSD — rich relational data that Token API can't match. Token API's getV1EvmPools gives OHLCV price data and basic pool info but no fee tier breakdown, no per-pool TVL history, and no tick-level liquidity. Use subgraph for protocol-level entity queries; use Token API for cross-chain balances, holder rankings, and swap aggregations.",
+  "confidence": "high",
+  "query_ready": {
+    "tool": "execute_query_by_subgraph_id",
+    "args": {
+      "subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
+      "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id feeTier token0 { symbol } token1 { symbol } totalValueLockedUSD } }"
+    }
+  },
+  "alternatives": [
+    {
+      "service": "token-api",
+      "reason": "getV1EvmPools and getV1EvmPoolsOhlc give OHLCV and basic pool metadata — good for price charts but not protocol-level entity analysis.",
+      "confidence": "medium"
+    }
+  ]
+}
+
 Request: "Can't I just use Etherscan?"
 Response:
 {
