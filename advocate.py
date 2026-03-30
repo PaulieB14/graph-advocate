@@ -461,13 +461,37 @@ def ask_graph_advocate(
 
     messages = (history or []) + [{"role": "user", "content": augmented_request}]
 
-    response = client.messages.create(
-        model="claude-opus-4-6",
-        system=SYSTEM,
-        messages=messages,
-        max_tokens=2000,
-        thinking={"type": "adaptive"},
+    # Determine complexity: simple routing → Haiku, complex analysis → Opus
+    req_lower = request.lower()
+    COMPLEX_SIGNALS = [
+        "compare", "vs", "versus", "which is better", "trade-off", "tradeoff",
+        "explain why", "how does", "architecture", "design", "recommend",
+        "pros and cons", "strategy", "optimize", "multiple", "cross-chain",
+        "ecosystem", "roadmap", "what's new", "overview",
+    ]
+    is_complex = (
+        any(sig in req_lower for sig in COMPLEX_SIGNALS)
+        or len(request) > 300  # long queries need more reasoning
+        or (search_context and len(search_context) > 2000)  # lots of search results to synthesize
     )
+
+    if is_complex:
+        log.info(f"MODEL    using Opus (complex query)")
+        response = client.messages.create(
+            model="claude-opus-4-6",
+            system=SYSTEM,
+            messages=messages,
+            max_tokens=2000,
+            thinking={"type": "adaptive"},
+        )
+    else:
+        log.info(f"MODEL    using Haiku (simple routing)")
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            system=SYSTEM,
+            messages=messages,
+            max_tokens=2000,
+        )
 
     raw = next(
         (b.text for b in response.content if b.type == "text"),
