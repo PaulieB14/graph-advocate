@@ -472,6 +472,7 @@ try:
                     rec.get("recommendation", "unknown"),
                     rec.get("confidence", "?"),
                     (rec.get("query_ready") or {}).get("tool", "multi-step"),
+                    response=rec,
                 )
                 await ctx.send(sender, _FetchResp(text=json.dumps(rec, indent=2)))
             except Exception as exc:
@@ -1930,7 +1931,8 @@ def build_app():
         rec, _ = ask_graph_advocate(request, requesting_agent="mcp-client")
         _log_request("mcp", request, rec.get("recommendation", "unknown"),
                      rec.get("confidence", "?"),
-                     (rec.get("query_ready") or {}).get("tool", "multi-step"))
+                     (rec.get("query_ready") or {}).get("tool", "multi-step"),
+                     response=rec)
         return json.dumps(rec, indent=2)
 
     mcp_asgi = _mcp.sse_app()
