@@ -5,6 +5,10 @@ builder = "dockerfile"
 name = "graph-advocate"
 source = "Dockerfile"
 
+[[services.volumes]]
+mountPath = "/data"
+name = "advocate-data"
+
 [[services]]
 name = "outreach-cron"
 cronSchedule = "0 9 * * *"
