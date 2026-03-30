@@ -824,7 +824,7 @@ async def export_stats_endpoint(request: Request):
         legit = conn.execute(
             "SELECT COUNT(*) FROM activity WHERE service NOT IN ('introduction', 'out-of-scope', 'rate-limited', 'awaiting-request')"
         ).fetchone()[0]
-        conn.close()
+        # conn.close() moved below — was closing before remaining queries
 
         # Group by unique caller (task_id prefix → agent identity)
         by_agent = conn.execute(
