@@ -892,10 +892,11 @@ def _search_8004_agents(query: str) -> str:
                 agents = data.get("data", [])
                 results = [f"- {a.get('name','unnamed')} (score: {a.get('total_score',0)})" for a in agents[:10]]
                 return json.dumps({"source": "8004scan.io", "top_agents": "\n".join(results)})
-            return ""
+            return _search_8004_subgraph(query)
     except Exception as e:
         log.error(f"8004scan search error: {e}")
-        return ""
+        # Fallback to direct subgraph query
+        return _search_8004_subgraph(query)
 
 
 def _search_subgraphs(keyword: str) -> str:
@@ -1159,3 +1160,61 @@ if __name__ == "__main__":
     prompt = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "Top 20 USDC holders on Ethereum"
     rec, _ = ask_graph_advocate(prompt)
     print(json.dumps(rec, indent=2))
+
+
+def _search_8004_subgraph(query: str) -> str:
+    """Fallback: query the ERC-8004 subgraph directly via The Graph gateway."""
+    import httpx
+    import logging
+    log = logging.getLogger("graph-advocate")
+
+    SUBGRAPH_ID = "HZ6yKjjbYpkLTXLJBxfe4HWN3jxkLfLNJXh4zeVj1t9L"
+    GATEWAY_KEY = os.environ.get("GATEWAY_API_KEY", "7006f39fbab470711f44a5195b4d97c0")
+    URL = f"https://gateway.thegraph.com/api/{GATEWAY_KEY}/subgraphs/id/{SUBGRAPH_ID}"
+
+    gql = """
+    {
+      agentRegistrationFiles(first: 15, where: {name_not: null}, orderBy: createdAt, orderDirection: desc) {
+        agentId name description mcpEndpoint a2aEndpoint x402Support ens supportedTrusts
+      }
+      globalStats(id: "global") { totalAgents totalFeedback totalValidations }
+    }
+    """
+
+    try:
+        r = httpx.post(URL, json={"query": gql}, timeout=10)
+        if r.status_code != 200:
+            return ""
+        data = r.json().get("data", {})
+        agents = data.get("agentRegistrationFiles", [])
+        stats = data.get("globalStats", {})
+
+        # Filter by query if provided
+        if query:
+            q = query.lower()
+            agents = [a for a in agents if q in (a.get("name","") + " " + (a.get("description","") or "")).lower()]
+
+        if not agents:
+            return ""
+
+        results = []
+        for a in agents[:10]:
+            entry = f"- {a.get('name','unnamed')} (agent #{a['agentId']})"
+            desc = (a.get("description") or "")[:100]
+            if desc: entry += f"\n  {desc}"
+            if a.get("mcpEndpoint"): entry += f"\n  MCP: {a['mcpEndpoint']}"
+            if a.get("a2aEndpoint"): entry += f"\n  A2A: {a['a2aEndpoint']}"
+            if a.get("x402Support"): entry += f"\n  x402: enabled"
+            if a.get("ens"): entry += f"\n  ENS: {a['ens']}"
+            results.append(entry)
+
+        return json.dumps({
+            "source": "ERC-8004 subgraph (The Graph)",
+            "subgraph_id": SUBGRAPH_ID,
+            "total_registered": stats.get("totalAgents", "?"),
+            "total_feedback": stats.get("totalFeedback", "?"),
+            "results": "\n".join(results),
+        }, indent=2)
+    except Exception as e:
+        log.error(f"8004 subgraph query error: {e}")
+        return ""
