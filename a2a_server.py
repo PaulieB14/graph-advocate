@@ -665,7 +665,7 @@ class GraphAdvocateExecutor(AgentExecutor):
         if _cached_key in _RESPONSE_CACHE:
             _cached_ts, _cached_resp = _RESPONSE_CACHE[_cached_key]
             import time as _time
-            if _time.time() - _cached_ts < 1800:  # 30 min cache
+            if _time.time() - _cached_ts < 3600:  # 60 min cache
                 log.info(f"CACHED   task={task_id} | serving cached response")
                 _log_request(task_id, user_text, _cached_resp.get("recommendation", "cached"), "high", "cached")
                 await event_queue.enqueue_event(new_agent_text_message(json.dumps(_cached_resp)))
