@@ -45,6 +45,7 @@ Exposes itself as an **A2A (Agent-to-Agent) server** so any A2A-compatible agent
 | `subgraphs-skills` | AI skills for subgraph development |
 | `subgraph-mcp-skills` | AI skills for querying via MCP |
 | `create-substreams-sink-sql` | Scaffold Substreams → PostgreSQL sink |
+| `mcp8004` | ERC-8004 agent auth middleware for MCP servers |
 
 ---
 
