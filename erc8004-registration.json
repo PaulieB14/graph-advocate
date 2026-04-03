@@ -1,13 +1,13 @@
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Graph Advocate",
-  "description": "Onchain data routing agent for The Graph Protocol. Routes plain-English blockchain questions to 15,500+ subgraphs, Token API, Substreams, and protocol-specific MCP servers. Returns live execution results — not just routing instructions.",
+  "description": "Find the right subgraph and get a ready-to-run GraphQL query for any onchain data need. Searches 15,500+ subgraphs across 20+ chains (Uniswap, Aave, ENS, Compound, Curve, Lido, and more). Returns the subgraph ID, a working query, and a playground link. Also provides live data via Token API (wallet balances, DEX swaps, NFTs, holder rankings) across EVM, Solana, and TON. Free API key — 100K queries/month at thegraph.com/studio.",
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-03-26T17:00:00Z",
-  "mcpTools": ["route_data_request"],
-  "a2aSkills": ["route_data_request", "compare_services", "recommend_npm_package"],
+  "updatedAt": "2026-04-03T00:00:00Z",
+  "mcpTools": ["find_subgraph", "write_query", "onchain_data"],
+  "a2aSkills": ["find_subgraph", "write_query", "onchain_data"],
   "services": [
     {
       "name": "MCP",
@@ -24,23 +24,21 @@
       "endpoint": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
       "version": "0.8.0",
       "skills": [
+        "Subgraph Discovery",
+        "GraphQL Query Building",
         "Information Retrieval and Synthesis",
         "Analytical and Logical Reasoning",
         "API Schema Understanding",
-        "Workflow Automation",
         "Tool Use Planning",
-        "Strategic Planning",
         "Data Transformation Pipeline",
         "Schema Inference"
       ],
       "domains": [
-        "finance_and_business/investment_services",
         "technology/blockchain",
-        "technology/blockchain/cryptocurrency",
         "technology/blockchain/defi",
         "technology/blockchain/smart_contracts",
         "technology/software_engineering/apis_integration",
-        "research_and_development/research_data_management",
+        "finance_and_business/investment_services",
         "technology/artificial_intelligence"
       ]
     },
