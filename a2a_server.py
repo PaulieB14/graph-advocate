@@ -515,56 +515,61 @@ except Exception as _fe:
 
 SKILLS = [
     AgentSkill(
-        id="route_data_request",
-        name="Route onchain data request",
+        id="find_subgraph",
+        name="Find the best subgraph for any protocol",
         description=(
-            "Given a plain-English description of onchain data needed, returns a "
-            "structured JSON recommendation: which Graph service to use (Token API, "
-            "Subgraph Registry, Substreams, or a protocol-specific MCP package), "
-            "why it's the best fit, and a ready-to-execute tool call."
+            "Searches 15,500+ subgraphs across 20+ chains to find the best one for "
+            "your data need. Returns the subgraph ID, a ready-to-run GraphQL query, "
+            "query volume (reliability signal), and a playground link to test it. "
+            "Free API key at thegraph.com/studio — 100K queries/month, 2 min signup."
         ),
-        tags=["graph", "blockchain", "routing", "token-api", "subgraph", "substreams"],
+        tags=["subgraph", "graphql", "discovery", "defi", "protocol", "blockchain"],
+        examples=[
+            "Best subgraph for Uniswap V3 on Arbitrum?",
+            "Which subgraph tracks ENS domain registrations?",
+            "Find a Compound V3 subgraph with high query volume",
+            "Subgraph for tracking Lido stETH deposits?",
+            "Is there a subgraph for Curve pool TVL?",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="write_query",
+        name="Write a GraphQL query for any subgraph",
+        description=(
+            "Given a data need, returns a complete ready-to-execute GraphQL query "
+            "with the correct subgraph ID, entity names, and field selections. "
+            "Just add your free API key and POST to the gateway. Works with any "
+            "HTTP client — no SDK or MCP required."
+        ),
+        tags=["graphql", "query", "subgraph", "api"],
+        examples=[
+            "GraphQL query for top 10 Uniswap pools by TVL",
+            "Query to get all Aave V3 liquidations above $100K",
+            "How do I query ENS names owned by a wallet?",
+            "Get the last 50 Polymarket trades for a specific market",
+            "Query for all tokens held by a wallet on Base",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="onchain_data",
+        name="Get live onchain data (balances, swaps, NFTs, holders)",
+        description=(
+            "Returns live blockchain data via Token API — wallet balances, token "
+            "transfers, DEX swaps, NFT sales, holder rankings. Works across EVM "
+            "(Ethereum, Base, Polygon, Arbitrum), Solana, and TON. No subgraph "
+            "needed for these queries."
+        ),
+        tags=["token-api", "wallet", "balance", "nft", "swap", "defi"],
         examples=[
             "Top 20 USDC holders on Ethereum",
-            "Uniswap V3 pool TVL and fee tiers",
-            "Aave liquidation events by protocol entity",
-            "Solana NFT sales last 7 days",
-            "Raw event logs blocks 19M to 20M",
-        ],
-        input_modes=["text"],
-        output_modes=["text"],
-    ),
-    AgentSkill(
-        id="compare_services",
-        name="Compare Graph services for a use case",
-        description=(
-            "Compares Token API, Subgraph Registry, Substreams, and protocol-specific "
-            "MCP packages for a given data need. Returns a ranked list with confidence "
-            "scores and specific tool recommendations for each."
-        ),
-        tags=["graph", "comparison", "routing"],
-        examples=[
-            "Token API vs subgraph for Uniswap pool data?",
-            "What's the best way to get Aave liquidations?",
-            "Can't I just use Etherscan?",
-        ],
-        input_modes=["text"],
-        output_modes=["text"],
-    ),
-    AgentSkill(
-        id="recommend_npm_package",
-        name="Recommend Graph Protocol npm package",
-        description=(
-            "Recommends the right @paulieb npm MCP package for a specific protocol: "
-            "graph-aave-mcp, graph-lending-mcp, graph-polymarket-mcp, predictfun-mcp, "
-            "subgraph-registry-mcp, substreams-search-mcp, subgraphs-skills, "
-            "subgraph-mcp-skills, create-substreams-sink-sql."
-        ),
-        tags=["npm", "mcp", "graph", "aave", "polymarket", "substreams"],
-        examples=[
-            "Which npm package should I use for Aave data?",
-            "How do I query Polymarket via MCP?",
-            "What package lets me sink Substreams data to Postgres?",
+            "Recent DEX swaps on Base above $10K",
+            "NFT sales for Bored Apes last 7 days",
+            "Wallet balance for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+            "Largest token transfers on Solana today",
         ],
         input_modes=["text"],
         output_modes=["text"],
@@ -784,12 +789,10 @@ class GraphAdvocateExecutor(AgentExecutor):
 agent_card = AgentCard(
     name="Graph Advocate",
     description=(
-        "Routes multi-agent onchain data requests to the right Graph Protocol service: "
-        "Token API (balances, swaps, NFTs across EVM/Solana/TON), "
-        "Subgraph Registry (protocol-level indexed data), "
-        "Substreams (raw block data, streaming), or a protocol-specific npm MCP package "
-        "(Aave, Polymarket, Lending, Predict.fun). "
-        "Returns structured JSON with a ready-to-execute tool call."
+        "Find the right subgraph and get a ready-to-run GraphQL query for any onchain data need. "
+        "Searches 15,500+ subgraphs across 20+ chains (Uniswap, Aave, ENS, Compound, Curve, Lido, and more). "
+        "Also provides live data via Token API (wallet balances, DEX swaps, NFTs, holder rankings) "
+        "across EVM, Solana, and TON. Free API key — 100K queries/month, 2 min signup at thegraph.com/studio."
     ),
     url=f"{PUBLIC_URL}/",
     version="1.0.0",

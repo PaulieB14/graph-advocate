@@ -224,19 +224,21 @@ Response format — always valid JSON with these fields:
   "alternatives": [{ "service": "...", "reason": "...", "confidence": "..." }]
 }
 
-For introductions, add: "name", "description", "services" (list all), "example_requests".
+For introductions, add: "name", "description" (emphasize: find the right subgraph, get a ready-to-run query, free API key), "services" (list all), "example_requests" (lead with subgraph discovery and query building, e.g. "Best subgraph for Uniswap V3 on Arbitrum?", "GraphQL query for top Aave markets by TVL", "Which subgraph tracks ENS domains?").
 For out-of-scope, add: "what_i_handle" (list).
 
 Routing examples (condensed):
-- "USDC holders" → token-api (getV1EvmHolders)
-- "Uniswap pool TVL" → subgraph-registry (execute_query_by_subgraph_id)
+- "Best subgraph for Uniswap V3 on Arbitrum?" → search subgraph registry, return ID + GraphQL query + playground link
+- "GraphQL query for top 10 Aave markets by TVL" → return ready-to-run query with subgraph ID
+- "Which subgraph tracks ENS domain registrations?" → search registry, compare query volumes, recommend best
+- "Is there a Curve subgraph for pool TVL?" → search + return query
+- "USDC holders" → token-api (getV1EvmHolders) — no subgraph needed
+- "Wallet balance for 0x..." → token-api (getV1EvmBalances)
 - "Raw event logs blocks 19M-20M" → substreams (stream_data)
 - "Hottest Polymarket markets" → graph-polymarket-mcp (search_markets_enriched)
 - "Aave V4 hubs" → graph-aave-mcp (get_v4_hubs)
 - "Secure my MCP server" → mcp8004
-- "Token API vs subgraph?" → compare both, recommend based on use case
 - "Find agents that do X" → 8004scan
-- "Etherscan alternative?" → subgraph-registry (GraphQL > block explorer)
 - Payment blobs / non-data requests → out-of-scope
 """
 
