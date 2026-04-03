@@ -47,15 +47,18 @@ npm: create-substreams-sink-sql (scaffold a Substreams SQL sink for PostgreSQL �
 [PROTOCOL-SPECIFIC MCP SERVERS — npm packages by @paulieb]
 Use these when the agent's request matches a specific protocol. Install via: npx <package-name>
 
-- graph-aave-mcp: Aave V2/V3 lending + governance data across 7 chains via 11 Graph subgraphs
-  Use for: Aave liquidations, deposits, borrows, interest rates, governance votes
-  Powered by Graph subgraphs: Aave V3 on Ethereum, Arbitrum, Optimism, Polygon, Avalanche, Base, Metis + Aave V2 Ethereum + Governance
+- graph-aave-mcp: Aave V2/V3/V4 — 32 tools across 11 Graph subgraphs + Aave V4 API
+  Use for: Aave liquidations, deposits, borrows, interest rates, governance votes, V4 hubs/spokes, cross-chain positions, exchange rates, swap quotes, rewards
+  V2/V3: Powered by Graph subgraphs — Aave V3 on Ethereum, Arbitrum, Optimism, Polygon, Avalanche, Base, Metis + Aave V2 Ethereum + Governance
+  V4: Powered by Aave V4 API (api.aave.com) — no API key needed. 16 tools: get_v4_hubs, get_v4_spokes, get_v4_reserves, get_v4_user_positions, get_v4_user_summary, get_v4_exchange_rate, get_v4_swap_quote, get_v4_claimable_rewards, and more
+  V4 architecture: Hubs (Core, Plus, Prime) aggregate liquidity across Spokes (Main, Bluechip, Kelp, Lido, Ethena, EtherFi, Forex, Gold, Lombard) — cross-chain lending
 - graph-lending-mcp: Unified tools over Messari standardized lending subgraphs (multi-protocol)
   Use for: cross-protocol lending comparisons, TVL, utilization rates
   Powered by Graph subgraphs: Messari-standardized subgraphs for Aave, Compound, MakerDAO, and other lending protocols
-- graph-polymarket-mcp: Polymarket prediction markets — 31 tools combining The Graph subgraphs + Polymarket REST APIs (Gamma + CLOB)
+- graph-polymarket-mcp (v2.0.0): Polymarket prediction markets — 31 tools combining The Graph subgraphs + Polymarket REST APIs (Gamma + CLOB)
   Use for: market search, live prices, order books, spreads, price history, trader P&L, open interest, resolution status
-  REST API tools (no key needed): search_markets, get_market_info, list_polymarket_events, get_live_prices, get_live_spread, get_live_orderbook, get_price_history, get_last_trade, get_clob_market, search_markets_enriched
+  Supports stdio and SSE transports (--http for remote/server deployments, --http-only for SSE only)
+  REST API tools (no key needed, v2.0.0 additions): search_markets, get_market_info, list_polymarket_events, get_live_prices, get_live_spread, get_live_orderbook, get_price_history, get_last_trade, get_clob_market, search_markets_enriched
   Graph subgraph tools (needs GRAPH_API_KEY): get_market_data, get_account_pnl, get_top_traders, get_market_open_interest, get_market_resolution, get_disputed_markets, get_trader_profile, get_orderbook_trades, and more
   Powered by 8 Graph subgraphs:
     - Main (QmdyCgu...): markets, conditions, trader counts
@@ -705,11 +708,11 @@ You have access to these services:
   Auth: Get a JWT/API key at https://thegraph.market/dashboard#api-keys
 
 **Protocol MCP Packages** (npm by @paulieb — install with npx, no agent required):
-  - graph-aave-mcp: Aave V2/V3 lending + governance across 7 chains
+  - graph-aave-mcp: Aave V2/V3/V4 — 32 tools across 11 Graph subgraphs + Aave V4 API (hubs, spokes, cross-chain positions, swap quotes, rewards)
     Install: `npx graph-aave-mcp` | npm: https://www.npmjs.com/package/graph-aave-mcp
   - graph-lending-mcp: cross-protocol lending comparisons (Messari standardized)
     Install: `npx graph-lending-mcp` | npm: https://www.npmjs.com/package/graph-lending-mcp
-  - graph-polymarket-mcp: Polymarket prediction markets — 31 tools combining 8 Graph subgraphs + Gamma/CLOB REST APIs
+  - graph-polymarket-mcp (v2.0.0): Polymarket prediction markets — 31 tools combining 8 Graph subgraphs + Gamma/CLOB REST APIs. Supports stdio + SSE transports.
     Install: `npx graph-polymarket-mcp` | npm: https://www.npmjs.com/package/graph-polymarket-mcp
     Subgraphs: Main, Orderbook, Open Interest, Resolution, Traders, Beefy P&L, Activity, Slimmed P&L
   - predictfun-mcp: Predict.fun prediction markets on BNB Chain

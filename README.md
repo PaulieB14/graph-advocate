@@ -36,9 +36,9 @@ Exposes itself as an **A2A (Agent-to-Agent) server** so any A2A-compatible agent
 ### npm Packages (`npx <name>`)
 | Package | Protocol |
 |---|---|
-| `graph-aave-mcp` | Aave V2/V3 — 7 chains, 11 subgraphs |
+| `graph-aave-mcp` | Aave V2/V3/V4 — 32 tools, 11 subgraphs + V4 API |
 | `graph-lending-mcp` | Cross-protocol lending (Messari standard) |
-| `graph-polymarket-mcp` | Polymarket prediction markets |
+| `graph-polymarket-mcp` | Polymarket prediction markets — 31 tools, stdio + SSE |
 | `predictfun-mcp` | Predict.fun on BNB Chain |
 | `subgraph-registry-mcp` | 15,500+ classified subgraphs |
 | `substreams-search-mcp` | Substreams package browser |
