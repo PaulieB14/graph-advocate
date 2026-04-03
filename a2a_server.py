@@ -44,8 +44,9 @@ _GREETING_WORDS = {
     "what's up", "whats up",
 }
 
-# Per-sender sliding window rate limiter
+# Per-sender sliding window rate limiter (bounded — evict stale entries)
 _sender_timestamps: dict[str, list[float]] = {}
+_MAX_TRACKED_SENDERS = 500  # evict oldest when exceeded
 
 # Daily per-sender query cap (free tier)
 DAILY_FREE_QUERIES = 10
@@ -146,12 +147,20 @@ def _is_rate_limited(task_id: str) -> bool:
     timestamps = [t for t in timestamps if t > cutoff]
     timestamps.append(now)
     _sender_timestamps[task_id] = timestamps
+
+    # Evict stale senders to prevent unbounded memory growth
+    if len(_sender_timestamps) > _MAX_TRACKED_SENDERS:
+        stale = [k for k, v in _sender_timestamps.items() if not v or v[-1] < cutoff]
+        for k in stale:
+            del _sender_timestamps[k]
+
     return len(timestamps) > RATE_LIMIT_MAX_REQUESTS
 
 
 GREETING_LIMIT_WINDOW = 3600  # 1 hour
 GREETING_LIMIT_MAX = 2        # max 2 greeting responses per sender per hour
 _greeting_timestamps: dict[str, list[float]] = {}
+_MAX_GREETING_SENDERS = 200
 
 
 # Longer intro phrases that should also be fast-handled (no Claude call)
@@ -215,6 +224,13 @@ def _is_greeting_spam(task_id: str) -> bool:
     timestamps = [t for t in timestamps if t > cutoff]
     timestamps.append(now)
     _greeting_timestamps[task_id] = timestamps
+
+    # Evict stale senders
+    if len(_greeting_timestamps) > _MAX_GREETING_SENDERS:
+        stale = [k for k, v in _greeting_timestamps.items() if not v or v[-1] < cutoff]
+        for k in stale:
+            del _greeting_timestamps[k]
+
     return len(timestamps) > GREETING_LIMIT_MAX
 
 
@@ -324,6 +340,7 @@ REQUEST_LOG: deque = deque(maxlen=200)
 
 # Response cache for repeated queries (saves Claude API calls)
 _RESPONSE_CACHE: dict[str, tuple[float, dict]] = {}
+_MAX_CACHE_ENTRIES = 500  # evict oldest when exceeded
 
 
 
@@ -732,8 +749,13 @@ class GraphAdvocateExecutor(AgentExecutor):
             requesting_agent=f"a2a:{task_id}",
         )
         self._history[task_id] = updated_history
-        # Cache the response for repeat queries
+        # Cache the response for repeat queries (bounded)
         _RESPONSE_CACHE[user_text.strip().lower()] = (__import__("time").time(), rec)
+        if len(_RESPONSE_CACHE) > _MAX_CACHE_ENTRIES:
+            # Evict oldest entries
+            sorted_keys = sorted(_RESPONSE_CACHE, key=lambda k: _RESPONSE_CACHE[k][0])
+            for k in sorted_keys[:len(_RESPONSE_CACHE) - _MAX_CACHE_ENTRIES]:
+                del _RESPONSE_CACHE[k]
 
         service = rec.get("recommendation", "unknown")
         confidence = rec.get("confidence", "?")

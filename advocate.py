@@ -1,10 +1,47 @@
 import anthropic
 import json
 import os
+import re
 import sqlite3
+import threading
 from datetime import datetime
 
 client = anthropic.Anthropic()
+
+# ── SQLite connection pool with WAL mode ─────────────────────────────────────
+_db_local = threading.local()
+_DB_PATH = os.environ.get("RECOMMENDATIONS_DB", "/Users/paulbarba/graph-advocate/recommendations.db")
+_db_initialized = False
+
+def _get_db() -> sqlite3.Connection:
+    """Return a thread-local SQLite connection with WAL mode."""
+    global _db_initialized
+    conn = getattr(_db_local, 'conn', None)
+    if conn is None:
+        conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        _db_local.conn = conn
+    if not _db_initialized:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS recommendations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                requesting_agent TEXT,
+                request TEXT,
+                service_chosen TEXT,
+                confidence TEXT,
+                response_json TEXT
+            )
+        """)
+        # Migrate: add response_json column if missing (existing DBs)
+        try:
+            conn.execute("SELECT response_json FROM recommendations LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE recommendations ADD COLUMN response_json TEXT")
+        conn.commit()
+        _db_initialized = True
+    return conn
 
 SYSTEM = """You are the Graph Advocate — an expert agent embedded in a multi-agent system.
 Your job is to help other agents discover and use The Graph Protocol's data services.
@@ -168,197 +205,37 @@ Rules:
 - If the request is about MCP server auth or agent identity verification, route to mcp8004
 - If the request is not about onchain data or agent auth (e.g. payments, irrelevant tasks), respond with recommendation="out-of-scope" and explain what you DO handle
 
-Introduction response example:
-Request: "Hello, I am AutoPayAgent. What services do you offer?"
-Response:
+Response format — always valid JSON with these fields:
 {
-  "recommendation": "introduction",
-  "name": "Graph Advocate",
-  "description": "I route onchain data requests to the right Graph Protocol service.",
-  "confidence": "high",
-  "services": ["token-api", "subgraph-registry", "substreams", "graph-aave-mcp", "graph-lending-mcp", "graph-polymarket-mcp", "predictfun-mcp", "graph-limitless-mcp", "mcp8004"],
-  "example_requests": ["Top 20 USDC holders on Ethereum", "Uniswap V3 pool TVL", "Aave liquidation events", "Hottest prediction markets on Polymarket", "Find a DEX subgraph on Arbitrum", "How do I authenticate agents on my MCP server?"],
-  "query_ready": null,
-  "alternatives": []
+  "recommendation": "<service-name or introduction or out-of-scope>",
+  "reason": "<why this service fits — be specific>",
+  "confidence": "high|medium|low",
+  "query_ready": { "tool": "...", "args": {...} } or null,
+  "install": "npx <package>" (when recommending npm package),
+  "alternatives": [{ "service": "...", "reason": "...", "confidence": "..." }]
 }
 
-Out-of-scope response example:
-Request: "CLAWPAY_V1 payment object..."
-Response:
-{
-  "recommendation": "out-of-scope",
-  "reason": "This appears to be a payment request. I only handle onchain data routing for The Graph Protocol services.",
-  "confidence": "high",
-  "query_ready": null,
-  "alternatives": []
-}
+For introductions, add: "name", "description", "services" (list all), "example_requests".
+For out-of-scope, add: "what_i_handle" (list).
 
-Few-shot examples:
-
-Request: "Top 20 USDC holders on Ethereum with 30-day balance history"
-Response:
-{
-  "recommendation": "token-api",
-  "reason": "getV1EvmHolders returns ranked holder lists by token contract. getV1EvmBalancesHistorical provides 30-day balance snapshots per address — exactly this use case.",
-  "confidence": "high",
-  "query_ready": {
-    "tool": "getV1EvmHolders",
-    "args": {
-      "network_id": "mainnet",
-      "contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-      "limit": 20
-    }
-  },
-  "alternatives": []
-}
-
-Request: "Uniswap V3 pool TVL and fee tiers"
-Response:
-{
-  "recommendation": "subgraph-registry",
-  "reason": "Uniswap V3 subgraph indexes Pool entities with feeTier, totalValueLockedUSD, token0, token1 — exactly this use case. Token API's getV1EvmPools gives OHLCV but no fee tier entity breakdown.",
-  "confidence": "high",
-  "query_ready": {
-    "tool": "execute_query_by_subgraph_id",
-    "args": {
-      "subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
-      "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id feeTier token0 { symbol } token1 { symbol } totalValueLockedUSD } }"
-    }
-  },
-  "alternatives": [
-    {
-      "service": "token-api",
-      "reason": "getV1EvmPoolsOhlc gives OHLCV but no fee tier or entity-level breakdown.",
-      "confidence": "medium"
-    }
-  ]
-}
-
-Request: "Raw decoded event logs, blocks 19000000 to 20000000"
-Response:
-{
-  "recommendation": "substreams",
-  "reason": "Substreams streams raw block data including decoded event logs at the trace level. No subgraph indexes raw logs in arbitrary block ranges; Token API only surfaces higher-level aggregations.",
-  "confidence": "high",
-  "query_ready": {
-    "tool": "stream_data",
-    "args": {
-      "start_block": 19000000,
-      "stop_block": 20000000,
-      "module": "map_events"
-    }
-  },
-  "alternatives": []
-}
-
-Request: "What are the hottest prediction markets on Polymarket right now?"
-Response:
-{
-  "recommendation": "graph-polymarket-mcp",
-  "reason": "graph-polymarket-mcp has search_markets_enriched which searches Polymarket by text, then auto-enriches each result with live CLOB prices AND on-chain resolution status from The Graph — all in one call. 31 tools total combining Gamma API (market search), CLOB API (live prices, order books), and 8 Graph subgraphs (trader P&L, open interest, resolution).",
-  "confidence": "high",
-  "query_ready": {
-    "tool": "search_markets_enriched",
-    "args": {
-      "query": "trending",
-      "limit": 10
-    }
-  },
-  "graph_subgraphs": ["Main (QmdyCgu...)", "Orderbook (QmVGA9v...)", "Open Interest (QmbT2Mm...)", "Resolution (QmZnnrH...)"],
-  "install": "npx graph-polymarket-mcp",
-  "alternatives": [
-    {
-      "service": "token-api",
-      "reason": "Token API can show USDC flows to Polymarket contracts but cannot query market metadata or predictions.",
-      "confidence": "low"
-    }
-  ]
-}
-
-Request: "Token API vs subgraph for Uniswap pool data?"
-Response:
-{
-  "recommendation": "subgraph-registry",
-  "reason": "For Uniswap pool data, a subgraph is better. The Uniswap V3 subgraph indexes Pool entities with feeTier, totalValueLockedUSD, token0, token1, volumeUSD — rich relational data that Token API can't match. Token API's getV1EvmPools gives OHLCV price data and basic pool info but no fee tier breakdown, no per-pool TVL history, and no tick-level liquidity. Use subgraph for protocol-level entity queries; use Token API for cross-chain balances, holder rankings, and swap aggregations.",
-  "confidence": "high",
-  "query_ready": {
-    "tool": "execute_query_by_subgraph_id",
-    "args": {
-      "subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
-      "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id feeTier token0 { symbol } token1 { symbol } totalValueLockedUSD } }"
-    }
-  },
-  "alternatives": [
-    {
-      "service": "token-api",
-      "reason": "getV1EvmPools and getV1EvmPoolsOhlc give OHLCV and basic pool metadata — good for price charts but not protocol-level entity analysis.",
-      "confidence": "medium"
-    }
-  ]
-}
-
-Request: "Can't I just use Etherscan?"
-Response:
-{
-  "recommendation": "subgraph-registry",
-  "reason": "Etherscan is a block explorer — it has no GraphQL query layer, no entity relationships, and rate limits at ~5 req/s free tier. The Graph provides: (1) GraphQL over indexed protocol entities, (2) no per-query rate limits on decentralized network, (3) aggregations and joins impossible with Etherscan, (4) real-time substreams for block-level data. For protocol-level queries The Graph is strictly superior.",
-  "confidence": "high",
-  "query_ready": {
-    "tool": "search_subgraphs_by_keyword",
-    "args": {
-      "keyword": "your-protocol-here"
-    }
-  },
-  "alternatives": [
-    {
-      "service": "token-api",
-      "reason": "Token API covers balances and transfers without requiring subgraph deployment.",
-      "confidence": "medium"
-    }
-  ]
-}
-
-Request: "How do I verify agent identity on my MCP server?"
-Response:
-{
-  "recommendation": "mcp8004",
-  "reason": "mcp8004 is drop-in auth middleware for MCP servers. It verifies agent identity against the ERC-8004 Identity Registry on Base (107K+ agents) using wallet signatures. Registered agents get full tool access; unregistered agents can pay per-request via x402.",
-  "confidence": "high",
-  "install": {
-    "npm": "npm install mcp8004"
-  },
-  "query_ready": null,
-  "github": "https://github.com/jordanlyall/mcp8004",
-  "alternatives": []
-}
+Routing examples (condensed):
+- "USDC holders" → token-api (getV1EvmHolders)
+- "Uniswap pool TVL" → subgraph-registry (execute_query_by_subgraph_id)
+- "Raw event logs blocks 19M-20M" → substreams (stream_data)
+- "Hottest Polymarket markets" → graph-polymarket-mcp (search_markets_enriched)
+- "Aave V4 hubs" → graph-aave-mcp (get_v4_hubs)
+- "Secure my MCP server" → mcp8004
+- "Token API vs subgraph?" → compare both, recommend based on use case
+- "Find agents that do X" → 8004scan
+- "Etherscan alternative?" → subgraph-registry (GraphQL > block explorer)
+- Payment blobs / non-data requests → out-of-scope
 """
 
 
-def _init_db():
-    conn = sqlite3.connect("/Users/paulbarba/graph-advocate/recommendations.db")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS recommendations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            requesting_agent TEXT,
-            request TEXT,
-            service_chosen TEXT,
-            confidence TEXT,
-            response_json TEXT
-        )
-    """)
-    # Migrate: add response_json column if missing (existing DBs)
-    try:
-        conn.execute("SELECT response_json FROM recommendations LIMIT 1")
-    except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE recommendations ADD COLUMN response_json TEXT")
-    conn.commit()
-    return conn
-
-
 def _log(agent: str, request: str, rec: dict):
+    import logging
     try:
-        conn = _init_db()
+        conn = _get_db()
         conn.execute(
             "INSERT INTO recommendations VALUES (NULL, ?, ?, ?, ?, ?, ?)",
             (
@@ -371,9 +248,34 @@ def _log(agent: str, request: str, rec: dict):
             ),
         )
         conn.commit()
-        conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger("graph-advocate").error(f"DB log failed: {e}")
+
+
+def _word_match(pattern: str, text: str) -> bool:
+    """Match keyword with word boundaries to avoid substring false positives."""
+    return bool(re.search(r'\b' + re.escape(pattern) + r'\b', text))
+
+
+def _any_word_match(keywords: list, text: str) -> bool:
+    """Return True if any keyword matches with word boundaries."""
+    return any(_word_match(kw, text) for kw in keywords)
+
+
+# Pre-compiled protocol name pattern for search term extraction
+_PROTOCOL_PATTERN = re.compile(
+    r'\b(uniswap|aave|compound|curve|ens|balancer|sushi|maker|lido|yearn|'
+    r'synthetix|opensea|chainlink|the graph|polymarket|pancakeswap|'
+    r'gmx|arbitrum|optimism|polygon|base|ethereum|solana|limitless|'
+    r'prediction market|predict\.fun|indexer|'
+    r'erc20|erc721|nft|defi|lending|dex)\b'
+)
+
+_STOP_WORDS = frozenset({
+    "what", "how", "can", "i", "get", "find", "show", "me",
+    "the", "a", "an", "for", "on", "in", "of", "to", "and",
+    "is", "are", "do", "does", "data", "need", "want", "about",
+})
 
 
 def _auto_search(request: str) -> str:
@@ -384,16 +286,14 @@ def _auto_search(request: str) -> str:
 
     req_lower = request.lower()
 
-    # Determine which searches to run
-    run_subgraph = False
-    run_substreams = False
-    run_token_api = False
+    # Determine which searches to run using word-boundary matching
+    # This prevents "compound" matching "compounded" or "curve" matching "incentivecurve"
 
     # Keywords that suggest subgraph search
     SUBGRAPH_KEYWORDS = [
         "subgraph", "uniswap", "aave", "compound", "curve", "ens", "balancer",
         "sushi", "maker", "lido", "yearn", "synthetix", "protocol", "tvl",
-        "liquidity", "pool", "swap", "lending", "governance", "dao",
+        "liquidity", "pool", "lending", "governance", "dao",
         "nft marketplace", "opensea", "decentraland", "the graph",
         "polymarket", "prediction market", "limitless", "predict.fun",
         "open interest", "resolution", "trader p&l", "indexer",
@@ -401,13 +301,18 @@ def _auto_search(request: str) -> str:
     # Keywords that suggest substreams
     SUBSTREAMS_KEYWORDS = [
         "substream", "raw block", "event log", "trace", "streaming",
-        "real-time", "block data", "decode", "spkg",
+        "block data", "decode", "spkg",
     ]
     # Keywords that suggest Token API
     TOKEN_API_KEYWORDS = [
-        "balance", "holder", "transfer", "token", "wallet", "nft",
-        "erc20", "erc721", "swap", "dex", "ohlc", "price",
+        "balance", "holder", "transfer", "wallet", "nft",
+        "erc20", "erc721", "dex", "ohlc",
         "solana", "ton", "svm", "tvm",
+    ]
+    # Multi-word phrases matched as substrings (safe — no false positives)
+    TOKEN_API_PHRASES = [
+        "token price", "token balance", "swap history", "nft sale",
+        "nft holder", "holder ranking",
     ]
     # Keywords that suggest 8004scan agent search
     AGENT_SEARCH_KEYWORDS = [
@@ -416,44 +321,27 @@ def _auto_search(request: str) -> str:
         "agent identity", "agent reputation", "registered agent",
         "mcp agent", "a2a agent", "x402 agent",
     ]
-    run_agent_search = any(kw in req_lower for kw in AGENT_SEARCH_KEYWORDS)
 
-    for kw in SUBGRAPH_KEYWORDS:
-        if kw in req_lower:
-            run_subgraph = True
-            break
-    for kw in SUBSTREAMS_KEYWORDS:
-        if kw in req_lower:
-            run_substreams = True
-            break
-    for kw in TOKEN_API_KEYWORDS:
-        if kw in req_lower:
-            run_token_api = True
-            break
+    run_subgraph = _any_word_match(SUBGRAPH_KEYWORDS, req_lower)
+    run_substreams = _any_word_match(SUBSTREAMS_KEYWORDS, req_lower)
+    run_token_api = (
+        _any_word_match(TOKEN_API_KEYWORDS, req_lower)
+        or any(p in req_lower for p in TOKEN_API_PHRASES)
+    )
+    run_agent_search = any(kw in req_lower for kw in AGENT_SEARCH_KEYWORDS)
 
     # If nothing matched, run subgraph search as default (most common)
     if not run_subgraph and not run_substreams and not run_token_api:
         run_subgraph = True
 
     # Extract a search keyword from the request (first meaningful noun/protocol name)
-    import re
-    # Try to find a protocol name
-    protocol_match = re.search(
-        r'\b(uniswap|aave|compound|curve|ens|balancer|sushi|maker|lido|yearn|'
-        r'synthetix|opensea|chainlink|the graph|polymarket|pancakeswap|'
-        r'gmx|arbitrum|optimism|polygon|base|ethereum|solana|limitless|'
-        r'prediction market|predict\.fun|indexer|'
-        r'erc20|erc721|nft|defi|lending|dex)\b',
-        req_lower
-    )
+    protocol_match = _PROTOCOL_PATTERN.search(req_lower)
     search_term = protocol_match.group(1) if protocol_match else ""
 
     # Fallback: use first 1-2 significant words
     if not search_term:
         words = [w for w in re.findall(r'[a-z]+', req_lower)
-                 if w not in {"what", "how", "can", "i", "get", "find", "show", "me",
-                              "the", "a", "an", "for", "on", "in", "of", "to", "and",
-                              "is", "are", "do", "does", "data", "need", "want", "about"}]
+                 if w not in _STOP_WORDS]
         search_term = words[0] if words else ""
 
     if not search_term:
@@ -487,6 +375,9 @@ def _auto_search(request: str) -> str:
     return "\n\n".join(results)
 
 
+MAX_REQUEST_LENGTH = 2000  # chars — prevents prompt stuffing and abuse
+
+
 def ask_graph_advocate(
     request: str,
     history: list = None,
@@ -494,6 +385,15 @@ def ask_graph_advocate(
 ) -> tuple[dict, list]:
     import logging
     log = logging.getLogger("graph-advocate")
+
+    # Input validation — truncate oversized requests, strip null bytes
+    request = request.replace("\x00", "").strip()
+    if len(request) > MAX_REQUEST_LENGTH:
+        log.warning(f"Request truncated from {len(request)} to {MAX_REQUEST_LENGTH} chars")
+        request = request[:MAX_REQUEST_LENGTH]
+
+    if not request:
+        return {"recommendation": "out-of-scope", "reason": "Empty request", "confidence": "high", "query_ready": None, "alternatives": []}, []
 
     # Run real searches and inject results as context
     search_context = ""
@@ -556,7 +456,6 @@ def ask_graph_advocate(
     messages.append({"role": "assistant", "content": response.content})
 
     # Extract JSON from markdown code fences if present
-    import re
     fence_match = re.search(r"```(?:json)?\n?([\s\S]*?)\n?```", raw)
     clean = fence_match.group(1).strip() if fence_match else raw.strip()
 
@@ -996,7 +895,6 @@ def _search_subgraphs(keyword: str) -> str:
 def _search_substreams(keyword: str) -> str:
     """Search substreams.dev registry (same API as substreams-search-mcp)."""
     import urllib.request
-    import re
 
     try:
         params = urllib.parse.urlencode({"search": keyword, "sort": "most_downloaded", "page": "1"})
