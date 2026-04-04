@@ -219,6 +219,7 @@ Response format — always valid JSON with these fields:
   "reason": "<why this service fits — be specific>",
   "confidence": "high|medium|low",
   "query_ready": { "tool": "...", "args": {...} } or null,
+  "curl_example": "<working shell command the agent can copy-paste right now — always include this>",
   "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
   "install": "npx <package>" (when an npm MCP package exists for the protocol),
   "alternatives": [{ "service": "...", "reason": "...", "confidence": "..." }]
@@ -279,7 +280,9 @@ _PROTOCOL_PATTERN = re.compile(
     r'synthetix|opensea|chainlink|the graph|polymarket|pancakeswap|'
     r'gmx|arbitrum|optimism|polygon|base|ethereum|solana|limitless|'
     r'prediction market|predict\.fun|indexer|'
-    r'erc20|erc721|nft|defi|lending|dex)\b'
+    r'dydx|stargate|layerzero|velodrome|aerodrome|camelot|quickswap|'
+    r'frax|convex|morpho|spark|pendle|hyperliquid|drift|perpetual|'
+    r'erc20|erc721|nft|defi|lending|dex|staking|yield|governance)\b'
 )
 
 _STOP_WORDS = frozenset({
@@ -287,6 +290,228 @@ _STOP_WORDS = frozenset({
     "the", "a", "an", "for", "on", "in", "of", "to", "and",
     "is", "are", "do", "does", "data", "need", "want", "about",
 })
+
+
+def _extract_json(raw: str) -> dict:
+    """Robustly extract a JSON object from Claude's response.
+
+    Tries in order:
+      1. Markdown code fence (```json ... ``` or ``` ... ```)
+      2. Full raw string as-is
+      3. Outermost { ... } object found anywhere in the text
+    Returns {"raw": ..., "parse_error": True} only when all attempts fail.
+    """
+    # 1. Code fence
+    fence = re.search(r"```(?:json)?\n?([\s\S]*?)\n?```", raw)
+    if fence:
+        try:
+            return json.loads(fence.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # 2. Whole string
+    stripped = raw.strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+
+    # 3. Find outermost { ... } — handles text before/after JSON
+    start = stripped.find("{")
+    if start != -1:
+        depth = 0
+        for i, ch in enumerate(stripped[start:], start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(stripped[start : i + 1])
+                    except json.JSONDecodeError:
+                        break  # malformed — fall through
+
+    return {"raw": raw, "parse_error": True}
+
+
+# ── Per-service working curl / npx examples injected when query_ready is null ─
+_SERVICE_CURL_EXAMPLES: dict[str, dict] = {
+    "graph-aave-mcp": {
+        "install": "npx graph-aave-mcp",
+        "curl_example": (
+            "# Easiest: run the MCP server (works in Claude Code, Cursor, any MCP client)\n"
+            "npx graph-aave-mcp\n\n"
+            "# Or query the Aave V3 subgraph directly (needs a free API key from thegraph.com/studio)\n"
+            "curl -X POST 'https://gateway.thegraph.com/api/YOUR_API_KEY/subgraphs/id/Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"query\": \"{ markets(first: 5, orderBy: totalValueLockedUSD, orderDirection: desc) { name totalValueLockedUSD borrowingEnabled } }\"}'"
+        ),
+        "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
+    },
+    "graph-polymarket-mcp": {
+        "install": "npx graph-polymarket-mcp",
+        "curl_example": (
+            "# Easiest: run the MCP server\n"
+            "npx graph-polymarket-mcp\n\n"
+            "# Or hit the REST API directly (no key needed for basic endpoints)\n"
+            "curl 'https://gamma-api.polymarket.com/markets?limit=5&active=true&order=volume&ascending=false'"
+        ),
+        "get_started": "Free API key for subgraph queries: https://thegraph.com/studio/",
+    },
+    "graph-lending-mcp": {
+        "install": "npx graph-lending-mcp",
+        "curl_example": (
+            "# Easiest: run the MCP server\n"
+            "npx graph-lending-mcp\n\n"
+            "# Or query the Messari lending subgraph directly\n"
+            "curl -X POST 'https://gateway.thegraph.com/api/YOUR_API_KEY/subgraphs/id/H4YsG6asELTYxYWCBgraphs' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"query\": \"{ markets(first: 5, orderBy: totalValueLockedUSD, orderDirection: desc) { name protocol { name } totalValueLockedUSD } }\"}'"
+        ),
+        "get_started": "Free API key: https://thegraph.com/studio/",
+    },
+    "graph-limitless-mcp": {
+        "install": "npx graph-limitless-mcp",
+        "curl_example": (
+            "# Easiest: run the MCP server (requires GRAPH_API_KEY env var)\n"
+            "GRAPH_API_KEY=your_key npx graph-limitless-mcp\n\n"
+            "# Free API key: https://thegraph.com/studio/"
+        ),
+        "get_started": "Free API key: https://thegraph.com/studio/",
+    },
+    "predictfun-mcp": {
+        "install": "npx predictfun-mcp",
+        "curl_example": (
+            "# Run the MCP server\n"
+            "npx predictfun-mcp\n\n"
+            "# Or query Predict.fun REST API directly\n"
+            "curl 'https://predict.fun/api/markets?limit=5'"
+        ),
+        "get_started": "No API key required for Predict.fun REST API.",
+    },
+    "substreams": {
+        "install": "npx substreams-search-mcp",
+        "curl_example": (
+            "# Search Substreams packages\n"
+            "npx substreams-search-mcp\n\n"
+            "# Or browse the registry directly\n"
+            "curl 'https://substreams.dev/packages?search=uniswap&sort=most_downloaded'"
+        ),
+        "get_started": "Free Substreams API key: https://thegraph.market/dashboard#api-keys",
+    },
+    "subgraph-registry": {
+        "curl_example": (
+            "# Query any subgraph — get a free API key first (thegraph.com/studio)\n"
+            "curl -X POST 'https://gateway.thegraph.com/api/YOUR_API_KEY/subgraphs/id/SUBGRAPH_ID' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"query\": \"{ _meta { block { number } } }\"}'"
+        ),
+        "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
+    },
+    "token-api": {
+        "curl_example": (
+            "# Get USDC holders on Ethereum (replace TOKEN with your JWT)\n"
+            "curl 'https://token-api.thegraph.com/v1/evm/holders?contract=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&network=mainnet&limit=10' \\\n"
+            "  -H 'Authorization: Bearer YOUR_JWT'"
+        ),
+        "get_started": "Free JWT: https://thegraph.market/auth/tokenapi-env",
+    },
+    "8004scan": {
+        "curl_example": (
+            "# Search agents on 8004scan\n"
+            "curl 'https://8004scan.io/api/v1/public/agents/search?q=mcp&limit=10'\n\n"
+            "# Browse all agents\n"
+            "curl 'https://8004scan.io/api/v1/public/agents?limit=10&sort=score&order=desc'"
+        ),
+        "get_started": "Register your agent at https://8004scan.io",
+    },
+    "mcp8004": {
+        "install": "npm install mcp8004",
+        "curl_example": (
+            "# Install auth middleware for your MCP server\n"
+            "npm install mcp8004\n\n"
+            "# Usage in your server:\n"
+            "# import { authMiddleware } from 'mcp8004';\n"
+            "# app.use(authMiddleware({ minScore: 0 }));"
+        ),
+        "get_started": "GitHub: https://github.com/jordanlyall/mcp8004",
+    },
+}
+
+
+def _fallback_route(request: str) -> dict:
+    """Keyword-based fallback router — fires when Claude's response can't be parsed
+    or returns a JSON blob without a 'recommendation' field.
+
+    Returns a minimal valid routing dict so the caller always gets a usable response.
+    """
+    req = request.lower()
+
+    # Ordered from most-specific to least-specific
+    if any(w in req for w in ["aave", "v4 hub", "v4 spoke", "aave v3", "aave v2", "liquidat"]):
+        svc = "graph-aave-mcp"
+    elif any(w in req for w in ["polymarket", "poly market"]):
+        svc = "graph-polymarket-mcp"
+    elif any(w in req for w in ["predict.fun", "predictfun", "bnb chain prediction"]):
+        svc = "predictfun-mcp"
+    elif any(w in req for w in ["limitless", "limitless market"]):
+        svc = "graph-limitless-mcp"
+    elif any(w in req for w in ["lending", "borrow", "collateral", "utilization"]):
+        svc = "graph-lending-mcp"
+    elif any(w in req for w in ["mcp8004", "mcp auth", "secure my mcp", "agent auth", "agent identity"]):
+        svc = "mcp8004"
+    elif any(w in req for w in ["find agent", "discover agent", "erc-8004", "erc8004", "8004"]):
+        svc = "8004scan"
+    elif any(w in req for w in ["balance", "holder", "transfer", "swap", "nft", "wallet", "price",
+                                  "volume", "whale", "top holder", "biggest", "solana", "ton"]):
+        svc = "token-api"
+    elif any(w in req for w in ["substream", "raw block", "event log", "trace", "streaming", "spkg"]):
+        svc = "substreams"
+    else:
+        svc = "subgraph-registry"
+
+    example = _SERVICE_CURL_EXAMPLES.get(svc, {})
+    return {
+        "recommendation": svc,
+        "reason": f"Keyword-based fallback routing for: {request[:100]}",
+        "confidence": "medium",
+        "query_ready": None,
+        "curl_example": example.get("curl_example", ""),
+        "install": example.get("install", ""),
+        "get_started": example.get("get_started", "Free API key: https://thegraph.com/studio/"),
+        "alternatives": [],
+        "_fallback": True,
+    }
+
+
+def _inject_missing_fields(rec: dict, request: str) -> dict:
+    """Ensure every recommendation has a curl_example and get_started URL.
+
+    Called after Claude's response is parsed. Fills in fields that Claude
+    frequently omits so agents always receive a working example to run.
+    """
+    svc = rec.get("recommendation", "")
+    example = _SERVICE_CURL_EXAMPLES.get(svc, {})
+
+    # Always inject get_started if missing
+    if not rec.get("get_started") and example.get("get_started"):
+        rec["get_started"] = example["get_started"]
+
+    # Inject install command for npm-package services
+    if not rec.get("install") and example.get("install"):
+        rec["install"] = example["install"]
+
+    # Inject curl_example when query_ready is null/missing
+    if not rec.get("curl_example") and not rec.get("query_ready") and example.get("curl_example"):
+        rec["curl_example"] = example["curl_example"]
+
+    # Ensure query_ready has a consistent shape (never missing tool/args keys)
+    qr = rec.get("query_ready")
+    if isinstance(qr, dict):
+        qr.setdefault("tool", "")
+        qr.setdefault("args", {})
+
+    return rec
 
 
 def _auto_search(request: str) -> str:
@@ -308,17 +533,30 @@ def _auto_search(request: str) -> str:
         "nft marketplace", "opensea", "decentraland", "the graph",
         "polymarket", "prediction market", "limitless", "predict.fun",
         "open interest", "resolution", "trader p&l", "indexer",
+        # additional common queries
+        "exchange", "staking", "yield", "farm", "vault", "borrow",
+        "collateral", "oracle", "dydx", "gmx", "stargate", "layerzero",
+        "pancake", "quickswap", "velodrome", "aerodrome", "camelot",
+        "frax", "convex", "morpho", "spark", "sky", "pendle",
+        "hyperliquid", "drift", "perpetual", "perp", "margin",
+        "rewards", "incentive", "emission", "vote", "gauge",
     ]
     # Keywords that suggest substreams
     SUBSTREAMS_KEYWORDS = [
         "substream", "raw block", "event log", "trace", "streaming",
         "block data", "decode", "spkg",
+        "real-time", "realtime", "firehose", "sink", "pipeline",
     ]
     # Keywords that suggest Token API
     TOKEN_API_KEYWORDS = [
         "balance", "holder", "transfer", "wallet", "nft",
         "erc20", "erc721", "dex", "ohlc",
         "solana", "ton", "svm", "tvm",
+        # additional common queries
+        "swap", "price", "volume", "whale", "top holder", "biggest",
+        "largest", "richest", "portfolio", "token amount",
+        "usdc", "usdt", "weth", "eth holder", "btc holder",
+        "nft sale", "nft floor", "nft owner",
     ]
     # Multi-word phrases matched as substrings (safe — no false positives)
     TOKEN_API_PHRASES = [
@@ -356,7 +594,12 @@ def _auto_search(request: str) -> str:
         search_term = words[0] if words else ""
 
     if not search_term:
-        return ""
+        # Don't bail — use the first word of the request as a last resort
+        # so short queries still get search context injected
+        words = [w for w in re.findall(r'[a-z]{3,}', req_lower)
+                 if w not in _STOP_WORDS]
+        search_term = words[0] if words else "defi"
+        log.debug(f"auto-search: no protocol match, using fallback term={search_term!r}")
 
     try:
         if run_subgraph:
@@ -466,14 +709,23 @@ def ask_graph_advocate(
     )
     messages.append({"role": "assistant", "content": response.content})
 
-    # Extract JSON from markdown code fences if present
-    fence_match = re.search(r"```(?:json)?\n?([\s\S]*?)\n?```", raw)
-    clean = fence_match.group(1).strip() if fence_match else raw.strip()
+    rec = _extract_json(raw)
 
-    try:
-        rec = json.loads(clean)
-    except json.JSONDecodeError:
-        rec = {"raw": raw, "parse_error": True}
+    # If parse failed or recommendation is missing, use keyword fallback router
+    if rec.get("parse_error") or not rec.get("recommendation"):
+        fallback = _fallback_route(request)
+        if rec.get("parse_error"):
+            log.warning(f"JSON parse failed, using fallback router | raw[:120]={raw[:120]!r}")
+            rec = fallback
+        else:
+            # Valid JSON but no recommendation — merge fallback in
+            rec.setdefault("recommendation", fallback["recommendation"])
+            rec.setdefault("confidence", fallback["confidence"])
+            rec.setdefault("reason", fallback.get("reason", ""))
+
+    # Inject working curl/npx example when query_ready is absent
+    if not rec.get("parse_error"):
+        rec = _inject_missing_fields(rec, request)
 
     _log(requesting_agent, request, rec)
 
@@ -595,6 +847,22 @@ def _execute_recommendation(rec: dict) -> dict | None:
             except Exception as e:
                 log.error(f"Subgraph query failed: {e}")
                 return {"source": "subgraph-gateway", "error": str(e)}
+
+    # ── npm MCP package services — return a structured curl/npx example ──────
+    NPM_SERVICES = {
+        "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
+        "graph-limitless-mcp", "predictfun-mcp", "substreams", "8004scan", "mcp8004",
+    }
+    if service in NPM_SERVICES:
+        example = _SERVICE_CURL_EXAMPLES.get(service, {})
+        if example:
+            return {
+                "source": service,
+                "install": example.get("install", ""),
+                "curl_example": example.get("curl_example", ""),
+                "get_started": example.get("get_started", ""),
+                "note": "Run the install command to get live data from this service.",
+            }
 
     return None
 

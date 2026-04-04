@@ -940,24 +940,46 @@ async def logs_endpoint(request: Request):
     return JSONResponse(list(reversed(REQUEST_LOG)))
 
 
-async def dashboard_endpoint(request: Request):
+def _build_dashboard_data() -> dict:
+    """Build the full dashboard data payload as a plain dict.
+
+    Called by both dashboard_data_endpoint (JSON API) and, historically,
+    dashboard_endpoint.  Keeping data-building here means the JSON endpoint
+    and the HTML shell always show exactly the same numbers.
+    """
     from collections import Counter
     import json as _json
     import sqlite3 as _sq
 
-    # ── Read from SQLite (full history) with fallback to in-memory log ───
+    NOISE = {"out-of-scope", "introduction", "awaiting-request", "unknown", "chat",
+             "rate-limited", "payment-required", "x402-paid", "x402-failed"}
+    SERVICE_COLORS = {
+        "token-api":            "#10b981",
+        "subgraph-registry":    "#6366f1",
+        "substreams":           "#f59e0b",
+        "graph-aave-mcp":       "#3b82f6",
+        "graph-lending-mcp":    "#8b5cf6",
+        "graph-polymarket-mcp": "#ec4899",
+        "predictfun-mcp":       "#14b8a6",
+        "graph-limitless-mcp":  "#f97316",
+        "comparison":           "#64748b",
+        "chat":                 "#475569",
+    }
+
+    # ── Recent rows from SQLite ───────────────────────────────────────────
     db_rows = []
     try:
         conn = _sq.connect(str(DB_PATH))
         conn.row_factory = _sq.Row
         db_rows = conn.execute(
-            "SELECT timestamp as ts, task_id, sender_type, request, service, confidence, tool, response_json, reason FROM activity ORDER BY timestamp DESC LIMIT 200"
+            "SELECT timestamp as ts, task_id, sender_type, request, service, "
+            "confidence, tool, response_json, reason "
+            "FROM activity ORDER BY timestamp DESC LIMIT 200"
         ).fetchall()
         conn.close()
     except Exception:
         pass
 
-    # Convert to dicts, falling back to in-memory if DB is empty
     if db_rows:
         logs = []
         for r in db_rows:
@@ -976,23 +998,16 @@ async def dashboard_endpoint(request: Request):
     else:
         logs = list(reversed(REQUEST_LOG))
 
-    # Get total count from DB (full history, not just last 200)
+    # ── Aggregate counts from DB ──────────────────────────────────────────
     total = 0
+    legit = spam = intro = fast_rejected = rate_limited = 0
+    service_counts: Counter = Counter()
     try:
         conn = _sq.connect(str(DB_PATH))
         total = conn.execute("SELECT COUNT(*) FROM activity").fetchone()[0]
-        conn.close()
-    except Exception:
-        total = len(logs)
-
-    # Categorise every request
-    legit, spam, intro, fast_rejected, rate_limited = 0, 0, 0, 0, 0
-    service_counts: Counter = Counter()
-
-    # Use DB aggregates for full-history counts
-    try:
-        conn = _sq.connect(str(DB_PATH))
-        for row in conn.execute("SELECT service, tool, COUNT(*) as cnt FROM activity GROUP BY service, tool"):
+        for row in conn.execute(
+            "SELECT service, tool, COUNT(*) as cnt FROM activity GROUP BY service, tool"
+        ):
             svc, tool_val, cnt = row[0] or "unknown", row[1] or "", row[2]
             service_counts[svc] += cnt
             if svc == "rate-limited":
@@ -1007,14 +1022,14 @@ async def dashboard_endpoint(request: Request):
                 legit += cnt
         conn.close()
     except Exception:
+        total = len(logs)
         for r in logs:
-            svc = r.get("service", "unknown")
-            service_counts[svc] += 1
+            service_counts[r.get("service", "unknown")] += 1
 
     reject_pct = int(fast_rejected / total * 100) if total else 0
     legit_pct  = int(legit / total * 100) if total else 0
 
-    # Health signal: green if last real query ≤ 5 min ago, amber ≤ 30, else grey
+    # ── Health signal ─────────────────────────────────────────────────────
     health_color = "#475569"
     health_label = "No data yet"
     for r in logs:
@@ -1031,195 +1046,147 @@ async def dashboard_endpoint(request: Request):
                 pass
             break
 
-    # Donut chart data — top services excluding noise categories
-    NOISE = {"out-of-scope", "introduction", "awaiting-request", "unknown", "chat",
-             "rate-limited", "payment-required", "x402-paid", "x402-failed"}
-    SERVICE_COLORS = {
-        "token-api":            "#10b981",
-        "subgraph-registry":    "#6366f1",
-        "substreams":           "#f59e0b",
-        "graph-aave-mcp":       "#3b82f6",
-        "graph-lending-mcp":    "#8b5cf6",
-        "graph-polymarket-mcp": "#ec4899",
-        "predictfun-mcp":       "#14b8a6",
-        "graph-limitless-mcp":  "#f97316",
-        "comparison":           "#64748b",
-        "chat":                 "#475569",
-    }
-    donut_labels  = [k for k in service_counts if k not in NOISE]
-    donut_values  = [service_counts[k] for k in donut_labels]
-    donut_colors  = [SERVICE_COLORS.get(k, "#64748b") for k in donut_labels]
-    # fallback so chart always has something
+    # ── Donut chart ───────────────────────────────────────────────────────
+    donut_labels = [k for k in service_counts if k not in NOISE]
+    donut_values = [service_counts[k] for k in donut_labels]
+    donut_colors = [SERVICE_COLORS.get(k, "#64748b") for k in donut_labels]
     if not donut_labels:
         donut_labels, donut_values, donut_colors = ["no legit queries yet"], [1], ["#334155"]
 
-    # Table rows with expandable response (last 50 from logs)
-    rows = ""
-    for idx, r in enumerate(logs[:50]):
-        svc = r.get("service", "unknown")
-        tool = r.get("tool", "?")
-        task_id = r.get("task_id", "?")
-        resp = r.get("response")
-        color = SERVICE_COLORS.get(svc, "#ef4444" if svc == "out-of-scope" else "#475569")
-        badge = (f'<span style="background:{color};padding:2px 8px;border-radius:6px;'
-                 f'font-size:.75rem;color:#fff;font-weight:600">{svc}</span>')
-        tool_color = "#ef4444" if tool == "fast-reject" else "#64748b"
-        # Sender badge
-        if task_id.startswith("fetch:"):
-            sender_badge = '<span style="color:#14b8a6;font-size:.65rem">fetch.ai</span>'
-        elif task_id.startswith("a2a:"):
-            sender_badge = f'<span style="color:#8b5cf6;font-size:.65rem">a2a:{task_id[4:12]}</span>'
-        elif task_id.startswith("chat:"):
-            sender_badge = '<span style="color:#f59e0b;font-size:.65rem">web chat</span>'
-        elif task_id == "mcp":
-            sender_badge = '<span style="color:#3b82f6;font-size:.65rem">mcp client</span>'
-        else:
-            sender_badge = f'<span style="color:#475569;font-size:.65rem">{task_id[:16]}</span>'
-        # Expand button if response exists
-        has_resp = False
+    # ── Recent rows for table (serialisable — strip non-JSON-safe objects) ─
+    recent = []
+    for r in logs[:50]:
+        resp = r.get("response") or {}
+        reason = ""
+        subgraphs = []
+        alternatives = []
+        query_tool = ""
+        if isinstance(resp, dict):
+            reason = str(resp.get("reason", "") or "")[:300]
+            subgraphs = [str(s) for s in (resp.get("graph_subgraphs") or [])]
+            qr = resp.get("query_ready") or {}
+            query_tool = qr.get("tool", "") if isinstance(qr, dict) else ""
+            for alt in (resp.get("alternatives") or [])[:2]:
+                if isinstance(alt, dict):
+                    alternatives.append(f'{alt.get("service","?")} ({alt.get("confidence","?")})')
+        ts = r.get("ts", "")
+        recent.append({
+            "ts": ts,
+            "time": ts[11:19] if len(ts) >= 19 else ts,
+            "request": r.get("request", "")[:200],
+            "service": r.get("service", "unknown"),
+            "tool": r.get("tool", "?"),
+            "task_id": r.get("task_id", "?"),
+            "reason": reason,
+            "subgraphs": subgraphs,
+            "alternatives": alternatives,
+            "query_tool": query_tool,
+        })
+
+    fetch_addr = ""
+    if _FETCH_ENABLED and _fetch_agent:
         try:
-            has_resp = bool(resp and isinstance(resp, dict) and resp.get("reason"))
+            fetch_addr = _fetch_agent.address[:20] + "…"
         except Exception:
             pass
-        expand_btn = f'<span class="expand-btn" onclick="toggleRow({idx})" style="cursor:pointer;color:#6366f1;font-size:.7rem;margin-left:.4rem" title="Show response">&#9654;</span>' if has_resp else ''
-        # Response detail row (hidden by default)
-        detail_row = ""
-        if has_resp:
-            try:
-                reason_raw = resp.get("reason", "") or ""
-                reason = str(reason_raw)[:300].replace('"', '&quot;').replace('<', '&lt;')
-                subgraphs = resp.get("graph_subgraphs") or []
-                sg_parts = [f'<span style="color:#10b981">{str(s)}</span>' for s in subgraphs]
-                sg_html = " &middot; ".join(sg_parts) if sg_parts else ""
-                alternatives = resp.get("alternatives") or []
-                alt_parts = []
-                for alt in alternatives[:2]:
-                    if isinstance(alt, dict):
-                        alt_parts.append(f'<span style="background:#334155;padding:2px 6px;border-radius:4px;font-size:.7rem;margin-right:.3rem">{alt.get("service","?")} ({alt.get("confidence","?")})</span>')
-                alt_html = "".join(alt_parts)
-                query_ready = resp.get("query_ready") or {}
-                tool_name = query_ready.get("tool", "") if isinstance(query_ready, dict) else ""
-                qr_html = f'<code style="color:#10b981;font-size:.7rem">{tool_name}</code>' if tool_name else ""
-                detail_row = (
-                    f'<tr id="detail-{idx}" style="display:none">'
-                    f'<td colspan="5" style="padding:.75rem 1rem;background:#0f172a;border-bottom:1px solid #1e293b">'
-                    f'<div style="font-size:.78rem;color:#94a3b8;line-height:1.5">'
-                    f'<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Reason:</strong> {reason}</div>'
-                )
-                if qr_html:
-                    detail_row += f'<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Tool:</strong> {qr_html}</div>'
-                if sg_html:
-                    detail_row += f'<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Subgraphs:</strong> {sg_html}</div>'
-                if alt_html:
-                    detail_row += f'<div><strong style="color:#e2e8f0">Alternatives:</strong> {alt_html}</div>'
-                detail_row += '</div></td></tr>'
-            except Exception:
-                detail_row = ""
-                has_resp = False
-                expand_btn = ""
-        req_safe = r["request"][:200].replace('"', '&quot;').replace('<', '&lt;')
-        req_display = r["request"][:80].replace('<', '&lt;')
-        rows += (f'<tr>'
-                 f'<td style="color:#64748b;font-family:monospace">{r["ts"][11:19]}</td>'
-                 f'<td style="color:#94a3b8" title="{req_safe}">'
-                 f'{req_display}{"…" if len(r["request"])>80 else ""}{expand_btn}</td>'
-                 f'<td>{badge}</td>'
-                 f'<td style="color:{tool_color};font-family:monospace" title="{tool}">{tool}</td>'
-                 f'<td>{sender_badge}</td>'
-                 f'</tr>{detail_row}')
 
-    html = f"""<!DOCTYPE html>
+    return {
+        "total": total,
+        "legit": legit,
+        "legit_pct": legit_pct,
+        "spam": spam,
+        "intro": intro,
+        "fast_rejected": fast_rejected,
+        "rate_limited": rate_limited,
+        "reject_pct": reject_pct,
+        "health_color": health_color,
+        "health_label": health_label,
+        "discovery_count": DISCOVERY_COUNT,
+        "fetch_enabled": _FETCH_ENABLED,
+        "fetch_address": fetch_addr,
+        "last_request_time": recent[0]["time"] if recent else "—",
+        "donut": {
+            "labels": donut_labels,
+            "values": donut_values,
+            "colors": donut_colors,
+        },
+        "service_colors": SERVICE_COLORS,
+        "recent": recent,
+    }
+
+
+async def dashboard_data_endpoint(request: Request):
+    """JSON data endpoint for the dashboard — consumed by the HTML shell every 15s.
+
+    GET /dashboard/data
+    Returns the same stats and recent-request list that the dashboard displays.
+    Useful for external monitoring, Grafana, or any agent that wants live stats.
+    """
+    try:
+        data = _build_dashboard_data()
+        return JSONResponse(data, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def dashboard_endpoint(request: Request):
+    """Serve the dashboard HTML shell.
+
+    The shell fetches /dashboard/data on load and every 15 seconds, updating
+    the DOM in-place — no full-page reload, no server-side HTML templating.
+    """
+    html = """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
-<meta http-equiv="refresh" content="15">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Graph Advocate — Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:1.5rem}}
-  h1{{font-size:1.3rem;font-weight:700;color:#f8fafc;display:flex;align-items:center;gap:.5rem}}
-  .sub{{color:#475569;font-size:.8rem;margin:.2rem 0 1.5rem}}
-  /* stat cards */
-  .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1.5rem}}
-  .card{{background:#1e293b;border-radius:10px;padding:1rem 1.25rem;border-left:3px solid transparent}}
-  .card .n{{font-size:1.8rem;font-weight:700;color:#f8fafc;line-height:1}}
-  .card .l{{font-size:.72rem;color:#64748b;margin-top:.3rem;text-transform:uppercase;letter-spacing:.04em}}
-  /* two-col layout */
-  .grid2{{display:grid;grid-template-columns:1fr 280px;gap:1rem;margin-bottom:1.5rem}}
-  @media(max-width:700px){{.grid2{{grid-template-columns:1fr}}}}
-  .panel{{background:#1e293b;border-radius:10px;padding:1rem}}
-  .panel h2{{font-size:.78rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}}
-  /* health pill */
-  .pill{{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;font-weight:600;
-         padding:.3rem .8rem;border-radius:999px;background:#0f172a}}
-  .dot{{width:9px;height:9px;border-radius:50%}}
-  /* table */
-  table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;font-size:.8rem;table-layout:fixed}}
-  th{{text-align:left;padding:.55rem .75rem;font-size:.68rem;font-weight:600;color:#475569;
-      text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #334155}}
-  td{{padding:.5rem .75rem;border-bottom:1px solid #0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-  td:nth-child(1){{width:68px}}
-  td:nth-child(2){{width:auto}}
-  td:nth-child(3){{width:155px}}
-  td:nth-child(4){{width:110px}}
-  tr:last-child td{{border-bottom:none}}
-  tr:hover td{{background:#243044}}
-  @keyframes blink{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
-  .live{{animation:blink 2s infinite;font-size:.65rem;color:#10b981;font-weight:700;letter-spacing:.08em;text-transform:uppercase}}
-  .expand-btn{{transition:color .15s}}
-  .expand-btn:hover{{color:#818cf8!important}}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:1.5rem}
+  h1{font-size:1.3rem;font-weight:700;color:#f8fafc;display:flex;align-items:center;gap:.5rem}
+  .sub{color:#475569;font-size:.8rem;margin:.2rem 0 1.5rem}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1.5rem}
+  .card{background:#1e293b;border-radius:10px;padding:1rem 1.25rem;border-left:3px solid transparent;transition:border-color .3s}
+  .card .n{font-size:1.8rem;font-weight:700;color:#f8fafc;line-height:1}
+  .card .l{font-size:.72rem;color:#64748b;margin-top:.3rem;text-transform:uppercase;letter-spacing:.04em}
+  .grid2{display:grid;grid-template-columns:1fr 280px;gap:1rem;margin-bottom:1.5rem}
+  @media(max-width:700px){.grid2{grid-template-columns:1fr}}
+  .panel{background:#1e293b;border-radius:10px;padding:1rem}
+  .panel h2{font-size:.78rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
+  .pill{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;font-weight:600;padding:.3rem .8rem;border-radius:999px;background:#0f172a}
+  .dot{width:9px;height:9px;border-radius:50%}
+  table{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;font-size:.8rem;table-layout:fixed}
+  th{text-align:left;padding:.55rem .75rem;font-size:.68rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #334155}
+  td{padding:.5rem .75rem;border-bottom:1px solid #0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  td:nth-child(1){width:68px} td:nth-child(3){width:155px} td:nth-child(4){width:110px} td:nth-child(5){width:80px}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#243044}
+  .detail-row td{white-space:normal;background:#0f172a!important}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+  .live{animation:blink 2s infinite;font-size:.65rem;color:#10b981;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+  .expand-btn{cursor:pointer;color:#6366f1;font-size:.7rem;margin-left:.4rem;transition:color .15s}
+  .expand-btn:hover{color:#818cf8}
+  #updated{font-size:.7rem;color:#334155;margin-left:.5rem}
+  .fade{animation:fadeIn .4s ease}
+  @keyframes fadeIn{from{opacity:.4}to{opacity:1}}
 </style>
 </head><body>
-<h1>
-  Graph Advocate
-  <span class="live">● live</span>
-</h1>
-<p class="sub">Auto-refreshes every 15s · {total} total requests (all-time) · <a href="/export/csv" style="color:#6366f1;text-decoration:none">Export CSV</a> · <a href="/export/stats" style="color:#6366f1;text-decoration:none">Stats API</a></p>
+<h1>Graph Advocate <span class="live">● live</span><span id="updated"></span></h1>
+<p class="sub" id="sub">Loading…</p>
 
-<!-- stat cards -->
-<div class="cards">
-  <div class="card" style="border-color:{health_color}">
-    <div class="n"><span class="pill"><span class="dot" style="background:{health_color}"></span>{health_label}</span></div>
-    <div class="l">Agent status</div>
-  </div>
-  <div class="card" style="border-color:#10b981">
-    <div class="n">{legit}</div>
-    <div class="l">Legit queries ({legit_pct}%)</div>
-  </div>
-  <div class="card" style="border-color:#ef4444">
-    <div class="n">{fast_rejected}</div>
-    <div class="l">Fast-rejected ({reject_pct}%)</div>
-  </div>
-  <div class="card" style="border-color:#f97316">
-    <div class="n">{rate_limited}</div>
-    <div class="l">Rate-limited</div>
-  </div>
-  <div class="card" style="border-color:#475569">
-    <div class="n">{intro}</div>
-    <div class="l">Introductions</div>
-  </div>
-  <div class="card" style="border-color:#6366f1">
-    <div class="n">{logs[0]["ts"][11:19] if logs else "—"}</div>
-    <div class="l">Last request (UTC)</div>
-  </div>
-  <div class="card" style="border-color:#f59e0b">
-    <div class="n">{DISCOVERY_COUNT}</div>
-    <div class="l">Agent card hits</div>
-  </div>
-  <div class="card" style="border-color:#14b8a6">
-    <div class="n" style="font-size:.65rem;font-family:monospace;color:{'#10b981' if _FETCH_ENABLED else '#475569'}">{(_fetch_agent.address[:20] + '…') if _FETCH_ENABLED and _fetch_agent else 'disabled'}</div>
-    <div class="l">Fetch.ai address {'✓' if _FETCH_ENABLED else '(set AGENTVERSE_API_KEY)'}</div>
-  </div>
-</div>
+<div class="cards" id="cards"></div>
 
-<!-- chart + breakdown -->
 <div class="grid2">
   <div class="panel">
     <h2>Recent requests (last 50)</h2>
     <table>
-      <thead><tr><th style="width:70px">Time</th><th>Request</th><th style="width:155px">Service</th><th style="width:100px">Tool</th><th style="width:80px">From</th></tr></thead>
-      <tbody>{rows if rows else '<tr><td colspan="5" style="color:#475569;text-align:center;padding:2rem">No requests yet</td></tr>'}</tbody>
+      <thead><tr>
+        <th style="width:70px">Time</th><th>Request</th>
+        <th style="width:155px">Service</th><th style="width:100px">Tool</th>
+        <th style="width:80px">From</th>
+      </tr></thead>
+      <tbody id="tbody"><tr><td colspan="5" style="color:#475569;text-align:center;padding:2rem">Loading…</td></tr></tbody>
     </table>
   </div>
   <div class="panel" style="display:flex;flex-direction:column;align-items:center">
@@ -1230,44 +1197,173 @@ async def dashboard_endpoint(request: Request):
 </div>
 
 <script>
-function toggleRow(idx) {{
+const SVC_COLORS = {
+  "token-api":"#10b981","subgraph-registry":"#6366f1","substreams":"#f59e0b",
+  "graph-aave-mcp":"#3b82f6","graph-lending-mcp":"#8b5cf6","graph-polymarket-mcp":"#ec4899",
+  "predictfun-mcp":"#14b8a6","graph-limitless-mcp":"#f97316","comparison":"#64748b","chat":"#475569"
+};
+
+let donutChart = null;
+let expandState = {};  // preserve open/closed state across refreshes
+
+function senderLabel(tid) {
+  if (tid.startsWith('fetch:')) return '<span style="color:#14b8a6;font-size:.65rem">fetch.ai</span>';
+  if (tid.startsWith('a2a:'))   return `<span style="color:#8b5cf6;font-size:.65rem">a2a:${tid.slice(4,12)}</span>`;
+  if (tid.startsWith('chat:'))  return '<span style="color:#f59e0b;font-size:.65rem">web chat</span>';
+  if (tid === 'mcp')            return '<span style="color:#3b82f6;font-size:.65rem">mcp client</span>';
+  return `<span style="color:#475569;font-size:.65rem">${tid.slice(0,16)}</span>`;
+}
+
+function badgeHtml(svc) {
+  const color = SVC_COLORS[svc] || (svc === 'out-of-scope' ? '#ef4444' : '#475569');
+  return `<span style="background:${color};padding:2px 8px;border-radius:6px;font-size:.75rem;color:#fff;font-weight:600">${svc}</span>`;
+}
+
+function toggleRow(idx) {
   const el = document.getElementById('detail-' + idx);
-  const btn = el.previousElementSibling.querySelector('.expand-btn');
-  if (el.style.display === 'none') {{
-    el.style.display = 'table-row';
-    if (btn) btn.textContent = '▼';
-  }} else {{
-    el.style.display = 'none';
-    if (btn) btn.textContent = '▶';
-  }}
-}}
-</script>
-<script>
-const labels = {_json.dumps(donut_labels)};
-const values = {_json.dumps(donut_values)};
-const colors = {_json.dumps(donut_colors)};
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'table-row';
+  expandState[idx] = !open;
+  const btn = document.querySelector(`.expand-btn[data-idx="${idx}"]`);
+  if (btn) btn.textContent = open ? '▶' : '▼';
+}
 
-const ctx = document.getElementById('donut').getContext('2d');
-new Chart(ctx, {{
-  type: 'doughnut',
-  data: {{ labels, datasets: [{{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#1e293b' }}] }},
-  options: {{
-    cutout: '65%',
-    plugins: {{ legend: {{ display: false }}, tooltip: {{ callbacks: {{
-      label: (c) => ` ${{c.label}}: ${{c.parsed}}`
-    }}}}}}
-  }}
-}});
+function renderTable(recent) {
+  const tbody = document.getElementById('tbody');
+  if (!recent.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:2rem">No requests yet</td></tr>';
+    return;
+  }
+  let html = '';
+  recent.forEach((r, idx) => {
+    const hasDetail = !!(r.reason || r.query_tool || r.subgraphs.length || r.alternatives.length);
+    const expandBtn = hasDetail
+      ? `<span class="expand-btn" data-idx="${idx}" onclick="toggleRow(${idx})">${expandState[idx] ? '▼' : '▶'}</span>`
+      : '';
+    const toolColor = r.tool === 'fast-reject' ? '#ef4444' : '#64748b';
+    const reqSafe = r.request.replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    const reqDisplay = r.request.slice(0,80).replace(/</g,'&lt;');
+    const ellipsis = r.request.length > 80 ? '…' : '';
 
-const leg = document.getElementById('legend');
-labels.forEach((l,i) => {{
-  const d = document.createElement('div');
-  d.style.display = 'flex'; d.style.alignItems = 'center'; d.style.gap = '.4rem';
-  d.innerHTML = `<span style="width:10px;height:10px;border-radius:2px;background:${{colors[i]}};flex-shrink:0"></span>
-    <span style="color:#94a3b8">${{l}}</span>
-    <span style="color:#f8fafc;font-weight:600;margin-left:auto;padding-left:.5rem">${{values[i]}}</span>`;
-  leg.appendChild(d);
-}});
+    html += `<tr>
+      <td style="color:#64748b;font-family:monospace">${r.time}</td>
+      <td style="color:#94a3b8" title="${reqSafe}">${reqDisplay}${ellipsis}${expandBtn}</td>
+      <td>${badgeHtml(r.service)}</td>
+      <td style="color:${toolColor};font-family:monospace" title="${r.tool}">${r.tool}</td>
+      <td>${senderLabel(r.task_id)}</td>
+    </tr>`;
+
+    if (hasDetail) {
+      const display = expandState[idx] ? 'table-row' : 'none';
+      let detail = '';
+      if (r.reason) detail += `<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Reason:</strong> ${r.reason.replace(/</g,'&lt;')}</div>`;
+      if (r.query_tool) detail += `<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Tool:</strong> <code style="color:#10b981;font-size:.7rem">${r.query_tool}</code></div>`;
+      if (r.subgraphs.length) detail += `<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Subgraphs:</strong> ${r.subgraphs.map(s=>`<span style="color:#10b981">${s}</span>`).join(' · ')}</div>`;
+      if (r.alternatives.length) detail += `<div><strong style="color:#e2e8f0">Alternatives:</strong> ${r.alternatives.map(a=>`<span style="background:#334155;padding:2px 6px;border-radius:4px;font-size:.7rem;margin-right:.3rem">${a}</span>`).join('')}</div>`;
+      html += `<tr id="detail-${idx}" class="detail-row" style="display:${display}">
+        <td colspan="5" style="padding:.75rem 1rem;border-bottom:1px solid #1e293b">
+          <div style="font-size:.78rem;color:#94a3b8;line-height:1.5">${detail}</div>
+        </td>
+      </tr>`;
+    }
+  });
+  tbody.innerHTML = html;
+}
+
+function renderCards(d) {
+  document.getElementById('cards').innerHTML = `
+    <div class="card" style="border-color:${d.health_color}">
+      <div class="n"><span class="pill"><span class="dot" style="background:${d.health_color}"></span>${d.health_label}</span></div>
+      <div class="l">Agent status</div>
+    </div>
+    <div class="card" style="border-color:#10b981">
+      <div class="n">${d.legit}</div>
+      <div class="l">Legit queries (${d.legit_pct}%)</div>
+    </div>
+    <div class="card" style="border-color:#ef4444">
+      <div class="n">${d.fast_rejected}</div>
+      <div class="l">Fast-rejected (${d.reject_pct}%)</div>
+    </div>
+    <div class="card" style="border-color:#f97316">
+      <div class="n">${d.rate_limited}</div>
+      <div class="l">Rate-limited</div>
+    </div>
+    <div class="card" style="border-color:#475569">
+      <div class="n">${d.intro}</div>
+      <div class="l">Introductions</div>
+    </div>
+    <div class="card" style="border-color:#6366f1">
+      <div class="n">${d.last_request_time}</div>
+      <div class="l">Last request (UTC)</div>
+    </div>
+    <div class="card" style="border-color:#f59e0b">
+      <div class="n">${d.discovery_count}</div>
+      <div class="l">Agent card hits</div>
+    </div>
+    <div class="card" style="border-color:#14b8a6">
+      <div class="n" style="font-size:.65rem;font-family:monospace;color:${d.fetch_enabled ? '#10b981' : '#475569'}">${d.fetch_address || 'disabled'}</div>
+      <div class="l">Fetch.ai ${d.fetch_enabled ? '✓' : '(set AGENTVERSE_API_KEY)'}</div>
+    </div>`;
+}
+
+function renderDonut(donut) {
+  const {labels, values, colors} = donut;
+  if (donutChart) {
+    donutChart.data.labels = labels;
+    donutChart.data.datasets[0].data = values;
+    donutChart.data.datasets[0].backgroundColor = colors;
+    donutChart.update('none');
+  } else {
+    const ctx = document.getElementById('donut').getContext('2d');
+    donutChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {labels, datasets: [{data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#1e293b'}]},
+      options: {
+        cutout: '65%',
+        plugins: {legend:{display:false}, tooltip:{callbacks:{label: c => ` ${c.label}: ${c.parsed}`}}}
+      }
+    });
+  }
+  const leg = document.getElementById('legend');
+  leg.innerHTML = labels.map((l,i) =>
+    `<div style="display:flex;align-items:center;gap:.4rem">
+      <span style="width:10px;height:10px;border-radius:2px;background:${colors[i]};flex-shrink:0"></span>
+      <span style="color:#94a3b8">${l}</span>
+      <span style="color:#f8fafc;font-weight:600;margin-left:auto;padding-left:.5rem">${values[i]}</span>
+    </div>`
+  ).join('');
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/dashboard/data');
+    if (!res.ok) throw new Error(res.status);
+    const d = await res.json();
+
+    document.getElementById('sub').innerHTML =
+      `Auto-refreshes every 15s · <strong style="color:#f8fafc">${d.total}</strong> total requests (all-time) · ` +
+      `<a href="/export/csv" style="color:#6366f1;text-decoration:none">Export CSV</a> · ` +
+      `<a href="/export/stats" style="color:#6366f1;text-decoration:none">Stats API</a> · ` +
+      `<a href="/dashboard/data" style="color:#6366f1;text-decoration:none">Data JSON</a>`;
+
+    renderCards(d);
+    renderTable(d.recent);
+    renderDonut(d.donut);
+
+    const now = new Date();
+    document.getElementById('updated').textContent =
+      ` · updated ${now.toLocaleTimeString()}`;
+
+    document.getElementById('cards').classList.add('fade');
+    setTimeout(() => document.getElementById('cards').classList.remove('fade'), 400);
+  } catch(e) {
+    document.getElementById('updated').textContent = ' · fetch error';
+  }
+}
+
+refresh();
+setInterval(refresh, 15000);
 </script>
 </body></html>"""
     return HTMLResponse(html)
@@ -1960,6 +2056,7 @@ def build_app():
     extra = Starlette(routes=[
         Route("/logs", logs_endpoint),
         Route("/dashboard", dashboard_endpoint),
+        Route("/dashboard/data", dashboard_data_endpoint),
         Route("/export/json", export_json_endpoint),
         Route("/export/csv", export_csv_endpoint),
         Route("/export/stats", export_stats_endpoint),
@@ -2045,7 +2142,7 @@ def build_app():
             return
         if scope["type"] == "http" and scope["path"].startswith("/mcp"):
             await mcp_asgi(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/chat") or scope["path"].startswith("/export/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat") or scope["path"].startswith("/export/")):
             await extra(scope, receive, send)
         else:
             await a2a_app(scope, receive, send)
