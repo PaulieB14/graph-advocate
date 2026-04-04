@@ -1,16 +1,19 @@
 # Graph Advocate — Onchain Data Routing Agent
 
-## Try these queries
+## What can I ask?
 
-- "Best subgraph for Uniswap V3 on Arbitrum?"
-- "GraphQL query for top 10 Aave markets by TVL"
-- "Top 20 USDC holders on Ethereum"
-- "Which subgraph tracks ENS domain registrations?"
-- "Curve pool TVL data — which subgraph should I use?"
-- "Show me recent DEX swaps on Base above $10K"
-- "What's the best way to get Polymarket prediction data?"
-- "Find a subgraph for Lido stETH deposits"
-- "Wallet balance for vitalik.eth"
+Ask about any blockchain protocol or onchain data. Graph Advocate finds the right subgraph and writes the query for you.
+
+**Find a subgraph:** "I need [protocol] data on [chain]"
+**Get a query:** "GraphQL query for [what you need]"
+**Live data:** "Show me [token/wallet/swap] data"
+
+Examples:
+- "I need Curve pool data on Ethereum — which subgraph has the highest query volume?"
+- "Write me a GraphQL query for all Aave V3 liquidations above $50K"
+- "What subgraphs exist for tracking NFT sales on Base?"
+- "How do I query Lido withdrawal requests from The Graph?"
+- "Compare lending rates across Aave, Compound, and Morpho"
 
 ## Overview
 
