@@ -369,6 +369,42 @@ def _init_activity_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity(timestamp)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_service ON activity(service)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_sender ON activity(sender_type)")
+
+        # Feedback table — agents report whether responses were useful
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                request TEXT,
+                service_recommended TEXT,
+                was_useful BOOLEAN,
+                tool_executed TEXT,
+                actual_result TEXT,
+                comment TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_ts ON feedback(timestamp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_agent ON feedback(agent_id)")
+
+        # Quality scores — auto-scored per response
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS quality_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                activity_id INTEGER,
+                request TEXT,
+                service TEXT,
+                has_query_ready BOOLEAN DEFAULT 0,
+                has_subgraph_id BOOLEAN DEFAULT 0,
+                has_curl_example BOOLEAN DEFAULT 0,
+                has_install BOOLEAN DEFAULT 0,
+                parse_success BOOLEAN DEFAULT 1,
+                score INTEGER DEFAULT 0
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_quality_ts ON quality_scores(timestamp)")
+
         conn.commit()
         conn.close()
         log.info(f"Activity DB ready at {DB_PATH}")
@@ -776,6 +812,9 @@ class GraphAdvocateExecutor(AgentExecutor):
         log.info(f"ROUTED   task={task_id} | {service} ({confidence}) → {tool_name}")
         _log_request(task_id, user_text, service, confidence, tool_name, response=rec)
 
+        # Auto-score response quality
+        _score_response(user_text, rec)
+
         await event_queue.enqueue_event(
             new_agent_text_message(json.dumps(rec, indent=2))
         )
@@ -929,6 +968,188 @@ async def export_stats_endpoint(request: Request):
                 {"query": r[0][:100], "service": r[1], "count": r[2]}
                 for r in top_queries
             ],
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Feedback endpoint ────────────────────────────────────────────────────────
+
+async def feedback_endpoint(request: Request):
+    """POST /feedback — agents report whether a response was useful.
+
+    Body: {
+        "agent_id": "terminator2" or wallet address or task_id,
+        "request": "the original query",
+        "service_recommended": "graph-aave-mcp",
+        "was_useful": true/false,
+        "tool_executed": "get_aave_reserves" (optional),
+        "actual_result": "success" or error message (optional),
+        "comment": "free text" (optional)
+    }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    agent_id = body.get("agent_id", "")
+    if not agent_id:
+        return JSONResponse({"error": "agent_id required"}, status_code=400)
+
+    try:
+        import sqlite3 as _sq
+        conn = _sq.connect(str(DB_PATH))
+        conn.execute(
+            "INSERT INTO feedback (timestamp, agent_id, request, service_recommended, was_useful, tool_executed, actual_result, comment) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                datetime.now(timezone.utc).isoformat(),
+                agent_id,
+                body.get("request", ""),
+                body.get("service_recommended", ""),
+                body.get("was_useful"),
+                body.get("tool_executed", ""),
+                body.get("actual_result", ""),
+                body.get("comment", ""),
+            ),
+        )
+        conn.commit()
+        total = conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
+        useful = conn.execute("SELECT COUNT(*) FROM feedback WHERE was_useful = 1").fetchone()[0]
+        conn.close()
+        log.info(f"FEEDBACK from {agent_id}: useful={body.get('was_useful')} service={body.get('service_recommended')}")
+        return JSONResponse({
+            "status": "recorded",
+            "total_feedback": total,
+            "useful_rate": round(useful / total * 100, 1) if total > 0 else 0,
+        })
+    except Exception as e:
+        log.error(f"Feedback write error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def feedback_stats_endpoint(request: Request):
+    """GET /feedback/stats — summary of all feedback received."""
+    try:
+        import sqlite3 as _sq
+        conn = _sq.connect(str(DB_PATH))
+        conn.row_factory = _sq.Row
+        total = conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
+        useful = conn.execute("SELECT COUNT(*) FROM feedback WHERE was_useful = 1").fetchone()[0]
+        not_useful = conn.execute("SELECT COUNT(*) FROM feedback WHERE was_useful = 0").fetchone()[0]
+        by_service = conn.execute(
+            "SELECT service_recommended, COUNT(*) as cnt, "
+            "SUM(CASE WHEN was_useful = 1 THEN 1 ELSE 0 END) as useful_cnt "
+            "FROM feedback GROUP BY service_recommended ORDER BY cnt DESC"
+        ).fetchall()
+        by_agent = conn.execute(
+            "SELECT agent_id, COUNT(*) as cnt, "
+            "SUM(CASE WHEN was_useful = 1 THEN 1 ELSE 0 END) as useful_cnt "
+            "FROM feedback GROUP BY agent_id ORDER BY cnt DESC LIMIT 20"
+        ).fetchall()
+        recent = conn.execute(
+            "SELECT timestamp, agent_id, request, service_recommended, was_useful, comment "
+            "FROM feedback ORDER BY timestamp DESC LIMIT 20"
+        ).fetchall()
+        conn.close()
+        return JSONResponse({
+            "total": total,
+            "useful": useful,
+            "not_useful": not_useful,
+            "useful_rate": round(useful / total * 100, 1) if total > 0 else 0,
+            "by_service": [{"service": r[0], "total": r[1], "useful": r[2]} for r in by_service],
+            "by_agent": [{"agent": r[0], "total": r[1], "useful": r[2]} for r in by_agent],
+            "recent": [dict(r) for r in recent],
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Quality scoring ──────────────────────────────────────────────────────────
+
+def _score_response(request: str, rec: dict, activity_id: int = 0):
+    """Auto-score a routing response for quality. Called after every Claude response."""
+    try:
+        has_query_ready = bool(rec.get("query_ready"))
+        has_subgraph_id = bool(
+            rec.get("query_ready", {}).get("args", {}).get("subgraph_id")
+            if isinstance(rec.get("query_ready"), dict) else False
+        )
+        has_curl = bool(rec.get("curl_example"))
+        has_install = bool(rec.get("install"))
+        parse_ok = rec.get("recommendation", "unknown") != "unknown"
+
+        # Score: 0-5 points
+        score = sum([
+            1 if parse_ok else 0,
+            1 if has_query_ready else 0,
+            1 if has_subgraph_id else 0,
+            1 if has_curl else 0,
+            1 if has_install else 0,
+        ])
+
+        import sqlite3 as _sq
+        conn = _sq.connect(str(DB_PATH))
+        conn.execute(
+            "INSERT INTO quality_scores (timestamp, activity_id, request, service, "
+            "has_query_ready, has_subgraph_id, has_curl_example, has_install, parse_success, score) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                datetime.now(timezone.utc).isoformat(),
+                activity_id,
+                request[:200],
+                rec.get("recommendation", "unknown"),
+                has_query_ready,
+                has_subgraph_id,
+                has_curl,
+                has_install,
+                parse_ok,
+                score,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning(f"Quality score write failed: {e}")
+
+
+async def quality_stats_endpoint(request: Request):
+    """GET /quality — response quality metrics."""
+    try:
+        import sqlite3 as _sq
+        conn = _sq.connect(str(DB_PATH))
+        total = conn.execute("SELECT COUNT(*) FROM quality_scores").fetchone()[0]
+        if total == 0:
+            conn.close()
+            return JSONResponse({"total": 0, "message": "No quality data yet"})
+
+        avg_score = conn.execute("SELECT AVG(score) FROM quality_scores").fetchone()[0]
+        parse_rate = conn.execute("SELECT AVG(parse_success) * 100 FROM quality_scores").fetchone()[0]
+        query_ready_rate = conn.execute("SELECT AVG(has_query_ready) * 100 FROM quality_scores").fetchone()[0]
+        subgraph_rate = conn.execute("SELECT AVG(has_subgraph_id) * 100 FROM quality_scores").fetchone()[0]
+        curl_rate = conn.execute("SELECT AVG(has_curl_example) * 100 FROM quality_scores").fetchone()[0]
+
+        by_service = conn.execute(
+            "SELECT service, COUNT(*) as cnt, AVG(score) as avg_score "
+            "FROM quality_scores GROUP BY service ORDER BY cnt DESC"
+        ).fetchall()
+
+        # Score distribution
+        dist = conn.execute(
+            "SELECT score, COUNT(*) as cnt FROM quality_scores GROUP BY score ORDER BY score"
+        ).fetchall()
+
+        conn.close()
+        return JSONResponse({
+            "total_scored": total,
+            "avg_score": round(avg_score, 2),
+            "parse_success_rate": round(parse_rate, 1),
+            "query_ready_rate": round(query_ready_rate, 1),
+            "subgraph_id_rate": round(subgraph_rate, 1),
+            "curl_example_rate": round(curl_rate, 1),
+            "by_service": [{"service": r[0], "count": r[1], "avg_score": round(r[2], 2)} for r in by_service],
+            "score_distribution": {str(r[0]): r[1] for r in dist},
         })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -2060,6 +2281,9 @@ def build_app():
         Route("/export/json", export_json_endpoint),
         Route("/export/csv", export_csv_endpoint),
         Route("/export/stats", export_stats_endpoint),
+        Route("/feedback", feedback_endpoint, methods=["POST"]),
+        Route("/feedback/stats", feedback_stats_endpoint),
+        Route("/quality", quality_stats_endpoint),
         Route("/chat", chat_get, methods=["GET"]),
         Route("/chat", chat_post, methods=["POST"]),
     ])
