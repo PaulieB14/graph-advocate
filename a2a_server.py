@@ -611,6 +611,8 @@ try:
             name="graph-advocate",
             seed=FETCH_SEED,
             mailbox=f"{_agentverse_key}@https://agentverse.ai",
+            readme_path="AGENTVERSE_README.md",
+            publish_agent_details=True,
         )
 
         @_fetch_agent.on_message(model=_FetchMsg, replies=_FetchResp)
