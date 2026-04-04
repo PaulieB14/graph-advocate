@@ -1,114 +1,85 @@
-# Graph Advocate — Cowork Project
+# Graph Advocate
 
-## What this project is
+## What this is
 
-Graph Advocate is a Claude-powered A2A (Agent-to-Agent) routing agent. It listens to plain-English data requests from other AI agents and routes them to the right [The Graph Protocol](https://thegraph.com) service — returning structured JSON with a ready-to-execute tool call.
+Claude-powered A2A routing agent for The Graph Protocol. Agents ask plain-English data questions, get back the right subgraph + a ready-to-run GraphQL query.
 
-**Live URL:** `https://graph-advocate-production.up.railway.app`  
-**Deploys via:** Railway — every push to `main` auto-deploys.  
-**Stack:** Python, FastAPI/uvicorn, SQLite, Anthropic API (Claude Opus 4.6)
-
----
+**Live:** `https://graph-advocate-production.up.railway.app`
+**Deploys:** Railway auto-deploys on push to `main`
+**Stack:** Python, Starlette/uvicorn, SQLite, Anthropic API
 
 ## Key files
 
 | File | Purpose |
 |---|---|
-| `advocate.py` | Core routing logic, system prompt, Claude calls, SQLite logging |
-| `a2a_server.py` | A2A HTTP server (JSON-RPC 2.0). This is what Railway runs. |
-| `dashboard.html` | Browser monitoring dashboard (currently static, needs live data) |
-| `generate_dashboard.py` | Regenerates dashboard.html from SQLite data |
-| `test_advocate.py` | 7-case validation suite — always run after changing advocate.py |
-| `requirements.txt` | Python dependencies |
-| `railway.toml` | Railway deployment config |
-| `.env.example` | Required env vars — copy to .env and fill in locally |
+| `advocate.py` | Core routing logic, system prompt, Claude calls, auto-search, SQLite logging |
+| `a2a_server.py` | A2A HTTP server (JSON-RPC 2.0), x402 payments, dashboard, feedback, quality scoring |
+| `test_advocate_routing.py` | 34-case test suite — run after any advocate.py change |
+| `erc8004-registration.json` | On-chain agent metadata (synced to IPFS + Arbitrum) |
+| `.env.example` | All env vars documented |
 
----
-
-## Environment variables
-
-For local dev, copy `.env.example` to `.env` and set:
-```
-ANTHROPIC_API_KEY=sk-ant-...
-ADVOCATE_PUBLIC_URL=https://graph-advocate-production.up.railway.app
-```
-
-On Railway, set these in the Variables tab.
-
----
-
-## How to run locally
+## Run locally
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-bash run.sh a2a_server.py
+ANTHROPIC_API_KEY=sk-ant-... python3 a2a_server.py
 ```
 
-Server starts on port 8765. Test with:
-```bash
-curl -X POST http://localhost:8765 \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","messageId":"test-1","parts":[{"kind":"text","text":"Aave V3 liquidation data on Ethereum"}]}}}'
-```
+Test: `python3 test_advocate_routing.py` (34 tests must pass)
 
----
+## API endpoints
 
-## Current priorities
-
-### 1. Fix unknown routing (HIGH)
-In `advocate.py`, some requests return `"recommendation": "unknown"` — these are routing failures. The system prompt needs to be improved to handle edge cases like:
-- Aave liquidation data via protocol-specific subgraphs
-- Requests that mix on-chain and off-chain data
-- Vague or ambiguous queries
-
-After any change to `advocate.py`, run the test suite:
-```bash
-bash run.sh test_advocate.py
-```
-
-### 2. Live monitoring dashboard (HIGH)
-The dashboard at `/dashboard` currently shows static data. The goal is:
-- Add a `/dashboard/data` JSON endpoint to `a2a_server.py` that returns live stats from SQLite
-- Update `dashboard.html` to poll `/dashboard/data` every 30 seconds
-- Show: total calls, unique agents, top requestors, confidence breakdown, recent requests
-
-### 3. Working GQL examples in every response (MEDIUM)
-Every response from `advocate.py` should include a ready-to-run GraphQL query or curl example so agents get immediate value without needing to look anything up.
-
----
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/` | POST | A2A JSON-RPC 2.0 (main agent endpoint) |
+| `/.well-known/agent-card.json` | GET | A2A agent card |
+| `/chat` | GET/POST | Web chat UI |
+| `/dashboard` | GET | Live monitoring dashboard |
+| `/dashboard/data` | GET | Dashboard JSON API (15s poll) |
+| `/feedback` | POST | Agent feedback (was_useful, tool_executed) |
+| `/feedback/stats` | GET | Feedback summary |
+| `/quality` | GET | Response quality metrics (auto-scored 0-5) |
+| `/export/json` | GET | Full activity history |
+| `/export/csv` | GET | Activity CSV export |
+| `/export/stats` | GET | Summary stats for grant reporting |
+| `/logs` | GET | Last 100 requests as JSON |
 
 ## Routing services
 
-The agent routes to these Graph Protocol services:
-
 | Service | Best for |
 |---|---|
-| **token-api** | Wallet balances, swaps, NFT data, holder rankings |
-| **subgraph-registry** | Protocol-level indexed data (Uniswap, Aave, ENS…) |
-| **substreams** | Raw block data, traces, real-time streaming |
-| **graph-aave-mcp** | Aave V2/V3/V4 specifically — 32 tools |
-| **graph-lending-mcp** | Cross-protocol lending (Messari standard) |
-| **graph-polymarket-mcp** | Polymarket prediction markets |
+| **token-api** | Wallet balances, swaps, NFTs, holders (EVM/Solana/TON) |
+| **subgraph-registry** | Find the right subgraph from 15,500+ indexed |
+| **substreams** | Raw block data, traces, streaming |
+| **graph-aave-mcp** | Aave V2/V3/V4 — 32 tools |
+| **graph-polymarket-mcp** | Polymarket — 31 tools |
+| **graph-lending-mcp** | Cross-protocol lending (Messari) |
+| **graph-limitless-mcp** | Limitless prediction markets on Base |
+| **predictfun-mcp** | Predict.fun on BNB Chain |
+| **mcp8004** | ERC-8004 agent auth for MCP servers |
+| **8004scan** | Agent discovery via ERC-8004 registry |
 
----
+## Architecture
 
-## Deploy workflow
+- **Layer 1:** `_auto_search` — keyword matching with word boundaries, runs live subgraph/substreams/token-api/8004scan searches
+- **Layer 2:** Claude API call with system prompt + search context
+- **Layer 3:** `_extract_json` → `_fallback_route` → `_inject_missing_fields` — robust response parsing
+- **Caching:** Benchmark bot static responses (3 queries) + SQLite persistent cache (24h TTL) + in-memory cache
+- **Scoring:** Every response auto-scored 0-5 (parse, query_ready, subgraph_id, curl, install)
+- **x402:** 10 free queries/day per sender, then $0.01 USDC on Base
 
-1. Make changes locally
-2. Run `bash run.sh test_advocate.py` — all tests must pass
-3. `git add . && git commit -m "..." && git push origin main`
-4. Railway auto-deploys in ~60 seconds
-5. Check live at `https://graph-advocate-production.up.railway.app`
+## What NOT to break
 
----
+- Word boundary matching in `_auto_search` — prevents "compound" matching "compounded"
+- Thread-local SQLite with WAL mode in `advocate.py` — no per-request connections
+- Benchmark bot static responses — saves ~120 Claude calls/day
+- `cache_for_seconds` field in responses — agents use this to avoid re-querying
 
 ## Agent identity
 
-- **A2A Registry ID:** `afd9b3bb-413c-41cf-9874-6361ea309e32`
-- **ERC-8004 Agent ID:** 734 on Arbitrum
+- **ERC-8004:** Agent #734 on Arbitrum
 - **ENS:** `graphadvocate.eth`
-- **Agent wallet:** `0x575267eED09c338FAE5716A486A7B58A5749A292`
-- **MoltBridge ID:** `graph-advocate`
-- **ClawHub:** [clawhub.ai/paulieb14/graph-advocate](https://clawhub.ai/paulieb14/graph-advocate)
+- **Wallet:** `0x575267eED09c338FAE5716A486A7B58A5749A292`
+- **A2A Registry:** `afd9b3bb-413c-41cf-9874-6361ea309e32`
+- **ClawHub:** `clawhub.ai/paulieb14/graph-advocate`
