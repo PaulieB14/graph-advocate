@@ -1,5 +1,17 @@
 # Graph Advocate — Onchain Data Routing Agent
 
+## Try these queries
+
+- "Best subgraph for Uniswap V3 on Arbitrum?"
+- "GraphQL query for top 10 Aave markets by TVL"
+- "Top 20 USDC holders on Ethereum"
+- "Which subgraph tracks ENS domain registrations?"
+- "Curve pool TVL data — which subgraph should I use?"
+- "Show me recent DEX swaps on Base above $10K"
+- "What's the best way to get Polymarket prediction data?"
+- "Find a subgraph for Lido stETH deposits"
+- "Wallet balance for vitalik.eth"
+
 ## Overview
 
 Graph Advocate helps AI agents find the right subgraph and get a ready-to-run GraphQL query for any blockchain data need. It searches 15,500+ subgraphs across 20+ chains indexed by The Graph Protocol, returning the best match with a working query, subgraph ID, and playground link.
