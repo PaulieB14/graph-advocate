@@ -681,8 +681,8 @@ def ask_graph_advocate(
     ]
     is_complex = (
         any(sig in req_lower for sig in COMPLEX_SIGNALS)
-        or len(request) > 300  # long queries need more reasoning
-        or (search_context and len(search_context) > 2000)  # lots of search results to synthesize
+        or len(request) > 600  # long queries need more reasoning
+        or (search_context and len(search_context) > 4000)  # lots of search results to synthesize
     )
 
     if is_complex:
