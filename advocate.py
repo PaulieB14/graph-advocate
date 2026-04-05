@@ -825,7 +825,13 @@ def _execute_recommendation(rec: dict) -> dict | None:
         except Exception as e:
             log.error(f"Token API call failed: {e}")
             return {"source": "token-api", "error": str(e)}
-    if service in ("subgraph-registry", "subgraph-registry-search"):
+    # Execute subgraph queries — match any service that has a subgraph_id + gql in query_ready
+    has_subgraph_query = (
+        service in ("subgraph-registry", "subgraph-registry-search")
+        or (args.get("subgraph_id") and (args.get("gql") or query_ready.get("gql")))
+        or tool == "execute_query_by_subgraph_id"
+    )
+    if has_subgraph_query:
         api_key = os.environ.get("GRAPH_API_KEY", "") or os.environ.get("GATEWAY_API_KEY", "")
         gql = args.get("gql") or query_ready.get("gql") or query_ready.get("query")
         subgraph_id = args.get("subgraph_id") or query_ready.get("subgraph_id")
