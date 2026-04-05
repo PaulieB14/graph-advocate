@@ -2488,7 +2488,7 @@ def build_app():
             return
         if scope["type"] == "http" and scope["path"].startswith("/mcp"):
             await mcp_asgi(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat") or scope["path"].startswith("/export/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality")):
             await extra(scope, receive, send)
         else:
             await a2a_app(scope, receive, send)
