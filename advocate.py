@@ -825,9 +825,9 @@ def _execute_recommendation(rec: dict) -> dict | None:
         except Exception as e:
             log.error(f"Token API call failed: {e}")
             return {"source": "token-api", "error": str(e)}
-    if service == "subgraph-registry":
-        api_key = os.environ.get("GATEWAY_API_KEY", "") or "7006f39fbab470711f44a5195b4d97c0"
-        gql = query_ready.get("gql") or query_ready.get("query")
+    if service in ("subgraph-registry", "subgraph-registry-search"):
+        api_key = os.environ.get("GRAPH_API_KEY", "") or os.environ.get("GATEWAY_API_KEY", "")
+        gql = args.get("gql") or query_ready.get("gql") or query_ready.get("query")
         subgraph_id = args.get("subgraph_id") or query_ready.get("subgraph_id")
 
         if gql and subgraph_id:
@@ -836,14 +836,27 @@ def _execute_recommendation(rec: dict) -> dict | None:
                 r = httpx.post(url, json={"query": gql}, timeout=15)
                 log.info(f"EXECUTE  subgraph {subgraph_id} -> {r.status_code}")
                 data = r.json()
+                # Truncate large responses
+                if isinstance(data.get("data"), dict):
+                    for key, val in data["data"].items():
+                        if isinstance(val, list) and len(val) > 20:
+                            data["data"][key] = val[:20]
+                            data["_truncated"] = True
                 if r.status_code == 429 or r.status_code == 401:
                     return {
                         "source": "subgraph-gateway",
                         "status": r.status_code,
-                        "error": "Rate limit exceeded. Get your own free API key at https://thegraph.market/dashboard#api-keys",
+                        "error": "Rate limit exceeded. Get your own free API key at https://thegraph.com/studio/ (100K queries/month free)",
+                        "get_your_own_key": "https://thegraph.com/studio/",
                         "data": data,
                     }
-                return {"source": "subgraph-gateway", "status": r.status_code, "data": data}
+                return {
+                    "source": "subgraph-gateway",
+                    "status": r.status_code,
+                    "subgraph_id": subgraph_id,
+                    "data": data,
+                    "note": "Live data from The Graph. Get your own free API key at thegraph.com/studio for unlimited access.",
+                }
             except Exception as e:
                 log.error(f"Subgraph query failed: {e}")
                 return {"source": "subgraph-gateway", "error": str(e)}
