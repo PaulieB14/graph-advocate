@@ -841,6 +841,7 @@ def _execute_recommendation(rec: dict) -> dict | None:
 
         if gql and subgraph_id:
             url = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{subgraph_id}"
+            log.info(f"EXECUTE  subgraph url key_len={len(api_key)} subgraph={subgraph_id[:12]}")
             try:
                 r = httpx.post(url, json={"query": gql}, timeout=15)
                 log.info(f"EXECUTE  subgraph {subgraph_id} -> {r.status_code}")
