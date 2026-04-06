@@ -843,11 +843,21 @@ def _execute_recommendation(rec: dict) -> dict | None:
         except Exception as e:
             log.error(f"Token API call failed: {e}")
             return {"source": "token-api", "error": str(e)}
-    # ── x402 analytics subgraph (Studio endpoint — no API key needed) ────────
+    # ── x402 analytics subgraph — demonstrates Graph subgraph capabilities ──
     # Must come BEFORE generic subgraph handler to intercept x402 queries
     if service == "x402-analytics" or "x402" in service.lower():
         import httpx as _httpx
-        gql = args.get("gql") or args.get("query") or query_ready.get("gql") or query_ready.get("query")
+        # Claude puts the query in various places — check all of them
+        gql = (
+            args.get("gql") or args.get("query")
+            or query_ready.get("gql") or query_ready.get("query")
+        )
+        # Also check if Claude put queries in a "queries" array
+        if not gql and isinstance(query_ready.get("queries"), list) and query_ready["queries"]:
+            gql = query_ready["queries"][0].get("query", "")
+        # Last resort: build a default query
+        if not gql:
+            gql = '{ x402DailyStats_collection(first: 3, orderBy: date, orderDirection: desc) { date totalPayments totalVolumeDecimal } facilitators(first: 10, orderBy: totalSettlements, orderDirection: desc) { name totalSettlements totalVolumeDecimal isActive } }'
         if gql:
             x402_url = "https://api.studio.thegraph.com/query/1745687/x-402-base/version/latest"
             try:
