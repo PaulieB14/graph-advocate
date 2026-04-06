@@ -833,7 +833,7 @@ def _execute_recommendation(rec: dict) -> dict | None:
     )
     if has_subgraph_query:
         api_key = os.environ.get("GRAPH_API_KEY", "") or os.environ.get("GATEWAY_API_KEY", "")
-        gql = args.get("gql") or query_ready.get("gql") or query_ready.get("query")
+        gql = args.get("gql") or args.get("query") or query_ready.get("gql") or query_ready.get("query")
         subgraph_id = args.get("subgraph_id") or query_ready.get("subgraph_id")
 
         if gql and subgraph_id:
