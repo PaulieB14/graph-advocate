@@ -857,7 +857,10 @@ def _execute_recommendation(rec: dict) -> dict | None:
             gql = query_ready["queries"][0].get("query", "")
         # Last resort: build a default query
         if not gql:
-            gql = '{ x402DailyStats_collection(first: 3, orderBy: date, orderDirection: desc) { date totalPayments totalVolumeDecimal } facilitators(first: 10, orderBy: totalSettlements, orderDirection: desc) { name totalSettlements totalVolumeDecimal isActive } }'
+            gql = '{ stats: x402DailyStats_collection(first: 3, orderBy: date, orderDirection: desc) { date totalPayments totalVolumeDecimal eip3009Payments permit2Payments } facilitators(first: 10, orderBy: totalSettlements, orderDirection: desc) { name address totalSettlements totalVolumeDecimal isActive } }'
+        # Fix common query issues: x402DailyStats without _collection suffix
+        if 'x402DailyStats(' in gql and '_collection' not in gql:
+            gql = gql.replace('x402DailyStats(', 'x402DailyStats_collection(')
         if gql:
             x402_url = "https://api.studio.thegraph.com/query/1745687/x-402-base/version/latest"
             try:
