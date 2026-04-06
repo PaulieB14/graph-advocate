@@ -843,6 +843,32 @@ def _execute_recommendation(rec: dict) -> dict | None:
         except Exception as e:
             log.error(f"Token API call failed: {e}")
             return {"source": "token-api", "error": str(e)}
+    # ── x402 analytics subgraph (Studio endpoint — no API key needed) ────────
+    # Must come BEFORE generic subgraph handler to intercept x402 queries
+    if service == "x402-analytics" or "x402" in service.lower():
+        import httpx as _httpx
+        gql = args.get("gql") or args.get("query") or query_ready.get("gql") or query_ready.get("query")
+        if gql:
+            x402_url = "https://api.studio.thegraph.com/query/1745687/x-402-base/version/latest"
+            try:
+                r = _httpx.post(x402_url, json={"query": gql}, timeout=15)
+                log.info(f"EXECUTE  x402-subgraph -> {r.status_code}")
+                data = r.json()
+                if isinstance(data.get("data"), dict):
+                    for k, val in data["data"].items():
+                        if isinstance(val, list) and len(val) > 20:
+                            data["data"][k] = val[:20]
+                            data["_truncated"] = True
+                return {
+                    "source": "x402-subgraph",
+                    "status": r.status_code,
+                    "data": data,
+                    "note": "Live x402 payment data on Base from The Graph subgraph.",
+                }
+            except Exception as e:
+                log.error(f"x402 subgraph query failed: {e}")
+                return {"source": "x402-subgraph", "error": str(e)}
+
     # Execute subgraph queries — match any service that has a subgraph_id + gql in query_ready
     has_subgraph_query = (
         service in ("subgraph-registry", "subgraph-registry-search")
@@ -889,32 +915,6 @@ def _execute_recommendation(rec: dict) -> dict | None:
             except Exception as e:
                 log.error(f"Subgraph query failed: {e}")
                 return {"source": "subgraph-gateway", "error": str(e)}
-
-    # ── x402 analytics subgraph (Studio endpoint — no API key needed) ────────
-    if service == "x402-analytics" or "x402" in service.lower():
-        import httpx
-        gql = args.get("gql") or args.get("query") or query_ready.get("gql") or query_ready.get("query")
-        if gql:
-            x402_url = "https://api.studio.thegraph.com/query/1745687/x-402-base/version/latest"
-            try:
-                r = httpx.post(x402_url, json={"query": gql}, timeout=15)
-                log.info(f"EXECUTE  x402-subgraph -> {r.status_code}")
-                data = r.json()
-                # Truncate large responses
-                if isinstance(data.get("data"), dict):
-                    for k, val in data["data"].items():
-                        if isinstance(val, list) and len(val) > 20:
-                            data["data"][k] = val[:20]
-                            data["_truncated"] = True
-                return {
-                    "source": "x402-subgraph",
-                    "status": r.status_code,
-                    "data": data,
-                    "note": "Live x402 payment data on Base from The Graph subgraph.",
-                }
-            except Exception as e:
-                log.error(f"x402 subgraph query failed: {e}")
-                return {"source": "x402-subgraph", "error": str(e)}
 
     # ── npm MCP package services — return a structured curl/npx example ──────
     NPM_SERVICES = {
