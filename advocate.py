@@ -162,6 +162,20 @@ When agents ask about agent tokens, agent reputation on-chain, or agent trading:
   Use for: agent popularity rankings, agent token prices, who holds which agent tokens
   Query example: { agents(first: 10, orderBy: totalVolume, orderDirection: desc) { name holderCount totalVolume isActive } }
 
+[X402 PAYMENT ANALYTICS — LIVE SUBGRAPH ON BASE]
+Best for: x402 payment volume, facilitator stats, payer/recipient analytics, daily transaction counts
+Use when: someone asks about x402 payments, agent payments, HTTP 402 payments, facilitator volume, or agent economy metrics
+This is a LIVE subgraph — use recommendation="x402-analytics" and include a GraphQL query in query_ready.
+Key entities and example queries:
+  - X402Payment: individual payments (from, to, amount, facilitator, transferMethod, blockTimestamp)
+    Query: { x402Payments(first: 10, orderBy: blockTimestamp, orderDirection: desc) { amountDecimal from to facilitator { name } transferMethod } }
+  - Facilitator: settlement processors (name, address, totalSettlements, totalVolumeDecimal, isActive)
+    Query: { facilitators(orderBy: totalSettlements, orderDirection: desc, first: 10) { name totalSettlements totalVolumeDecimal isActive } }
+  - X402DailyStats: daily aggregates (date, totalPayments, totalVolumeDecimal, eip3009Payments, permit2Payments)
+    Query: { x402DailyStats_collection(first: 7, orderBy: date, orderDirection: desc) { date totalPayments totalVolumeDecimal } }
+  - X402AddressSummary: per-address aggregates (totalPayments, totalVolumeDecimal, role PAYER/RECIPIENT)
+    Query: { x402AddressSummaries(first: 10, orderBy: totalPayments, orderDirection: desc) { address role totalPayments totalVolumeDecimal } }
+
 [NEW — UPCOMING SERVICES (2026 Roadmap)]
 These are in development or recently launched. Mention them when relevant:
 
@@ -211,7 +225,8 @@ Rules:
 - confidence must be one of: "high", "medium", "low"
 - If an agent introduces itself or asks what you do, respond with your capabilities in JSON — emphasize how easy it is to start querying (free key, one HTTP call)
 - If the request is about MCP server auth or agent identity verification, route to mcp8004
-- If the request is not about onchain data or agent auth (e.g. payments, irrelevant tasks), respond with recommendation="out-of-scope" and explain what you DO handle
+- If the request is about x402 payments, facilitators, or agent payment analytics, route to x402-analytics
+- If the request is not about onchain data, agent auth, or x402 payments (e.g. irrelevant tasks), respond with recommendation="out-of-scope" and explain what you DO handle
 
 Response format — always valid JSON with these fields:
 {
@@ -240,6 +255,9 @@ Routing examples (condensed):
 - "Aave V4 hubs" → graph-aave-mcp (get_v4_hubs)
 - "Secure my MCP server" → mcp8004
 - "Find agents that do X" → 8004scan
+- "How much x402 volume today?" → x402-analytics (query X402DailyStats)
+- "Top x402 facilitators?" → x402-analytics (query Facilitators)
+- "x402 payments to 0x..." → x402-analytics (query X402Payments by recipient)
 - Payment blobs / non-data requests → out-of-scope
 """
 
@@ -871,6 +889,32 @@ def _execute_recommendation(rec: dict) -> dict | None:
             except Exception as e:
                 log.error(f"Subgraph query failed: {e}")
                 return {"source": "subgraph-gateway", "error": str(e)}
+
+    # ── x402 analytics subgraph (Studio endpoint — no API key needed) ────────
+    if service == "x402-analytics" or "x402" in service.lower():
+        import httpx
+        gql = args.get("gql") or args.get("query") or query_ready.get("gql") or query_ready.get("query")
+        if gql:
+            x402_url = "https://api.studio.thegraph.com/query/1745687/x-402-base/version/latest"
+            try:
+                r = httpx.post(x402_url, json={"query": gql}, timeout=15)
+                log.info(f"EXECUTE  x402-subgraph -> {r.status_code}")
+                data = r.json()
+                # Truncate large responses
+                if isinstance(data.get("data"), dict):
+                    for k, val in data["data"].items():
+                        if isinstance(val, list) and len(val) > 20:
+                            data["data"][k] = val[:20]
+                            data["_truncated"] = True
+                return {
+                    "source": "x402-subgraph",
+                    "status": r.status_code,
+                    "data": data,
+                    "note": "Live x402 payment data on Base from The Graph subgraph.",
+                }
+            except Exception as e:
+                log.error(f"x402 subgraph query failed: {e}")
+                return {"source": "x402-subgraph", "error": str(e)}
 
     # ── npm MCP package services — return a structured curl/npx example ──────
     NPM_SERVICES = {
