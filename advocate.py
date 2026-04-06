@@ -1285,7 +1285,7 @@ def _search_subgraphs(keyword: str) -> str:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """SELECT id, display_name, description, network, query_volume_30d,
-                      domain, protocol_type, reliability_score
+                      domain, protocol_type, reliability_score, query_hint
                FROM subgraphs
                WHERE (display_name LIKE ? OR description LIKE ? OR domain LIKE ?
                       OR categories LIKE ? OR auto_description LIKE ?)
@@ -1303,7 +1303,7 @@ def _search_subgraphs(keyword: str) -> str:
             subgraph_id = r["id"].split("|")[0] if "|" in r["id"] else r["id"]
             network = r["network"] or "unknown"
             playground_url = f"https://thegraph.com/explorer/subgraphs/{subgraph_id}?view=Query&chain=arbitrum-one"
-            results.append({
+            entry = {
                 "subgraph_id": subgraph_id,
                 "name": r["display_name"] or subgraph_id[:16],
                 "network": network,
@@ -1312,7 +1312,15 @@ def _search_subgraphs(keyword: str) -> str:
                 "reliability_score": round(r["reliability_score"] or 0, 2),
                 "playground_url": playground_url,
                 "gateway_url": f"https://gateway.thegraph.com/api/[YOUR_API_KEY]/subgraphs/id/{subgraph_id}",
-            })
+            }
+            # Include query hint if available — gives Claude the exact fields to use
+            try:
+                hint = r["query_hint"]
+                if hint:
+                    entry["query_hint"] = hint
+            except (IndexError, KeyError):
+                pass
+            results.append(entry)
 
         return json.dumps({"results": results, "total_found": len(results)})
     except Exception as e:
