@@ -1152,7 +1152,7 @@ def _search_subgraphs(keyword: str) -> str:
 
     if need_download:
         try:
-            url = "https://github.com/PaulieB14/subgraph-registry/raw/main/python/data/registry.db"
+            url = "https://github.com/PaulieB14/subgraph-registry/raw/main/data/registry.db"
             urllib.request.urlretrieve(url, db_path)
         except Exception as e:
             return json.dumps({"error": f"Could not download registry: {e}"})
@@ -1181,12 +1181,14 @@ def _search_subgraphs(keyword: str) -> str:
             network = r["network"] or "unknown"
             playground_url = f"https://thegraph.com/explorer/subgraphs/{subgraph_id}?view=Query&chain=arbitrum-one"
             results.append({
+                "subgraph_id": subgraph_id,
                 "name": r["display_name"] or subgraph_id[:16],
                 "network": network,
                 "description": (r["description"] or r["domain"] or "")[:120],
                 "query_volume_30d": r["query_volume_30d"] or 0,
                 "reliability_score": round(r["reliability_score"] or 0, 2),
                 "playground_url": playground_url,
+                "gateway_url": f"https://gateway.thegraph.com/api/[YOUR_API_KEY]/subgraphs/id/{subgraph_id}",
             })
 
         return json.dumps({"results": results, "total_found": len(results)})
