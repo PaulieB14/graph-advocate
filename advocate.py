@@ -858,15 +858,25 @@ def _execute_recommendation(rec: dict) -> dict | None:
         # Last resort: build a default query
         if not gql:
             gql = '{ stats: x402DailyStats_collection(first: 3, orderBy: date, orderDirection: desc) { date totalPayments totalVolumeDecimal eip3009Payments permit2Payments } facilitators(first: 10, orderBy: totalSettlements, orderDirection: desc) { name address totalSettlements totalVolumeDecimal isActive } }'
-        # Fix common query issues: x402DailyStats without _collection suffix
+        # Fix common query issues Claude generates for this subgraph
         if 'x402DailyStats(' in gql and '_collection' not in gql:
             gql = gql.replace('x402DailyStats(', 'x402DailyStats_collection(')
+        if 'x402DailyStatses(' in gql:
+            gql = gql.replace('x402DailyStatses(', 'x402DailyStats_collection(')
+        if 'x402DailyStat(' in gql:
+            gql = gql.replace('x402DailyStat(', 'x402DailyStats_collection(')
         if gql:
             x402_url = "https://api.studio.thegraph.com/query/1745687/x-402-base/version/latest"
+            default_gql = '{ stats: x402DailyStats_collection(first: 3, orderBy: date, orderDirection: desc) { date totalPayments totalVolumeDecimal eip3009Payments permit2Payments } facilitators(first: 10, orderBy: totalSettlements, orderDirection: desc) { name address totalSettlements totalVolumeDecimal isActive } }'
             try:
                 r = _httpx.post(x402_url, json={"query": gql}, timeout=15)
-                log.info(f"EXECUTE  x402-subgraph -> {r.status_code}")
                 data = r.json()
+                # If Claude's query failed, retry with default
+                if data.get("errors") and gql != default_gql:
+                    log.info(f"EXECUTE  x402 query failed, retrying with default")
+                    r = _httpx.post(x402_url, json={"query": default_gql}, timeout=15)
+                    data = r.json()
+                log.info(f"EXECUTE  x402-subgraph -> {r.status_code}")
                 if isinstance(data.get("data"), dict):
                     for k, val in data["data"].items():
                         if isinstance(val, list) and len(val) > 20:
@@ -876,7 +886,7 @@ def _execute_recommendation(rec: dict) -> dict | None:
                     "source": "x402-subgraph",
                     "status": r.status_code,
                     "data": data,
-                    "note": "Live x402 payment data on Base from The Graph subgraph.",
+                    "note": "Live x402 payment data on Base, powered by The Graph.",
                 }
             except Exception as e:
                 log.error(f"x402 subgraph query failed: {e}")
