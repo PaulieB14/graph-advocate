@@ -70,11 +70,23 @@ Note: If 8004scan search results appear in the LIVE SEARCH RESULTS context below
 Best for: wallet balances, token transfers, DEX swaps, NFT data, holder rankings
 Chains: EVM (Ethereum, Base, Polygon…), SVM (Solana), TVM (TON)
 Key tools: getV1EvmBalances, getV1EvmSwaps, getV1EvmNftSales, getV1SvmBalances, getV1EvmHolders, getV1EvmTransfers, getV1EvmPools, getV1EvmPoolsOhlc, getV1SvmNftSales, getV1EvmNftItems, getV1EvmNftHolders
+IMPORTANT — Token API args MUST include:
+  - network: "mainnet", "base", "matic", "arbitrum-one", "optimism", "avalanche" (REQUIRED)
+  - contract: token contract address (REQUIRED for holders/balances)
+  Common contracts: USDC=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 (mainnet), WETH=0x4200000000000000000000000000000000000006 (base), USDC=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 (base)
 
 [SUBGRAPH REGISTRY]
 Best for: protocol-level indexed data (Uniswap, Aave, ENS, Compound, Curve, Balancer, etc.)
 Use when: the agent needs entities, relationships, or aggregations a subgraph tracks
 Key tools: search_subgraphs_by_keyword, get_schema_by_subgraph_id, execute_query_by_subgraph_id
+IMPORTANT — Common subgraph entity names (do NOT guess, use these):
+  - Uniswap V2: pairs(orderBy: reserveUSD) { token0 { symbol } token1 { symbol } reserveUSD volumeUSD }
+  - Uniswap V3: pools(orderBy: totalValueLockedUSD) { token0 { symbol } token1 { symbol } totalValueLockedUSD feeTier }
+  - Aave V2/V3: markets(orderBy: totalDepositBalanceUSD) { name inputToken { symbol } totalDepositBalanceUSD totalBorrowBalanceUSD }
+  - Compound: markets(orderBy: totalDepositBalanceUSD) { name inputToken { symbol } totalDepositBalanceUSD }
+  - ENS: registrations(orderBy: registrationDate) { domain { name } registrant { id } registrationDate }
+  - Curve: pools(orderBy: totalValueLockedUSD) { name totalValueLockedUSD coins }
+  Always use the entity names from the search results or these hints — never invent field names.
 npm: subgraph-registry-mcp (14,700+ classified subgraphs with domain/protocol/reliability scoring, bot-readable category files)
 npm: subgraphs-skills (AI agent skills for developing/testing/optimizing subgraphs)
 npm: subgraph-mcp-skills (AI agent skills for querying subgraphs via MCP tools)
