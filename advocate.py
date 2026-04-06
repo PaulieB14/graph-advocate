@@ -826,10 +826,40 @@ def _execute_recommendation(rec: dict) -> dict | None:
         if not path:
             return None
 
-        # Normalize arg keys (network_id -> network)
+        # Normalize arg keys and inject missing required params
         params = dict(args)
         if "network_id" in params and "network" not in params:
             params["network"] = params.pop("network_id")
+
+        # Default network to mainnet if missing
+        if "network" not in params:
+            # Try to infer from request text
+            req_lower = rec.get("reason", "").lower() + rec.get("_original_request", "").lower()
+            if "base" in req_lower:
+                params["network"] = "base"
+            elif "polygon" in req_lower or "matic" in req_lower:
+                params["network"] = "matic"
+            elif "arbitrum" in req_lower:
+                params["network"] = "arbitrum-one"
+            else:
+                params["network"] = "mainnet"
+
+        # Inject common contract addresses if missing
+        if "contract" not in params and tool in ("getV1EvmHolders", "getV1EvmBalances"):
+            KNOWN_CONTRACTS = {
+                "usdc": {"mainnet": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"},
+                "weth": {"mainnet": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "base": "0x4200000000000000000000000000000000000006"},
+                "usdt": {"mainnet": "0xdAC17F958D2ee523a2206206994597C13D831ec7"},
+                "dai": {"mainnet": "0x6B175474E89094C44Da98b954EedeAC495271d0F"},
+                "wbtc": {"mainnet": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"},
+            }
+            reason = rec.get("reason", "").lower()
+            for token, networks in KNOWN_CONTRACTS.items():
+                if token in reason:
+                    network = params.get("network", "mainnet")
+                    if network in networks:
+                        params["contract"] = networks[network]
+                        break
 
         try:
             r = httpx.get(
