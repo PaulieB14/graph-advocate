@@ -830,6 +830,12 @@ def _execute_recommendation(rec: dict) -> dict | None:
         params = dict(args)
         if "network_id" in params and "network" not in params:
             params["network"] = params.pop("network_id")
+        if "chain" in params and "network" not in params:
+            params["network"] = params.pop("chain")
+        if "token_address" in params and "contract" not in params:
+            params["contract"] = params.pop("token_address")
+        if "token" in params and "contract" not in params:
+            params["contract"] = params.pop("token")
 
         # Default network to mainnet if missing
         if "network" not in params:
