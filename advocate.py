@@ -832,10 +832,11 @@ def _execute_recommendation(rec: dict) -> dict | None:
         or tool == "execute_query_by_subgraph_id"
     )
     if has_subgraph_query:
-        api_key = os.environ.get("GRAPH_API_KEY", "") or os.environ.get("GATEWAY_API_KEY", "")
-        if not api_key:
-            log.warning("No GRAPH_API_KEY or GATEWAY_API_KEY set — subgraph queries will fail")
-            return {"source": "subgraph-gateway", "error": "No API key configured. Set GRAPH_API_KEY env var."}
+        api_key = (
+            os.environ.get("GRAPH_API_KEY", "")
+            or os.environ.get("GATEWAY_API_KEY", "")
+            or "4c62716b2e5808ac83da1938db78296e"  # free tier fallback (100K/month)
+        )
         gql = args.get("gql") or args.get("query") or query_ready.get("gql") or query_ready.get("query")
         subgraph_id = args.get("subgraph_id") or query_ready.get("subgraph_id")
 
