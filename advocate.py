@@ -70,10 +70,17 @@ Note: If 8004scan search results appear in the LIVE SEARCH RESULTS context below
 Best for: wallet balances, token transfers, DEX swaps, NFT data, holder rankings
 Chains: EVM (Ethereum, Base, Polygon…), SVM (Solana), TVM (TON)
 Key tools: getV1EvmBalances, getV1EvmSwaps, getV1EvmNftSales, getV1SvmBalances, getV1EvmHolders, getV1EvmTransfers, getV1EvmPools, getV1EvmPoolsOhlc, getV1SvmNftSales, getV1EvmNftItems, getV1EvmNftHolders
-IMPORTANT — Token API args MUST include:
-  - network: "mainnet", "base", "matic", "arbitrum-one", "optimism", "avalanche" (REQUIRED)
-  - contract: token contract address (REQUIRED for holders/balances)
-  Common contracts: USDC=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 (mainnet), WETH=0x4200000000000000000000000000000000000006 (base), USDC=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 (base)
+CRITICAL — Token API parameter names (use EXACTLY these, never alias):
+  - "network" (REQUIRED): "mainnet", "base", "matic", "arbitrum-one", "optimism", "avalanche-mainnet", "bsc-mainnet"
+  - "contract" (REQUIRED for holders/tokens): the token contract address
+  - "address" (REQUIRED for balances): the wallet address
+  - DO NOT use "chain", "token_address", "token", or "network_id" — these are WRONG
+  Full reference: https://token-api.thegraph.com/skills.md
+  Common contracts:
+    USDC: mainnet=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, base=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+    WETH: mainnet=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, base=0x4200000000000000000000000000000000000006
+    USDT: mainnet=0xdAC17F958D2ee523a2206206994597C13D831ec7
+  Example: getV1EvmHolders with args: {"network": "base", "contract": "0x4200000000000000000000000000000000000006", "limit": 5}
 
 [SUBGRAPH REGISTRY]
 Best for: protocol-level indexed data (Uniswap, Aave, ENS, Compound, Curve, Balancer, etc.)
