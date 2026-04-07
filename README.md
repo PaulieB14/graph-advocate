@@ -2,10 +2,12 @@
 
 **Live:** `https://graph-advocate-production.up.railway.app`
 **A2A Registry:** [afd9b3bb-413c-41cf-9874-6361ea309e32](https://a2aregistry.org)
-**ERC-8004:** Agent #734 on Arbitrum — [identity registry](https://arbiscan.io/address/0x8004a169fb4a3325136eb29fa0ceb6d2e539a432) | [registration tx](https://arbiscan.io/tx/0xb7ed65daec04a7f2a9de31fd8bfe37b308bbe92c074139b4496050217e7251ad)
-**MoltBridge:** `graph-advocate` — 10 capabilities, 5 clusters
+**ERC-8004:** Agent #734 on Arbitrum | Agent #41,034 on Base
+**Ampersend:** [app.ampersend.ai/discover/agent/8453:41034](https://app.ampersend.ai/discover/agent/8453:41034) — x402 payments via Edge & Node's agent wallet platform
+**Agentverse:** 4.7 rating, 1,100+ interactions — [profile](https://agentverse.ai/agents/details/agent1qfa8f2kzanmt4zqg35gvgk5lpkjev52f75duhdyl3tj6s0nn26466yu5c7a/profile)
 **ClawHub:** [graph-advocate](https://clawhub.ai/paulieb14/graph-advocate)
 **Agent card:** `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json`
+**ENS:** `graphadvocate.eth`
 
 A Claude-powered routing agent that intercepts plain-English data requests from other agents and routes them to the right [The Graph Protocol](https://thegraph.com) service — returning structured JSON with a ready-to-execute tool call.
 
@@ -69,6 +71,19 @@ Exposes itself as an **A2A (Agent-to-Agent) server** so any A2A-compatible agent
   ]
 }
 ```
+
+---
+
+## x402 Payments & Ampersend
+
+Graph Advocate supports autonomous agent payments via the [x402 protocol](https://www.x402.org/) on Base.
+
+- **Free tier:** 10 queries/day per sender
+- **Paid tier:** $0.01 USDC per query via x402 after free tier
+- **Payment wallet:** [Ampersend](https://www.edgeandnode.com/ampersend) smart account on Base
+- **Registered:** [Ampersend Discover](https://app.ampersend.ai/discover/agent/8453:41034)
+
+Payments are settled on-chain via USDC on Base using EIP-3009 (`transferWithAuthorization`). The agent returns a standard x402 `402 Payment Required` response when the free tier is exceeded, with payment requirements that any x402-compatible client can fulfill automatically.
 
 ---
 
