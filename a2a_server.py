@@ -819,7 +819,6 @@ class GraphAdvocateExecutor(AgentExecutor):
         _is_generic_operational = "are you operational" in _lower or "confirm you are operational" in _lower or "are operational" in _lower
         if _is_openclaw or _is_generic_operational:
             log.info(f"OPENCLAW task={task_id} | operational probe")
-            _log_request(task_id, user_text, "operational-confirmation", "high", "openclaw-probe")
             _services = {
                 "token-api": "EVM/SVM/TVM balances, swaps, NFTs, holders",
                 "subgraph-registry": "15,500+ indexed subgraphs, search & query",
@@ -833,29 +832,31 @@ class GraphAdvocateExecutor(AgentExecutor):
             }
             _total_reqs = len(REQUEST_LOG)
             _unique_senders = len(set(e.get("task_id", "")[:8] for e in REQUEST_LOG))
-            await event_queue.enqueue_event(
-                new_agent_text_message(json.dumps({
-                    "status": "operational",
-                    "agent": "Graph Advocate",
-                    "agent_id": "ERC-8004 #734 (Arbitrum)",
-                    "ens": "graphadvocate.eth",
-                    "services_online": len(_services),
-                    "services": _services,
-                    "capabilities": [
-                        "Route plain-English data queries to The Graph services",
-                        "Return ready-to-execute GraphQL queries with subgraph IDs",
-                        "Cross-chain DeFi data (Aave, Uniswap, Compound, ENS, Curve, etc.)",
-                        "Prediction market data (Polymarket, Predict.fun, Limitless)",
-                        "AI agent discovery via ERC-8004 registry",
-                        "x402 micropayments ($0.01 USDC/query after free tier)",
-                    ],
-                    "recent_activity": {
-                        "requests_in_log": _total_reqs,
-                        "unique_sessions": _unique_senders,
-                    },
-                    "protocols": ["A2A", "MCP", "ERC-8004", "x402"],
-                    "endpoint": "https://graph-advocate-production.up.railway.app",
-                })))
+            _openclaw_resp = {
+                "recommendation": "operational-confirmation",
+                "status": "operational",
+                "agent": "Graph Advocate",
+                "agent_id": "ERC-8004 #734 (Arbitrum)",
+                "ens": "graphadvocate.eth",
+                "services_online": len(_services),
+                "services": _services,
+                "capabilities": [
+                    "Route plain-English data queries to The Graph services",
+                    "Return ready-to-execute GraphQL queries with subgraph IDs",
+                    "Cross-chain DeFi data (Aave, Uniswap, Compound, ENS, Curve, etc.)",
+                    "Prediction market data (Polymarket, Predict.fun, Limitless)",
+                    "AI agent discovery via ERC-8004 registry",
+                    "x402 micropayments ($0.01 USDC/query after free tier)",
+                ],
+                "recent_activity": {
+                    "requests_in_log": _total_reqs,
+                    "unique_sessions": _unique_senders,
+                },
+                "protocols": ["A2A", "MCP", "ERC-8004", "x402"],
+                "endpoint": "https://graph-advocate-production.up.railway.app",
+            }
+            _log_request(task_id, user_text, "operational-confirmation", "high", "openclaw-probe", response=_openclaw_resp)
+            await event_queue.enqueue_event(new_agent_text_message(json.dumps(_openclaw_resp)))
             return
 
         # a2aregistry / URL-checking probes — return structured info rather than reject
@@ -863,39 +864,41 @@ class GraphAdvocateExecutor(AgentExecutor):
             ("does http" in _lower and ".well-known" in _lower) or
             ("does http" in _lower and "agent.json" in _lower)):
             log.info(f"REGCHECK task={task_id} | a2aregistry probe")
-            _log_request(task_id, user_text, "registry-info", "high", "registry-probe")
-            await event_queue.enqueue_event(
-                new_agent_text_message(json.dumps({
-                    "status": "registered",
-                    "agent": "Graph Advocate",
-                    "agent_card_url": "https://graph-advocate-production.up.railway.app/.well-known/agent.json",
-                    "agent_card_exists": True,
-                    "endpoint": "https://graph-advocate-production.up.railway.app",
-                    "a2a_registry_id": "afd9b3bb-413c-41cf-9874-6361ea309e32",
-                    "erc8004_id": 734,
-                    "ens": "graphadvocate.eth",
-                    "wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292",
-                    "note": "I'm a routing agent for The Graph Protocol — I don't fetch arbitrary URLs, but my own discovery files are available at the URLs above.",
-                    "protocols_supported": ["A2A", "MCP", "ERC-8004", "x402"],
-                })))
+            _registry_resp = {
+                "recommendation": "registry-info",
+                "status": "registered",
+                "agent": "Graph Advocate",
+                "agent_card_url": "https://graph-advocate-production.up.railway.app/.well-known/agent.json",
+                "agent_card_exists": True,
+                "endpoint": "https://graph-advocate-production.up.railway.app",
+                "a2a_registry_id": "afd9b3bb-413c-41cf-9874-6361ea309e32",
+                "erc8004_id": 734,
+                "ens": "graphadvocate.eth",
+                "wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292",
+                "note": "I'm a routing agent for The Graph Protocol — I don't fetch arbitrary URLs, but my own discovery files are available at the URLs above.",
+                "protocols_supported": ["A2A", "MCP", "ERC-8004", "x402"],
+            }
+            _log_request(task_id, user_text, "registry-info", "high", "registry-probe", response=_registry_resp)
+            await event_queue.enqueue_event(new_agent_text_message(json.dumps(_registry_resp)))
             return
 
         # Chiark conformance probes
         if "chiark conformance probe" in _lower:
             log.info(f"CHIARK   task={task_id} | conformance probe")
-            _log_request(task_id, user_text, "conformance", "high", "chiark-probe")
-            await event_queue.enqueue_event(
-                new_agent_text_message(json.dumps({
-                    "status": "alive",
-                    "agent": "Graph Advocate",
-                    "uptime": "healthy",
-                    "services_online": 9,
-                    "services": ["token-api", "subgraph-registry", "substreams", "graph-aave-mcp",
-                                 "graph-polymarket-mcp", "graph-lending-mcp", "graph-limitless-mcp",
-                                 "predictfun-mcp", "8004scan"],
-                    "requests_handled": len(REQUEST_LOG),
-                    "conformance": "acknowledged",
-                })))
+            _chiark_resp = {
+                "recommendation": "conformance",
+                "status": "alive",
+                "agent": "Graph Advocate",
+                "uptime": "healthy",
+                "services_online": 9,
+                "services": ["token-api", "subgraph-registry", "substreams", "graph-aave-mcp",
+                             "graph-polymarket-mcp", "graph-lending-mcp", "graph-limitless-mcp",
+                             "predictfun-mcp", "8004scan"],
+                "requests_handled": len(REQUEST_LOG),
+                "conformance": "acknowledged",
+            }
+            _log_request(task_id, user_text, "conformance", "high", "chiark-probe", response=_chiark_resp)
+            await event_queue.enqueue_event(new_agent_text_message(json.dumps(_chiark_resp)))
             return
 
         # ── Fix 1: Static benchmark bot responses (saves ~120 Claude calls/day) ──
