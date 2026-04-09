@@ -105,6 +105,8 @@ npm: subgraph-mcp-skills (AI agent skills for querying subgraphs via MCP tools)
 Best for: raw block data, traces, logs, anything not yet in a subgraph, high-throughput streaming
 Use when: the agent needs highly specific or real-time block-level data, custom transformations, or data not covered by existing subgraphs
 Key tools: search_substreams, stream_data
+Browse packages (no auth needed): https://substreams.dev
+Auth: Substreams uses a JWT (not a plain API key like subgraphs). Sign up at https://thegraph.market → create an API key → generate a JWT → run `substreams auth` to use it. Docs: https://docs.substreams.dev
 npm: substreams-search-mcp (search and inspect Substreams packages, browse registry, introspect .spkg modules)
 npm: create-substreams-sink-sql (scaffold a Substreams SQL sink for PostgreSQL — zero custom code)
 
@@ -432,12 +434,21 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
     "substreams": {
         "install": "npx substreams-search-mcp",
         "curl_example": (
-            "# Search Substreams packages\n"
+            "# 1. Search Substreams packages (no auth needed)\n"
             "npx substreams-search-mcp\n\n"
             "# Or browse the registry directly\n"
-            "curl 'https://substreams.dev/packages?search=uniswap&sort=most_downloaded'"
+            "curl 'https://substreams.dev/packages?search=uniswap&sort=most_downloaded'\n\n"
+            "# 2. To stream data, install the Substreams CLI:\n"
+            "#    https://docs.substreams.dev/how-to-guides/installing-the-cli\n"
+            "# 3. Auth: create an API key at https://thegraph.market, generate a JWT,\n"
+            "#    then run:  substreams auth\n"
+            "# 4. Run a package:  substreams run <spkg> module_name -e mainnet.eth.streamingfast.io:443"
         ),
-        "get_started": "Free Substreams API key: https://thegraph.market/dashboard#api-keys",
+        "get_started": (
+            "Substreams uses a JWT (not a plain API key). "
+            "Sign up at https://thegraph.market → create an API key → generate a JWT → "
+            "use it with `substreams auth`. Docs: https://docs.substreams.dev"
+        ),
     },
     "subgraph-registry": {
         "curl_example": (
@@ -1072,7 +1083,10 @@ You have access to these services:
   15,500+ subgraphs available
 
 **Substreams** — raw block data, traces, logs, high-throughput streaming
-  Auth: Get a JWT/API key at https://thegraph.market/dashboard#api-keys
+  Auth: Substreams uses a JWT (not a plain API key). Sign up at https://thegraph.market,
+  create an API key, then generate a JWT from it. Use with `substreams auth` CLI command.
+  Browse packages (no auth needed): https://substreams.dev
+  Docs: https://docs.substreams.dev
 
 **Protocol MCP Packages** (npm by @paulieb — install with npx, no agent required):
   - graph-aave-mcp: Aave V2/V3/V4 — 40 tools across 16 Graph subgraphs + Aave V4 API (hubs, spokes, cross-chain positions, swap quotes, rewards)
@@ -1123,6 +1137,11 @@ You have access to these services:
 - There is no free public endpoint for subgraphs — an API key is always required
 - Queries are billed in GRT but new accounts get a free tier of 100,000 queries
 - Token API auth is at https://thegraph.market/auth/tokenapi-env — NOT thegraph.com/studio (that's for subgraphs only)
+- Substreams auth is a JWT (not a plain API key) — sign up at https://thegraph.market, create an API key, then generate a JWT
+- AUTH SYSTEMS DIFFER — never confuse them:
+    • Subgraphs:   API key from thegraph.com/studio  → URL header: /api/{KEY}/subgraphs/id/{ID}
+    • Token API:   JWT from thegraph.market           → Authorization: Bearer {JWT}
+    • Substreams:  JWT from thegraph.market (via API key) → use with `substreams auth` CLI
 - Do NOT invent Token API URLs like "api.tokenapi.io" — they don't exist
 - Do NOT hallucinate URLs, endpoints, or tool names that don't exist
 - ONLY reference URLs explicitly listed in this prompt — never guess or construct URLs
