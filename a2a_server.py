@@ -1401,12 +1401,14 @@ def _build_dashboard_data() -> dict:
     dashboard_endpoint.  Keeping data-building here means the JSON endpoint
     and the HTML shell always show exactly the same numbers.
     """
-    from collections import Counter
+    from collections import Counter, defaultdict
     import json as _json
     import sqlite3 as _sq
 
     NOISE = {"out-of-scope", "introduction", "awaiting-request", "unknown", "chat",
-             "rate-limited", "payment-required", "x402-paid", "x402-failed"}
+             "rate-limited", "payment-required", "x402-paid", "x402-failed",
+             "operational-confirmation", "registry-info", "conformance",
+             "clarification-needed", "no-match", "unclear-request"}
     SERVICE_COLORS = {
         "token-api":            "#10b981",
         "subgraph-registry":    "#6366f1",
@@ -1418,6 +1420,9 @@ def _build_dashboard_data() -> dict:
         "graph-limitless-mcp":  "#f97316",
         "comparison":           "#64748b",
         "chat":                 "#475569",
+        "x402-analytics":       "#a855f7",
+        "8004scan":             "#06b6d4",
+        "mcp8004":              "#84cc16",
     }
 
     # ── Recent rows from SQLite ───────────────────────────────────────────
@@ -1544,6 +1549,162 @@ def _build_dashboard_data() -> dict:
         except Exception:
             pass
 
+    # ── 24h time-series (hourly buckets) ──────────────────────────────────
+    timeseries = {"labels": [], "total": [], "by_service": {}}
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        ts_rows = conn.execute(
+            "SELECT timestamp, service FROM activity WHERE timestamp >= ? ORDER BY timestamp",
+            (cutoff,),
+        ).fetchall()
+        conn.close()
+
+        # Bucket by hour (24 hourly buckets ending now)
+        now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        buckets = [(now - timedelta(hours=23 - i)) for i in range(24)]
+        bucket_keys = [b.strftime("%H:00") for b in buckets]
+        bucket_total = [0] * 24
+        # Track per-service for stacked chart
+        TOP_SERVICES = ["token-api", "subgraph-registry", "graph-aave-mcp", "substreams"]
+        bucket_svc: dict = {svc: [0] * 24 for svc in TOP_SERVICES}
+        bucket_svc["other"] = [0] * 24
+
+        for ts_str, svc in ts_rows:
+            try:
+                t = datetime.fromisoformat(ts_str)
+                if t.tzinfo is None:
+                    t = t.replace(tzinfo=timezone.utc)
+                hours_ago = int((now - t.replace(minute=0, second=0, microsecond=0)).total_seconds() / 3600)
+                idx = 23 - hours_ago
+                if 0 <= idx < 24:
+                    bucket_total[idx] += 1
+                    if svc in bucket_svc:
+                        bucket_svc[svc][idx] += 1
+                    elif svc not in NOISE:
+                        bucket_svc["other"][idx] += 1
+            except Exception:
+                pass
+
+        timeseries = {
+            "labels": bucket_keys,
+            "total": bucket_total,
+            "by_service": bucket_svc,
+        }
+    except Exception:
+        pass
+
+    # ── Top querying agents (leaderboard) ─────────────────────────────────
+    leaderboard = []
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        rows = conn.execute(
+            "SELECT task_id, sender_type, COUNT(*) as cnt, "
+            "MAX(timestamp) as last_seen "
+            "FROM activity "
+            "WHERE service NOT IN ('out-of-scope', 'awaiting-request', 'unknown', 'introduction') "
+            "GROUP BY task_id ORDER BY cnt DESC LIMIT 10"
+        ).fetchall()
+        for tid, sender_type, cnt, last_seen in rows:
+            # Get the most-used service for this sender
+            top_svc_row = conn.execute(
+                "SELECT service, COUNT(*) FROM activity WHERE task_id = ? "
+                "GROUP BY service ORDER BY 2 DESC LIMIT 1",
+                (tid,),
+            ).fetchone()
+            top_svc = top_svc_row[0] if top_svc_row else "?"
+            short = (tid or "?")[:12] + "…" if tid and len(tid) > 12 else (tid or "?")
+            leaderboard.append({
+                "sender": short,
+                "type": sender_type or "unknown",
+                "count": cnt,
+                "top_service": top_svc,
+                "last_seen": (last_seen or "")[11:19],
+            })
+        conn.close()
+    except Exception:
+        pass
+
+    # ── Service health grid ───────────────────────────────────────────────
+    service_health = []
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        rows = conn.execute(
+            "SELECT service, COUNT(*) as cnt FROM activity "
+            "WHERE service NOT IN ('out-of-scope', 'awaiting-request', 'unknown', 'introduction', "
+            "'rate-limited', 'payment-required') "
+            "GROUP BY service ORDER BY cnt DESC LIMIT 12"
+        ).fetchall()
+        # Get avg quality scores per service
+        try:
+            qrows = conn.execute(
+                "SELECT service, AVG(score) FROM quality_scores GROUP BY service"
+            ).fetchall()
+            quality_map = {r[0]: round(r[1], 2) for r in qrows if r[1] is not None}
+        except Exception:
+            quality_map = {}
+        # Last seen per service
+        last_map = {}
+        for svc, _ in rows:
+            r = conn.execute(
+                "SELECT MAX(timestamp) FROM activity WHERE service = ?", (svc,),
+            ).fetchone()
+            if r and r[0]:
+                last_map[svc] = r[0][11:19]
+        conn.close()
+
+        for svc, cnt in rows:
+            quality = quality_map.get(svc)
+            color = SERVICE_COLORS.get(svc, "#64748b")
+            health_status = "healthy"
+            if quality is not None and quality < 2:
+                health_status = "low-quality"
+            service_health.append({
+                "name": svc,
+                "count": cnt,
+                "color": color,
+                "quality": quality,
+                "last_seen": last_map.get(svc, "—"),
+                "status": health_status,
+            })
+    except Exception:
+        pass
+
+    # ── 24h activity counts (hero metrics) ────────────────────────────────
+    hero_24h = {"requests": 0, "unique_senders": 0, "last_5min": 0}
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        cutoff_5min = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        hero_24h["requests"] = conn.execute(
+            "SELECT COUNT(*) FROM activity WHERE timestamp >= ?", (cutoff_24h,),
+        ).fetchone()[0]
+        hero_24h["unique_senders"] = conn.execute(
+            "SELECT COUNT(DISTINCT task_id) FROM activity WHERE timestamp >= ?", (cutoff_24h,),
+        ).fetchone()[0]
+        hero_24h["last_5min"] = conn.execute(
+            "SELECT COUNT(*) FROM activity WHERE timestamp >= ?", (cutoff_5min,),
+        ).fetchone()[0]
+        conn.close()
+    except Exception:
+        pass
+
+    # ── Quality summary (avg score across all entries) ─────────────────────
+    quality_summary = {"avg_score": None, "total_scored": 0}
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        r = conn.execute(
+            "SELECT AVG(score), COUNT(*) FROM quality_scores"
+        ).fetchone()
+        if r and r[0] is not None:
+            quality_summary = {
+                "avg_score": round(r[0], 2),
+                "total_scored": r[1],
+            }
+        conn.close()
+    except Exception:
+        pass
+
     return {
         "total": total,
         "legit": legit,
@@ -1566,6 +1727,11 @@ def _build_dashboard_data() -> dict:
         },
         "service_colors": SERVICE_COLORS,
         "recent": recent,
+        "timeseries": timeseries,
+        "leaderboard": leaderboard,
+        "service_health": service_health,
+        "hero_24h": hero_24h,
+        "quality_summary": quality_summary,
     }
 
 
@@ -1593,226 +1759,565 @@ async def dashboard_endpoint(request: Request):
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Graph Advocate — Dashboard</title>
+<title>Graph Advocate — Live Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:1.5rem}
-  h1{font-size:1.3rem;font-weight:700;color:#f8fafc;display:flex;align-items:center;gap:.5rem}
-  .sub{color:#475569;font-size:.8rem;margin:.2rem 0 1.5rem}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1.5rem}
-  .card{background:#1e293b;border-radius:10px;padding:1rem 1.25rem;border-left:3px solid transparent;transition:border-color .3s}
-  .card .n{font-size:1.8rem;font-weight:700;color:#f8fafc;line-height:1}
-  .card .l{font-size:.72rem;color:#64748b;margin-top:.3rem;text-transform:uppercase;letter-spacing:.04em}
-  .grid2{display:grid;grid-template-columns:1fr 280px;gap:1rem;margin-bottom:1.5rem}
-  @media(max-width:700px){.grid2{grid-template-columns:1fr}}
-  .panel{background:#1e293b;border-radius:10px;padding:1rem}
-  .panel h2{font-size:.78rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
-  .pill{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;font-weight:600;padding:.3rem .8rem;border-radius:999px;background:#0f172a}
-  .dot{width:9px;height:9px;border-radius:50%}
-  table{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;font-size:.8rem;table-layout:fixed}
-  th{text-align:left;padding:.55rem .75rem;font-size:.68rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #334155}
-  td{padding:.5rem .75rem;border-bottom:1px solid #0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  td:nth-child(1){width:68px} td:nth-child(3){width:155px} td:nth-child(4){width:110px} td:nth-child(5){width:80px}
-  tr:last-child td{border-bottom:none}
-  tr:hover td{background:#243044}
-  .detail-row td{white-space:normal;background:#0f172a!important}
-  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
-  .live{animation:blink 2s infinite;font-size:.65rem;color:#10b981;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-  .expand-btn{cursor:pointer;color:#6366f1;font-size:.7rem;margin-left:.4rem;transition:color .15s}
-  .expand-btn:hover{color:#818cf8}
-  #updated{font-size:.7rem;color:#334155;margin-left:.5rem}
-  .fade{animation:fadeIn .4s ease}
-  @keyframes fadeIn{from{opacity:.4}to{opacity:1}}
+  :root {
+    --bg-deep: #050810;
+    --bg-main: #0a0e1a;
+    --bg-card: rgba(255,255,255,0.025);
+    --bg-card-hover: rgba(99,102,241,0.06);
+    --border: rgba(255,255,255,0.06);
+    --border-bright: rgba(99,102,241,0.25);
+    --accent: #818cf8;
+    --accent-bright: #a5b4fc;
+    --text: #c7cee5;
+    --text-bright: #f1f5f9;
+    --text-muted: rgba(199,206,229,0.45);
+    --text-dim: rgba(199,206,229,0.25);
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --indigo: #818cf8;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    background:linear-gradient(135deg,#0a0e1a 0%,#0f0c29 50%,#0a0e1a 100%);
+    background-attachment:fixed;
+    color:var(--text);
+    padding:24px;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+    position:relative;
+  }
+  body::before{
+    content:'';position:fixed;inset:0;
+    background-image:linear-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.012) 1px,transparent 1px);
+    background-size:60px 60px;pointer-events:none;z-index:0;
+  }
+  .wrap{max-width:1600px;margin:0 auto;position:relative;z-index:1}
+
+  /* Header */
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;flex-wrap:wrap;gap:16px}
+  .header-left h1{
+    font-size:1.8rem;font-weight:800;letter-spacing:-0.02em;
+    background:linear-gradient(135deg,#fff 0%,#a5b4fc 50%,#818cf8 100%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+    display:flex;align-items:center;gap:12px;
+  }
+  .header-left h1 .live-badge{
+    -webkit-text-fill-color:initial;
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:0.7rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;
+    color:var(--green);background:rgba(52,211,153,0.1);
+    padding:5px 12px;border-radius:999px;border:1px solid rgba(52,211,153,0.25);
+  }
+  .header-left h1 .live-badge::before{
+    content:'';width:7px;height:7px;border-radius:50%;background:var(--green);
+    animation:pulse 2s ease-in-out infinite;
+  }
+  .header-left .sub{color:var(--text-muted);font-size:0.82rem;margin-top:8px}
+  .header-left .sub a{color:var(--accent-bright);text-decoration:none;transition:color 0.2s}
+  .header-left .sub a:hover{color:var(--text-bright)}
+  .header-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .header-right .tab{
+    padding:8px 16px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;
+    background:rgba(255,255,255,0.04);border:1px solid var(--border);
+    color:var(--text-muted);transition:all 0.2s;
+  }
+  .header-right .tab:hover{background:var(--bg-card-hover);color:var(--text-bright)}
+  .header-right .tab.active{background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border-color:transparent;box-shadow:0 2px 12px rgba(99,102,241,0.3)}
+
+  /* Hero metrics */
+  .hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px}
+  .hero-card{
+    background:var(--bg-card);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid var(--border);border-radius:16px;
+    box-shadow:0 4px 30px rgba(0,0,0,0.2),inset 0 1px 0 rgba(255,255,255,0.04);
+    padding:22px 26px;position:relative;overflow:hidden;transition:all 0.3s ease;
+  }
+  .hero-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent)}
+  .hero-card:hover{transform:translateY(-2px);border-color:var(--border-bright);box-shadow:0 8px 40px rgba(0,0,0,0.3),0 0 30px rgba(99,102,241,0.08)}
+  .hero-card .label{display:flex;align-items:center;gap:8px;font-size:0.7rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px}
+  .hero-card .label .icon{font-size:1.05rem}
+  .hero-card .value{font-size:2rem;font-weight:800;color:var(--text-bright);letter-spacing:-0.03em;line-height:1}
+  .hero-card .sub{font-size:0.75rem;color:var(--text-muted);margin-top:6px}
+  .hero-card .badge{
+    display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;
+    font-size:0.7rem;font-weight:700;margin-left:8px;
+  }
+  .hero-card .badge.green{background:rgba(52,211,153,0.12);color:var(--green);border:1px solid rgba(52,211,153,0.25)}
+  .hero-card .badge.amber{background:rgba(251,191,36,0.12);color:var(--amber);border:1px solid rgba(251,191,36,0.25)}
+  .hero-card .badge.dim{background:rgba(255,255,255,0.04);color:var(--text-muted)}
+
+  /* Status pill */
+  .status-pill{display:inline-flex;align-items:center;gap:8px;font-size:0.95rem;font-weight:700;padding:6px 14px;border-radius:999px}
+  .status-pill .dot{width:9px;height:9px;border-radius:50%}
+
+  /* Stat cards row (legacy compact) */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+  .stat{
+    background:var(--bg-card);backdrop-filter:blur(20px);
+    border:1px solid var(--border);border-radius:12px;padding:14px 18px;
+    transition:all 0.25s ease;
+  }
+  .stat:hover{border-color:var(--border-bright);background:var(--bg-card-hover)}
+  .stat .n{font-size:1.5rem;font-weight:800;color:var(--text-bright);line-height:1;letter-spacing:-0.02em}
+  .stat .l{font-size:0.65rem;color:var(--text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600}
+
+  /* Two-column grid */
+  .grid-main{display:grid;grid-template-columns:1fr 320px;gap:20px;margin-bottom:24px}
+  @media(max-width:1100px){.grid-main{grid-template-columns:1fr}}
+
+  .panel{
+    background:var(--bg-card);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid var(--border);border-radius:16px;
+    box-shadow:0 4px 30px rgba(0,0,0,0.2),inset 0 1px 0 rgba(255,255,255,0.04);
+    padding:22px 24px;position:relative;overflow:hidden;
+  }
+  .panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0.6}
+  .panel h2{
+    font-size:0.78rem;font-weight:700;color:var(--text-muted);
+    text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .panel .panel-sub{font-size:0.7rem;color:var(--text-dim);margin-bottom:18px}
+
+  /* Time-series chart container */
+  .chart-container{position:relative;height:260px}
+
+  /* Donut */
+  .donut-wrap{display:flex;flex-direction:column;align-items:center}
+  #donut-canvas{max-width:200px}
+  .legend{margin-top:16px;font-size:0.78rem;display:flex;flex-direction:column;gap:6px;align-self:stretch}
+  .legend-item{display:flex;align-items:center;gap:8px}
+  .legend-swatch{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+  .legend-name{color:var(--text);flex:1}
+  .legend-value{color:var(--text-bright);font-weight:700;font-family:'JetBrains Mono',monospace}
+
+  /* Service health grid */
+  .svc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+  .svc-card{
+    background:rgba(255,255,255,0.025);border:1px solid var(--border);
+    border-radius:12px;padding:14px 16px;transition:all 0.25s ease;
+    position:relative;overflow:hidden;
+  }
+  .svc-card::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--svc-color,var(--accent))}
+  .svc-card:hover{border-color:var(--border-bright);transform:translateY(-1px)}
+  .svc-card .name{font-size:0.85rem;font-weight:700;color:var(--text-bright);margin-bottom:4px}
+  .svc-card .meta{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .svc-card .count{font-size:1.4rem;font-weight:800;color:var(--text-bright);font-family:'JetBrains Mono',monospace;letter-spacing:-0.02em}
+  .svc-card .quality{font-size:0.7rem;color:var(--text-muted);font-weight:600}
+  .svc-card .quality.high{color:var(--green)}
+  .svc-card .quality.med{color:var(--amber)}
+  .svc-card .quality.low{color:var(--red)}
+  .svc-card .last{font-size:0.65rem;color:var(--text-dim);margin-top:6px;font-family:'JetBrains Mono',monospace}
+
+  /* Leaderboard */
+  .lb-list{display:flex;flex-direction:column;gap:8px}
+  .lb-item{
+    display:flex;align-items:center;gap:12px;padding:10px 14px;
+    background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;
+    transition:all 0.2s ease;
+  }
+  .lb-item:hover{background:var(--bg-card-hover);border-color:var(--border-bright)}
+  .lb-rank{font-size:0.85rem;font-weight:800;color:var(--text-muted);width:24px;text-align:center;font-family:'JetBrains Mono',monospace}
+  .lb-rank.top{color:var(--amber)}
+  .lb-info{flex:1;min-width:0}
+  .lb-sender{font-size:0.78rem;color:var(--text-bright);font-family:'JetBrains Mono',monospace;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lb-svc{font-size:0.68rem;color:var(--text-muted);margin-top:2px}
+  .lb-count{font-size:1rem;font-weight:800;color:var(--accent-bright);font-family:'JetBrains Mono',monospace}
+
+  /* Activity feed */
+  .feed{max-height:540px;overflow-y:auto}
+  .feed-row{
+    display:grid;grid-template-columns:64px 1fr auto auto;gap:12px;
+    padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.03);
+    align-items:center;transition:background 0.15s ease;
+  }
+  .feed-row:hover{background:var(--bg-card-hover)}
+  .feed-row:last-child{border-bottom:none}
+  .feed-time{color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:0.72rem}
+  .feed-req{color:var(--text);font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .feed-svc{font-size:0.7rem;font-weight:700;padding:3px 10px;border-radius:999px;color:#fff;letter-spacing:0.02em;white-space:nowrap}
+  .feed-from{color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:0.7rem}
+  .feed-detail{
+    grid-column:1 / -1;background:rgba(0,0,0,0.25);border-radius:8px;padding:12px 16px;margin-top:8px;
+    font-size:0.75rem;color:var(--text);line-height:1.5;
+  }
+  .feed-detail strong{color:var(--text-bright)}
+
+  /* Animations */
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(1.2)}}
+  @keyframes fadeInUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .fade{animation:fadeInUp 0.4s ease-out}
+
+  /* Scrollbar */
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.2)}
+
+  @media(max-width:768px){
+    body{padding:16px 12px}
+    .header-left h1{font-size:1.4rem}
+    .hero{grid-template-columns:1fr 1fr}
+    .hero-card{padding:16px 18px}
+    .hero-card .value{font-size:1.5rem}
+    .panel{padding:16px 18px}
+  }
 </style>
 </head><body>
-<h1>Graph Advocate <span class="live">● live</span><span id="updated"></span></h1>
-<p class="sub" id="sub">Loading…</p>
+<div class="wrap">
 
-<div class="cards" id="cards"></div>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <h1>Graph Advocate <span class="live-badge">live</span></h1>
+      <div class="sub" id="sub">Loading…</div>
+    </div>
+    <div class="header-right">
+      <a class="tab" href="/chat">💬 Chat</a>
+      <a class="tab" href="/.well-known/agent.json">📋 Agent Card</a>
+      <a class="tab" href="/export/csv">⬇ CSV</a>
+      <a class="tab" href="/dashboard/data">{ } JSON</a>
+    </div>
+  </div>
 
-<div class="grid2">
-  <div class="panel">
-    <h2>Recent requests (last 50)</h2>
-    <table>
-      <thead><tr>
-        <th style="width:70px">Time</th><th>Request</th>
-        <th style="width:155px">Service</th><th style="width:100px">Tool</th>
-        <th style="width:80px">From</th>
-      </tr></thead>
-      <tbody id="tbody"><tr><td colspan="5" style="color:#475569;text-align:center;padding:2rem">Loading…</td></tr></tbody>
-    </table>
+  <!-- Hero metrics -->
+  <div class="hero" id="hero"></div>
+
+  <!-- Main grid: time-series chart + breakdown donut -->
+  <div class="grid-main">
+    <div class="panel">
+      <h2>📊 24-Hour Activity</h2>
+      <div class="panel-sub">Hourly request volume across all services</div>
+      <div class="chart-container">
+        <canvas id="timeseries-canvas"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>🥧 Routing Breakdown</h2>
+      <div class="panel-sub">All-time service distribution</div>
+      <div class="donut-wrap">
+        <canvas id="donut-canvas" width="200" height="200"></canvas>
+        <div class="legend" id="legend"></div>
+      </div>
+    </div>
   </div>
-  <div class="panel" style="display:flex;flex-direction:column;align-items:center">
-    <h2 style="align-self:flex-start">Legit routing breakdown</h2>
-    <canvas id="donut" width="220" height="220"></canvas>
-    <div id="legend" style="margin-top:.75rem;font-size:.75rem;display:flex;flex-direction:column;gap:.3rem;align-self:flex-start"></div>
+
+  <!-- Service health grid -->
+  <div class="panel" style="margin-bottom:24px">
+    <h2>⚡ Service Health</h2>
+    <div class="panel-sub">Live status, request volume, and average response quality per downstream service</div>
+    <div class="svc-grid" id="svc-grid"></div>
   </div>
+
+  <!-- Two-column: Live feed + Leaderboard -->
+  <div class="grid-main">
+    <div class="panel">
+      <h2>🔥 Live Activity Feed</h2>
+      <div class="panel-sub">Latest requests in real-time · click any row to expand</div>
+      <div class="feed" id="feed"></div>
+    </div>
+    <div class="panel">
+      <h2>🏆 Top Querying Agents</h2>
+      <div class="panel-sub">Most active senders by query count</div>
+      <div class="lb-list" id="leaderboard"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
 const SVC_COLORS = {
   "token-api":"#10b981","subgraph-registry":"#6366f1","substreams":"#f59e0b",
   "graph-aave-mcp":"#3b82f6","graph-lending-mcp":"#8b5cf6","graph-polymarket-mcp":"#ec4899",
-  "predictfun-mcp":"#14b8a6","graph-limitless-mcp":"#f97316","comparison":"#64748b","chat":"#475569"
+  "predictfun-mcp":"#14b8a6","graph-limitless-mcp":"#f97316","comparison":"#64748b","chat":"#475569",
+  "x402-analytics":"#a855f7","8004scan":"#06b6d4","mcp8004":"#84cc16","other":"#64748b"
 };
 
 let donutChart = null;
-let expandState = {};  // preserve open/closed state across refreshes
+let timeseriesChart = null;
+let expandState = {};
 
+// ── Sender label ────────────────────────────────────────────────────────
 function senderLabel(tid) {
-  if (tid.startsWith('fetch:')) return '<span style="color:#14b8a6;font-size:.65rem">fetch.ai</span>';
-  if (tid.startsWith('a2a:'))   return `<span style="color:#8b5cf6;font-size:.65rem">a2a:${tid.slice(4,12)}</span>`;
-  if (tid.startsWith('chat:'))  return '<span style="color:#f59e0b;font-size:.65rem">web chat</span>';
-  if (tid === 'mcp')            return '<span style="color:#3b82f6;font-size:.65rem">mcp client</span>';
-  return `<span style="color:#475569;font-size:.65rem">${tid.slice(0,16)}</span>`;
+  if (!tid) return '<span style="color:var(--text-dim)">?</span>';
+  if (tid.startsWith('fetch:')) return '<span style="color:#14b8a6">fetch.ai</span>';
+  if (tid.startsWith('a2a:'))   return `<span style="color:#8b5cf6">a2a:${tid.slice(4,12)}</span>`;
+  if (tid.startsWith('chat:'))  return '<span style="color:#f59e0b">chat</span>';
+  if (tid === 'mcp')            return '<span style="color:#3b82f6">mcp</span>';
+  return `<span style="color:var(--text-dim)">${tid.slice(0,8)}…</span>`;
 }
 
-function badgeHtml(svc) {
+function svcBadge(svc) {
   const color = SVC_COLORS[svc] || (svc === 'out-of-scope' ? '#ef4444' : '#475569');
-  return `<span style="background:${color};padding:2px 8px;border-radius:6px;font-size:.75rem;color:#fff;font-weight:600">${svc}</span>`;
+  return `<span class="feed-svc" style="background:${color}">${svc}</span>`;
 }
 
-function toggleRow(idx) {
-  const el = document.getElementById('detail-' + idx);
-  if (!el) return;
-  const open = el.style.display !== 'none';
-  el.style.display = open ? 'none' : 'table-row';
-  expandState[idx] = !open;
-  const btn = document.querySelector(`.expand-btn[data-idx="${idx}"]`);
-  if (btn) btn.textContent = open ? '▶' : '▼';
+function escapeHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function renderTable(recent) {
-  const tbody = document.getElementById('tbody');
-  if (!recent.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:2rem">No requests yet</td></tr>';
-    return;
+// ── Hero metrics (top row) ──────────────────────────────────────────────
+function renderHero(d) {
+  const h24 = d.hero_24h || {requests:0,unique_senders:0,last_5min:0};
+  const q = d.quality_summary || {avg_score:null,total_scored:0};
+  const qScore = q.avg_score !== null ? q.avg_score.toFixed(2) : '—';
+  const qBadge = q.avg_score === null ? 'dim' : (q.avg_score >= 3.5 ? 'green' : (q.avg_score >= 2.5 ? 'amber' : 'dim'));
+
+  const liveBadge = h24.last_5min > 0 ? `<span class="badge green">● ${h24.last_5min} live</span>` : '';
+
+  document.getElementById('hero').innerHTML = `
+    <div class="hero-card">
+      <div class="label"><span class="icon">🟢</span>Status</div>
+      <div class="value"><span class="status-pill" style="background:${d.health_color}22;border:1px solid ${d.health_color}55;color:${d.health_color}"><span class="dot" style="background:${d.health_color}"></span>${d.health_label}</span></div>
+      <div class="sub">Last request: ${d.last_request_time || '—'} UTC</div>
+    </div>
+    <div class="hero-card">
+      <div class="label"><span class="icon">📈</span>All-time requests</div>
+      <div class="value">${d.total.toLocaleString()}</div>
+      <div class="sub">${d.legit.toLocaleString()} legit (${d.legit_pct}%) · ${d.intro} intros</div>
+    </div>
+    <div class="hero-card">
+      <div class="label"><span class="icon">⚡</span>Last 24 hours${liveBadge}</div>
+      <div class="value">${h24.requests.toLocaleString()}</div>
+      <div class="sub">${h24.unique_senders} unique senders</div>
+    </div>
+    <div class="hero-card">
+      <div class="label"><span class="icon">⭐</span>Avg quality score</div>
+      <div class="value">${qScore} <span style="font-size:1rem;color:var(--text-muted);font-weight:600">/ 5</span> <span class="badge ${qBadge}">${q.total_scored} scored</span></div>
+      <div class="sub">Auto-scored on parse, query-ready, install, curl</div>
+    </div>
+    <div class="hero-card">
+      <div class="label"><span class="icon">🔍</span>Discovery</div>
+      <div class="value">${d.discovery_count}</div>
+      <div class="sub">Agent card fetches</div>
+    </div>
+    <div class="hero-card">
+      <div class="label"><span class="icon">🤖</span>Fetch.ai uAgent</div>
+      <div class="value" style="font-size:0.85rem;font-family:'JetBrains Mono',monospace;color:${d.fetch_enabled ? 'var(--green)' : 'var(--text-dim)'};word-break:break-all">${d.fetch_address || 'disabled'}</div>
+      <div class="sub">${d.fetch_enabled ? '✓ Connected to Agentverse' : 'Set AGENTVERSE_API_KEY'}</div>
+    </div>
+  `;
+}
+
+// ── 24h time-series chart ───────────────────────────────────────────────
+function renderTimeseries(ts) {
+  if (!ts || !ts.labels || !ts.labels.length) return;
+  const services = Object.keys(ts.by_service || {});
+  const datasets = services.map(svc => ({
+    label: svc,
+    data: ts.by_service[svc],
+    backgroundColor: SVC_COLORS[svc] || '#64748b',
+    borderColor: SVC_COLORS[svc] || '#64748b',
+    borderWidth: 0,
+    borderRadius: 4,
+    stack: 'all',
+  }));
+
+  const ctx = document.getElementById('timeseries-canvas').getContext('2d');
+  if (timeseriesChart) {
+    timeseriesChart.data.labels = ts.labels;
+    timeseriesChart.data.datasets = datasets;
+    timeseriesChart.update('none');
+  } else {
+    timeseriesChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: ts.labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { color: '#c7cee5', font: { size: 11, family: 'Inter' }, usePointStyle: true, padding: 12, boxWidth: 8 },
+          },
+          tooltip: {
+            backgroundColor: 'rgba(10,8,40,0.95)',
+            borderColor: 'rgba(99,102,241,0.4)',
+            borderWidth: 1,
+            titleColor: '#fff',
+            bodyColor: '#c7cee5',
+            padding: 10,
+          },
+        },
+        scales: {
+          x: {
+            stacked: true,
+            grid: { display: false },
+            ticks: { color: 'rgba(199,206,229,0.4)', font: { size: 10, family: 'JetBrains Mono' } },
+          },
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            grid: { color: 'rgba(255,255,255,0.04)' },
+            ticks: { color: 'rgba(199,206,229,0.4)', font: { size: 10, family: 'JetBrains Mono' }, precision: 0 },
+          },
+        },
+      },
+    });
   }
-  let html = '';
-  recent.forEach((r, idx) => {
-    const hasDetail = !!(r.reason || r.query_tool || r.subgraphs.length || r.alternatives.length);
-    const expandBtn = hasDetail
-      ? `<span class="expand-btn" data-idx="${idx}" onclick="toggleRow(${idx})">${expandState[idx] ? '▼' : '▶'}</span>`
-      : '';
-    const toolColor = r.tool === 'fast-reject' ? '#ef4444' : '#64748b';
-    const reqSafe = r.request.replace(/"/g,'&quot;').replace(/</g,'&lt;');
-    const reqDisplay = r.request.slice(0,80).replace(/</g,'&lt;');
-    const ellipsis = r.request.length > 80 ? '…' : '';
-
-    html += `<tr>
-      <td style="color:#64748b;font-family:monospace">${r.time}</td>
-      <td style="color:#94a3b8" title="${reqSafe}">${reqDisplay}${ellipsis}${expandBtn}</td>
-      <td>${badgeHtml(r.service)}</td>
-      <td style="color:${toolColor};font-family:monospace" title="${r.tool}">${r.tool}</td>
-      <td>${senderLabel(r.task_id)}</td>
-    </tr>`;
-
-    if (hasDetail) {
-      const display = expandState[idx] ? 'table-row' : 'none';
-      let detail = '';
-      if (r.reason) detail += `<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Reason:</strong> ${r.reason.replace(/</g,'&lt;')}</div>`;
-      if (r.query_tool) detail += `<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Tool:</strong> <code style="color:#10b981;font-size:.7rem">${r.query_tool}</code></div>`;
-      if (r.subgraphs.length) detail += `<div style="margin-bottom:.4rem"><strong style="color:#e2e8f0">Subgraphs:</strong> ${r.subgraphs.map(s=>`<span style="color:#10b981">${s}</span>`).join(' · ')}</div>`;
-      if (r.alternatives.length) detail += `<div><strong style="color:#e2e8f0">Alternatives:</strong> ${r.alternatives.map(a=>`<span style="background:#334155;padding:2px 6px;border-radius:4px;font-size:.7rem;margin-right:.3rem">${a}</span>`).join('')}</div>`;
-      html += `<tr id="detail-${idx}" class="detail-row" style="display:${display}">
-        <td colspan="5" style="padding:.75rem 1rem;border-bottom:1px solid #1e293b">
-          <div style="font-size:.78rem;color:#94a3b8;line-height:1.5">${detail}</div>
-        </td>
-      </tr>`;
-    }
-  });
-  tbody.innerHTML = html;
 }
 
-function renderCards(d) {
-  document.getElementById('cards').innerHTML = `
-    <div class="card" style="border-color:${d.health_color}">
-      <div class="n"><span class="pill"><span class="dot" style="background:${d.health_color}"></span>${d.health_label}</span></div>
-      <div class="l">Agent status</div>
-    </div>
-    <div class="card" style="border-color:#10b981">
-      <div class="n">${d.legit}</div>
-      <div class="l">Legit queries (${d.legit_pct}%)</div>
-    </div>
-    <div class="card" style="border-color:#ef4444">
-      <div class="n">${d.fast_rejected}</div>
-      <div class="l">Fast-rejected (${d.reject_pct}%)</div>
-    </div>
-    <div class="card" style="border-color:#f97316">
-      <div class="n">${d.rate_limited}</div>
-      <div class="l">Rate-limited</div>
-    </div>
-    <div class="card" style="border-color:#475569">
-      <div class="n">${d.intro}</div>
-      <div class="l">Introductions</div>
-    </div>
-    <div class="card" style="border-color:#6366f1">
-      <div class="n">${d.last_request_time}</div>
-      <div class="l">Last request (UTC)</div>
-    </div>
-    <div class="card" style="border-color:#f59e0b">
-      <div class="n">${d.discovery_count}</div>
-      <div class="l">Agent card hits</div>
-    </div>
-    <div class="card" style="border-color:#14b8a6">
-      <div class="n" style="font-size:.65rem;font-family:monospace;color:${d.fetch_enabled ? '#10b981' : '#475569'}">${d.fetch_address || 'disabled'}</div>
-      <div class="l">Fetch.ai ${d.fetch_enabled ? '✓' : '(set AGENTVERSE_API_KEY)'}</div>
-    </div>`;
-}
-
+// ── Donut ───────────────────────────────────────────────────────────────
 function renderDonut(donut) {
-  const {labels, values, colors} = donut;
+  const { labels, values, colors } = donut;
   if (donutChart) {
     donutChart.data.labels = labels;
     donutChart.data.datasets[0].data = values;
     donutChart.data.datasets[0].backgroundColor = colors;
     donutChart.update('none');
   } else {
-    const ctx = document.getElementById('donut').getContext('2d');
+    const ctx = document.getElementById('donut-canvas').getContext('2d');
     donutChart = new Chart(ctx, {
       type: 'doughnut',
-      data: {labels, datasets: [{data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#1e293b'}]},
+      data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: 'rgba(10,14,26,0.9)' }] },
       options: {
-        cutout: '65%',
-        plugins: {legend:{display:false}, tooltip:{callbacks:{label: c => ` ${c.label}: ${c.parsed}`}}}
-      }
+        cutout: '68%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(10,8,40,0.95)',
+            borderColor: 'rgba(99,102,241,0.4)',
+            borderWidth: 1,
+            titleColor: '#fff',
+            bodyColor: '#c7cee5',
+            callbacks: { label: c => ` ${c.label}: ${c.parsed}` },
+          },
+        },
+      },
     });
   }
+  const total = values.reduce((a, b) => a + b, 0) || 1;
   const leg = document.getElementById('legend');
-  leg.innerHTML = labels.map((l,i) =>
-    `<div style="display:flex;align-items:center;gap:.4rem">
-      <span style="width:10px;height:10px;border-radius:2px;background:${colors[i]};flex-shrink:0"></span>
-      <span style="color:#94a3b8">${l}</span>
-      <span style="color:#f8fafc;font-weight:600;margin-left:auto;padding-left:.5rem">${values[i]}</span>
-    </div>`
-  ).join('');
+  // Sort and limit to top 8
+  const indexed = labels.map((l, i) => ({ l, v: values[i], c: colors[i] }));
+  indexed.sort((a, b) => b.v - a.v);
+  leg.innerHTML = indexed.slice(0, 8).map(item => {
+    const pct = ((item.v / total) * 100).toFixed(1);
+    return `<div class="legend-item">
+      <span class="legend-swatch" style="background:${item.c}"></span>
+      <span class="legend-name">${item.l}</span>
+      <span class="legend-value">${item.v} <span style="color:var(--text-muted);font-size:0.7rem">(${pct}%)</span></span>
+    </div>`;
+  }).join('');
 }
 
+// ── Service health grid ─────────────────────────────────────────────────
+function renderServiceHealth(services) {
+  const el = document.getElementById('svc-grid');
+  if (!services || !services.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem">No service data yet</div>';
+    return;
+  }
+  el.innerHTML = services.map(s => {
+    let qClass = '';
+    let qText = '— quality';
+    if (s.quality !== null && s.quality !== undefined) {
+      qClass = s.quality >= 3.5 ? 'high' : (s.quality >= 2.5 ? 'med' : 'low');
+      qText = `★ ${s.quality.toFixed(2)}`;
+    }
+    return `<div class="svc-card" style="--svc-color:${s.color}">
+      <div class="name">${s.name}</div>
+      <div class="meta">
+        <div class="count">${s.count}</div>
+        <div class="quality ${qClass}">${qText}</div>
+      </div>
+      <div class="last">last: ${s.last_seen}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Leaderboard ─────────────────────────────────────────────────────────
+function renderLeaderboard(rows) {
+  const el = document.getElementById('leaderboard');
+  if (!rows || !rows.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem;padding:12px">No agents yet</div>';
+    return;
+  }
+  el.innerHTML = rows.map((r, i) => {
+    const rankClass = i < 3 ? 'top' : '';
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
+    return `<div class="lb-item">
+      <div class="lb-rank ${rankClass}">${medal}</div>
+      <div class="lb-info">
+        <div class="lb-sender">${escapeHtml(r.sender)}</div>
+        <div class="lb-svc">${r.type} · ${r.top_service} · ${r.last_seen}</div>
+      </div>
+      <div class="lb-count">${r.count}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Live activity feed ──────────────────────────────────────────────────
+function toggleFeedRow(idx) {
+  const el = document.getElementById('feed-detail-' + idx);
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  expandState[idx] = !open;
+}
+
+function renderFeed(recent) {
+  const el = document.getElementById('feed');
+  if (!recent || !recent.length) {
+    el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted)">No requests yet</div>';
+    return;
+  }
+  let html = '';
+  recent.slice(0, 25).forEach((r, idx) => {
+    const hasDetail = !!(r.reason || r.query_tool || (r.subgraphs && r.subgraphs.length) || (r.alternatives && r.alternatives.length));
+    const display = expandState[idx] ? 'block' : 'none';
+
+    html += `<div class="feed-row" ${hasDetail ? `onclick="toggleFeedRow(${idx})" style="cursor:pointer"` : ''}>
+      <div class="feed-time">${r.time}</div>
+      <div class="feed-req" title="${escapeHtml(r.request)}">${escapeHtml(r.request.slice(0, 100))}${r.request.length > 100 ? '…' : ''}</div>
+      ${svcBadge(r.service)}
+      <div class="feed-from">${senderLabel(r.task_id)}</div>`;
+    if (hasDetail) {
+      let detail = '';
+      if (r.reason) detail += `<div><strong>Reason:</strong> ${escapeHtml(r.reason)}</div>`;
+      if (r.query_tool) detail += `<div style="margin-top:6px"><strong>Tool:</strong> <code style="color:var(--green);font-family:'JetBrains Mono',monospace">${escapeHtml(r.query_tool)}</code></div>`;
+      if (r.subgraphs && r.subgraphs.length) detail += `<div style="margin-top:6px"><strong>Subgraphs:</strong> ${r.subgraphs.map(s => `<code style="color:var(--green);font-size:0.7rem">${escapeHtml(s)}</code>`).join(' · ')}</div>`;
+      if (r.alternatives && r.alternatives.length) detail += `<div style="margin-top:6px"><strong>Alternatives:</strong> ${r.alternatives.map(a => `<span style="background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:6px;font-size:0.7rem;margin-right:4px">${escapeHtml(a)}</span>`).join('')}</div>`;
+      html += `<div class="feed-detail" id="feed-detail-${idx}" style="display:${display}">${detail}</div>`;
+    }
+    html += `</div>`;
+  });
+  el.innerHTML = html;
+}
+
+// ── Main refresh loop ───────────────────────────────────────────────────
 async function refresh() {
   try {
     const res = await fetch('/dashboard/data');
     if (!res.ok) throw new Error(res.status);
     const d = await res.json();
 
-    document.getElementById('sub').innerHTML =
-      `Auto-refreshes every 15s · <strong style="color:#f8fafc">${d.total}</strong> total requests (all-time) · ` +
-      `<a href="/export/csv" style="color:#6366f1;text-decoration:none">Export CSV</a> · ` +
-      `<a href="/export/stats" style="color:#6366f1;text-decoration:none">Stats API</a> · ` +
-      `<a href="/dashboard/data" style="color:#6366f1;text-decoration:none">Data JSON</a>`;
-
-    renderCards(d);
-    renderTable(d.recent);
-    renderDonut(d.donut);
-
     const now = new Date();
-    document.getElementById('updated').textContent =
-      ` · updated ${now.toLocaleTimeString()}`;
+    document.getElementById('sub').innerHTML =
+      `Auto-refresh every 15s · last update <strong style="color:var(--text-bright)">${now.toLocaleTimeString()}</strong>`;
 
-    document.getElementById('cards').classList.add('fade');
-    setTimeout(() => document.getElementById('cards').classList.remove('fade'), 400);
-  } catch(e) {
-    document.getElementById('updated').textContent = ' · fetch error';
+    renderHero(d);
+    renderTimeseries(d.timeseries);
+    renderDonut(d.donut);
+    renderServiceHealth(d.service_health);
+    renderLeaderboard(d.leaderboard);
+    renderFeed(d.recent);
+
+    document.getElementById('hero').classList.add('fade');
+    setTimeout(() => document.getElementById('hero').classList.remove('fade'), 400);
+  } catch (e) {
+    console.error(e);
+    document.getElementById('sub').innerHTML = '<span style="color:var(--red)">⚠ Failed to fetch dashboard data</span>';
   }
 }
 
