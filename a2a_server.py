@@ -802,8 +802,53 @@ class GraphAdvocateExecutor(AgentExecutor):
                 return
 
 
-        # ── Fast-handle Chiark conformance probes (no Claude call) ────────────
-        if "chiark conformance probe" in user_text.lower():
+        # ── Fast-handle operational / conformance probes (no Claude call) ─────
+        _lower = user_text.lower()
+
+        # OpenClaw Research probes
+        if "openclaw" in _lower and ("probe" in _lower or "confirm" in _lower or "operational" in _lower):
+            log.info(f"OPENCLAW task={task_id} | operational probe")
+            _log_request(task_id, user_text, "operational-confirmation", "high", "openclaw-probe")
+            _services = {
+                "token-api": "EVM/SVM/TVM balances, swaps, NFTs, holders",
+                "subgraph-registry": "15,500+ indexed subgraphs, search & query",
+                "graph-aave-mcp": "Aave V2/V3/V4 — 40 tools, 16 subgraphs, cross-chain liquidation risk",
+                "graph-polymarket-mcp": "Polymarket — 31 tools, live prices, order books, trader P&L",
+                "graph-lending-mcp": "Cross-protocol lending (Messari standardized)",
+                "graph-limitless-mcp": "Limitless prediction markets on Base",
+                "predictfun-mcp": "Predict.fun on BNB Chain",
+                "8004scan": "ERC-8004 agent discovery & reputation",
+                "substreams": "Raw block data, traces, streaming",
+            }
+            _total_reqs = len(REQUEST_LOG)
+            _unique_senders = len(set(e.get("task_id", "")[:8] for e in REQUEST_LOG))
+            await event_queue.enqueue_event(
+                new_agent_text_message(json.dumps({
+                    "status": "operational",
+                    "agent": "Graph Advocate",
+                    "agent_id": "ERC-8004 #734 (Arbitrum)",
+                    "ens": "graphadvocate.eth",
+                    "services_online": len(_services),
+                    "services": _services,
+                    "capabilities": [
+                        "Route plain-English data queries to The Graph services",
+                        "Return ready-to-execute GraphQL queries with subgraph IDs",
+                        "Cross-chain DeFi data (Aave, Uniswap, Compound, ENS, Curve, etc.)",
+                        "Prediction market data (Polymarket, Predict.fun, Limitless)",
+                        "AI agent discovery via ERC-8004 registry",
+                        "x402 micropayments ($0.01 USDC/query after free tier)",
+                    ],
+                    "recent_activity": {
+                        "requests_in_log": _total_reqs,
+                        "unique_sessions": _unique_senders,
+                    },
+                    "protocols": ["A2A", "MCP", "ERC-8004", "x402"],
+                    "endpoint": "https://graph-advocate-production.up.railway.app",
+                })))
+            return
+
+        # Chiark conformance probes
+        if "chiark conformance probe" in _lower:
             log.info(f"CHIARK   task={task_id} | conformance probe")
             _log_request(task_id, user_text, "conformance", "high", "chiark-probe")
             await event_queue.enqueue_event(
@@ -811,7 +856,11 @@ class GraphAdvocateExecutor(AgentExecutor):
                     "status": "alive",
                     "agent": "Graph Advocate",
                     "uptime": "healthy",
-                    "services": ["token-api", "subgraph-registry", "substreams", "graph-aave-mcp"],
+                    "services_online": 9,
+                    "services": ["token-api", "subgraph-registry", "substreams", "graph-aave-mcp",
+                                 "graph-polymarket-mcp", "graph-lending-mcp", "graph-limitless-mcp",
+                                 "predictfun-mcp", "8004scan"],
+                    "requests_handled": len(REQUEST_LOG),
                     "conformance": "acknowledged",
                 })))
             return

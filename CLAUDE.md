@@ -10,6 +10,8 @@ Claude-powered A2A routing agent for The Graph Protocol. Agents ask plain-Englis
 
 ## Key files
 
+
+
 | File | Purpose |
 |---|---|
 | `advocate.py` | Core routing logic, system prompt, Claude calls, auto-search, SQLite logging |
@@ -52,7 +54,7 @@ Test: `python3 test_advocate_routing.py` (34 tests must pass)
 | **token-api** | Wallet balances, swaps, NFTs, holders (EVM/Solana/TON) |
 | **subgraph-registry** | Find the right subgraph from 15,500+ indexed |
 | **substreams** | Raw block data, traces, streaming |
-| **graph-aave-mcp** | Aave V2/V3/V4 — 32 tools |
+| **graph-aave-mcp** | Aave V2/V3/V4 — 40 tools (incl. cross-chain liquidation risk) |
 | **graph-polymarket-mcp** | Polymarket — 31 tools |
 | **graph-lending-mcp** | Cross-protocol lending (Messari) |
 | **graph-limitless-mcp** | Limitless prediction markets on Base |

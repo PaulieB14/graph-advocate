@@ -108,7 +108,7 @@ npm: create-substreams-sink-sql (scaffold a Substreams SQL sink for PostgreSQL �
 [PROTOCOL-SPECIFIC MCP SERVERS — npm packages by @paulieb]
 Use these when the agent's request matches a specific protocol. Install via: npx <package-name>
 
-- graph-aave-mcp: Aave V2/V3/V4 — 32 tools across 11 Graph subgraphs + Aave V4 API
+- graph-aave-mcp: Aave V2/V3/V4 — 40 tools across 16 Graph subgraphs + Aave V4 API
   Use for: Aave liquidations, deposits, borrows, interest rates, governance votes, V4 hubs/spokes, cross-chain positions, exchange rates, swap quotes, rewards
   V2/V3: Powered by Graph subgraphs — Aave V3 on Ethereum, Arbitrum, Optimism, Polygon, Avalanche, Base, Metis + Aave V2 Ethereum + Governance
   V4: Powered by Aave V4 API (api.aave.com) — no API key needed. 16 tools: get_v4_hubs, get_v4_spokes, get_v4_reserves, get_v4_user_positions, get_v4_user_summary, get_v4_exchange_rate, get_v4_swap_quote, get_v4_claimable_rewards, and more
@@ -1032,7 +1032,7 @@ You have access to these services:
   Auth: Get a JWT/API key at https://thegraph.market/dashboard#api-keys
 
 **Protocol MCP Packages** (npm by @paulieb — install with npx, no agent required):
-  - graph-aave-mcp: Aave V2/V3/V4 — 32 tools across 11 Graph subgraphs + Aave V4 API (hubs, spokes, cross-chain positions, swap quotes, rewards)
+  - graph-aave-mcp: Aave V2/V3/V4 — 40 tools across 16 Graph subgraphs + Aave V4 API (hubs, spokes, cross-chain positions, swap quotes, rewards)
     Install: `npx graph-aave-mcp` | npm: https://www.npmjs.com/package/graph-aave-mcp
   - graph-lending-mcp: cross-protocol lending comparisons (Messari standardized)
     Install: `npx graph-lending-mcp` | npm: https://www.npmjs.com/package/graph-lending-mcp
