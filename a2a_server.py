@@ -1891,14 +1891,32 @@ async def dashboard_endpoint(request: Request):
   /* Time-series chart container */
   .chart-container{position:relative;height:260px}
 
-  /* Donut */
-  .donut-wrap{display:flex;flex-direction:column;align-items:center}
-  #donut-canvas{max-width:200px}
-  .legend{margin-top:16px;font-size:0.78rem;display:flex;flex-direction:column;gap:6px;align-self:stretch}
-  .legend-item{display:flex;align-items:center;gap:8px}
-  .legend-swatch{width:10px;height:10px;border-radius:3px;flex-shrink:0}
-  .legend-name{color:var(--text);flex:1}
+  /* Donut + legend layout — side-by-side */
+  .donut-wrap{
+    display:grid;grid-template-columns:240px 1fr;gap:32px;align-items:center;
+  }
+  @media(max-width:640px){.donut-wrap{grid-template-columns:1fr}}
+  .donut-canvas-wrap{
+    position:relative;width:240px;height:240px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  #donut-canvas{width:240px!important;height:240px!important;max-width:240px}
+  .donut-center{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;pointer-events:none;
+  }
+  .donut-center .total{font-size:1.85rem;font-weight:800;color:var(--text-bright);letter-spacing:-0.02em;line-height:1}
+  .donut-center .label{font-size:0.65rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin-top:6px}
+  .legend{font-size:0.82rem;display:flex;flex-direction:column;gap:8px}
+  .legend-item{
+    display:flex;align-items:center;gap:10px;padding:6px 8px;
+    border-radius:8px;transition:background 0.15s ease;
+  }
+  .legend-item:hover{background:rgba(255,255,255,0.03)}
+  .legend-swatch{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+  .legend-name{color:var(--text);flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .legend-value{color:var(--text-bright);font-weight:700;font-family:'JetBrains Mono',monospace}
+  .legend-pct{color:var(--text-muted);font-size:0.72rem;margin-left:6px;font-weight:600}
 
   /* Service health grid */
   .svc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
@@ -1918,7 +1936,10 @@ async def dashboard_endpoint(request: Request):
   .svc-card .quality.low{color:var(--red)}
   .svc-card .last{font-size:0.65rem;color:var(--text-dim);margin-top:6px;font-family:'JetBrains Mono',monospace}
 
-  /* Leaderboard */
+  /* Leaderboard — 2-column grid for the analytics tab */
+  .lb-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(max-width:760px){.lb-grid{grid-template-columns:1fr}}
+  /* Single column variant kept for any other use */
   .lb-list{display:flex;flex-direction:column;gap:8px}
   .lb-item{
     display:flex;align-items:center;gap:12px;padding:10px 14px;
@@ -2070,20 +2091,24 @@ async def dashboard_endpoint(request: Request):
 
   <!-- ── Analytics tab ─────────────────────────────────────── -->
   <div class="tab-panel" id="tab-analytics">
-    <div class="grid-main">
-      <div class="panel">
-        <h2>🥧 Routing Breakdown</h2>
-        <div class="panel-sub">All-time service distribution</div>
-        <div class="donut-wrap">
-          <canvas id="donut-canvas" width="200" height="200"></canvas>
-          <div class="legend" id="legend"></div>
+    <div class="panel" style="margin-bottom:20px">
+      <h2>🥧 Routing Breakdown</h2>
+      <div class="panel-sub">All-time service distribution across the agent's history</div>
+      <div class="donut-wrap">
+        <div class="donut-canvas-wrap">
+          <canvas id="donut-canvas" width="240" height="240"></canvas>
+          <div class="donut-center">
+            <div class="total" id="donut-total">0</div>
+            <div class="label">Total routed</div>
+          </div>
         </div>
+        <div class="legend" id="legend"></div>
       </div>
-      <div class="panel">
-        <h2>🏆 Top Querying Agents</h2>
-        <div class="panel-sub">Most active senders by query count</div>
-        <div class="lb-list" id="leaderboard"></div>
-      </div>
+    </div>
+    <div class="panel">
+      <h2>🏆 Top Querying Agents</h2>
+      <div class="panel-sub">Most active senders by query count · sorted descending</div>
+      <div class="lb-grid" id="leaderboard"></div>
     </div>
   </div>
 
@@ -2234,6 +2259,12 @@ function renderTimeseries(ts) {
 // ── Donut ───────────────────────────────────────────────────────────────
 function renderDonut(donut) {
   const { labels, values, colors } = donut;
+  const total = values.reduce((a, b) => a + b, 0);
+
+  // Update center label
+  const totalEl = document.getElementById('donut-total');
+  if (totalEl) totalEl.textContent = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : total.toString();
+
   if (donutChart) {
     donutChart.data.labels = labels;
     donutChart.data.datasets[0].data = values;
@@ -2243,9 +2274,17 @@ function renderDonut(donut) {
     const ctx = document.getElementById('donut-canvas').getContext('2d');
     donutChart = new Chart(ctx, {
       type: 'doughnut',
-      data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: 'rgba(10,14,26,0.9)' }] },
+      data: { labels, datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 3,
+        borderColor: 'rgba(10,14,26,1)',
+        hoverOffset: 8,
+      }] },
       options: {
-        cutout: '68%',
+        responsive: true,
+        maintainAspectRatio: true,
+        cutout: '70%',
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -2254,23 +2293,29 @@ function renderDonut(donut) {
             borderWidth: 1,
             titleColor: '#fff',
             bodyColor: '#c7cee5',
-            callbacks: { label: c => ` ${c.label}: ${c.parsed}` },
+            padding: 10,
+            callbacks: {
+              label: c => {
+                const pct = ((c.parsed / (total || 1)) * 100).toFixed(1);
+                return ` ${c.label}: ${c.parsed} (${pct}%)`;
+              },
+            },
           },
         },
       },
     });
   }
-  const total = values.reduce((a, b) => a + b, 0) || 1;
-  const leg = document.getElementById('legend');
-  // Sort and limit to top 8
+
+  // Build sorted legend
   const indexed = labels.map((l, i) => ({ l, v: values[i], c: colors[i] }));
   indexed.sort((a, b) => b.v - a.v);
-  leg.innerHTML = indexed.slice(0, 8).map(item => {
-    const pct = ((item.v / total) * 100).toFixed(1);
+  const leg = document.getElementById('legend');
+  leg.innerHTML = indexed.slice(0, 10).map(item => {
+    const pct = ((item.v / (total || 1)) * 100).toFixed(1);
     return `<div class="legend-item">
       <span class="legend-swatch" style="background:${item.c}"></span>
       <span class="legend-name">${item.l}</span>
-      <span class="legend-value">${item.v} <span style="color:var(--text-muted);font-size:0.7rem">(${pct}%)</span></span>
+      <span class="legend-value">${item.v}<span class="legend-pct">${pct}%</span></span>
     </div>`;
   }).join('');
 }
