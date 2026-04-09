@@ -1952,6 +1952,48 @@ async def dashboard_endpoint(request: Request):
   }
   .feed-detail strong{color:var(--text-bright)}
 
+  /* Tab navigation */
+  .tab-bar{
+    display:flex;gap:4px;margin-bottom:24px;
+    background:var(--bg-card);backdrop-filter:blur(20px);
+    border:1px solid var(--border);border-radius:12px;padding:5px;
+    width:fit-content;flex-wrap:wrap;
+  }
+  .tab-btn{
+    padding:10px 22px;border:none;cursor:pointer;font-weight:600;
+    font-size:0.85rem;border-radius:8px;letter-spacing:0.01em;
+    background:transparent;color:var(--text-muted);
+    font-family:'Inter',sans-serif;transition:all 0.25s ease;
+  }
+  .tab-btn:hover{color:var(--text-bright);background:var(--bg-card-hover)}
+  .tab-btn.active{
+    background:linear-gradient(135deg,#6366f1,#818cf8);
+    color:#fff;box-shadow:0 2px 12px rgba(99,102,241,0.3);
+  }
+  .tab-panel{display:none;animation:fadeInUp 0.3s ease-out}
+  .tab-panel.active{display:block}
+
+  /* Filters */
+  .feed-filters{
+    display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;
+  }
+  .feed-filters input,.feed-filters select{
+    padding:9px 14px;border-radius:8px;font-size:0.85rem;font-family:'Inter',sans-serif;
+    background:rgba(255,255,255,0.04);color:var(--text-bright);
+    border:1px solid var(--border);outline:none;transition:all 0.2s ease;
+  }
+  .feed-filters input{flex:1;min-width:200px}
+  .feed-filters input::placeholder{color:var(--text-dim)}
+  .feed-filters input:focus,.feed-filters select:focus{
+    border-color:var(--accent);background:rgba(99,102,241,0.05);
+    box-shadow:0 0 0 3px rgba(99,102,241,0.15);
+  }
+  .feed-filters select{cursor:pointer;min-width:160px}
+  .feed-filters select option{background:#0f0c29;color:var(--text-bright)}
+
+  /* Larger feed for the dedicated activity tab */
+  .feed-large{max-height:none}
+
   /* Animations */
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(1.2)}}
   @keyframes fadeInUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
@@ -1989,46 +2031,68 @@ async def dashboard_endpoint(request: Request):
     </div>
   </div>
 
-  <!-- Hero metrics -->
+  <!-- Hero metrics — always visible across all tabs -->
   <div class="hero" id="hero"></div>
 
-  <!-- Main grid: time-series chart + breakdown donut -->
-  <div class="grid-main">
+  <!-- Tab navigation -->
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="overview">📊 Overview</button>
+    <button class="tab-btn" data-tab="activity">🔥 Live Activity</button>
+    <button class="tab-btn" data-tab="analytics">📈 Analytics</button>
+    <button class="tab-btn" data-tab="services">⚡ Services</button>
+  </div>
+
+  <!-- ── Overview tab ──────────────────────────────────────── -->
+  <div class="tab-panel active" id="tab-overview">
     <div class="panel">
       <h2>📊 24-Hour Activity</h2>
-      <div class="panel-sub">Hourly request volume across all services</div>
-      <div class="chart-container">
+      <div class="panel-sub">Hourly request volume stacked by service</div>
+      <div class="chart-container" style="height:320px">
         <canvas id="timeseries-canvas"></canvas>
       </div>
     </div>
+  </div>
+
+  <!-- ── Live Activity tab ─────────────────────────────────── -->
+  <div class="tab-panel" id="tab-activity">
     <div class="panel">
-      <h2>🥧 Routing Breakdown</h2>
-      <div class="panel-sub">All-time service distribution</div>
-      <div class="donut-wrap">
-        <canvas id="donut-canvas" width="200" height="200"></canvas>
-        <div class="legend" id="legend"></div>
+      <h2>🔥 Live Activity Feed</h2>
+      <div class="panel-sub">Last 50 requests · click any row to expand · auto-refreshes every 15s</div>
+      <div class="feed-filters">
+        <input type="text" id="feed-filter" placeholder="Filter by request, service, or sender…" />
+        <select id="feed-service">
+          <option value="">All services</option>
+        </select>
+      </div>
+      <div class="feed feed-large" id="feed"></div>
+    </div>
+  </div>
+
+  <!-- ── Analytics tab ─────────────────────────────────────── -->
+  <div class="tab-panel" id="tab-analytics">
+    <div class="grid-main">
+      <div class="panel">
+        <h2>🥧 Routing Breakdown</h2>
+        <div class="panel-sub">All-time service distribution</div>
+        <div class="donut-wrap">
+          <canvas id="donut-canvas" width="200" height="200"></canvas>
+          <div class="legend" id="legend"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>🏆 Top Querying Agents</h2>
+        <div class="panel-sub">Most active senders by query count</div>
+        <div class="lb-list" id="leaderboard"></div>
       </div>
     </div>
   </div>
 
-  <!-- Service health grid -->
-  <div class="panel" style="margin-bottom:24px">
-    <h2>⚡ Service Health</h2>
-    <div class="panel-sub">Live status, request volume, and average response quality per downstream service</div>
-    <div class="svc-grid" id="svc-grid"></div>
-  </div>
-
-  <!-- Two-column: Live feed + Leaderboard -->
-  <div class="grid-main">
+  <!-- ── Services tab ──────────────────────────────────────── -->
+  <div class="tab-panel" id="tab-services">
     <div class="panel">
-      <h2>🔥 Live Activity Feed</h2>
-      <div class="panel-sub">Latest requests in real-time · click any row to expand</div>
-      <div class="feed" id="feed"></div>
-    </div>
-    <div class="panel">
-      <h2>🏆 Top Querying Agents</h2>
-      <div class="panel-sub">Most active senders by query count</div>
-      <div class="lb-list" id="leaderboard"></div>
+      <h2>⚡ Service Health</h2>
+      <div class="panel-sub">Live status, request volume, and average response quality per downstream service</div>
+      <div class="svc-grid" id="svc-grid"></div>
     </div>
   </div>
 
@@ -2295,6 +2359,52 @@ function renderFeed(recent) {
   el.innerHTML = html;
 }
 
+// ── Tab switching ───────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === name);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('active', p.id === 'tab-' + name);
+  });
+  // Save selection so refresh doesn't reset it
+  try { localStorage.setItem('ga-dashboard-tab', name); } catch (e) {}
+  // Resize charts if newly visible (Chart.js needs this)
+  if (name === 'overview' && timeseriesChart) timeseriesChart.resize();
+  if (name === 'analytics' && donutChart) donutChart.resize();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.addEventListener('click', () => switchTab(b.dataset.tab));
+  });
+  // Restore last tab
+  try {
+    const saved = localStorage.getItem('ga-dashboard-tab');
+    if (saved) switchTab(saved);
+  } catch (e) {}
+  // Wire feed filter
+  const filt = document.getElementById('feed-filter');
+  const svcSel = document.getElementById('feed-service');
+  if (filt) filt.addEventListener('input', applyFeedFilter);
+  if (svcSel) svcSel.addEventListener('change', applyFeedFilter);
+});
+
+// ── Feed filtering ──────────────────────────────────────────────────────
+let _feedCache = [];
+function applyFeedFilter() {
+  const q = (document.getElementById('feed-filter')?.value || '').toLowerCase();
+  const svc = document.getElementById('feed-service')?.value || '';
+  const filtered = _feedCache.filter(r => {
+    if (svc && r.service !== svc) return false;
+    if (!q) return true;
+    return (r.request || '').toLowerCase().includes(q)
+      || (r.service || '').toLowerCase().includes(q)
+      || (r.task_id || '').toLowerCase().includes(q);
+  });
+  renderFeed(filtered);
+}
+
 // ── Main refresh loop ───────────────────────────────────────────────────
 async function refresh() {
   try {
@@ -2311,7 +2421,16 @@ async function refresh() {
     renderDonut(d.donut);
     renderServiceHealth(d.service_health);
     renderLeaderboard(d.leaderboard);
-    renderFeed(d.recent);
+
+    // Populate feed cache and service filter
+    _feedCache = d.recent || [];
+    const svcSel = document.getElementById('feed-service');
+    if (svcSel) {
+      const services = [...new Set(_feedCache.map(r => r.service))].filter(Boolean).sort();
+      const current = svcSel.value;
+      svcSel.innerHTML = '<option value="">All services</option>' + services.map(s => `<option value="${s}" ${s === current ? 'selected' : ''}>${s}</option>`).join('');
+    }
+    applyFeedFilter();
 
     document.getElementById('hero').classList.add('fade');
     setTimeout(() => document.getElementById('hero').classList.remove('fade'), 400);
