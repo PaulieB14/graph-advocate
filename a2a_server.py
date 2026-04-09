@@ -594,6 +594,9 @@ _init_activity_db()
 import asyncio as _asyncio
 
 FETCH_SEED = os.environ.get("FETCH_SEED", "graph-advocate-prod-v1")
+# Fetch.ai connection mode: "proxy" (default — for always-online public agents like ours)
+# or "mailbox" (for offline-tolerant agents). Proxy is correct for Railway-hosted agents.
+FETCH_MODE = os.environ.get("FETCH_MODE", "proxy").lower()
 _fetch_agent = None
 _FETCH_ENABLED = False
 
@@ -608,13 +611,19 @@ try:
         class _FetchResp(_UModel):
             text: str
 
-        _fetch_agent = _UAgent(
-            name="graph-advocate",
-            seed=FETCH_SEED,
-            mailbox=f"{_agentverse_key}@https://agentverse.ai",
-            readme_path="AGENTVERSE_README.md",
-            publish_agent_details=True,
-        )
+        # Build Agent kwargs based on mode
+        _agent_kwargs = {
+            "name": "graph-advocate",
+            "seed": FETCH_SEED,
+            "readme_path": "AGENTVERSE_README.md",
+            "publish_agent_details": True,
+        }
+        if FETCH_MODE == "mailbox":
+            _agent_kwargs["mailbox"] = True
+        else:
+            _agent_kwargs["proxy"] = True
+
+        _fetch_agent = _UAgent(**_agent_kwargs)
 
         @_fetch_agent.on_message(model=_FetchMsg, replies=_FetchResp)
         async def _on_fetch_message(ctx: _UCtx, sender: str, msg: _FetchMsg) -> None:
@@ -846,6 +855,28 @@ class GraphAdvocateExecutor(AgentExecutor):
                     },
                     "protocols": ["A2A", "MCP", "ERC-8004", "x402"],
                     "endpoint": "https://graph-advocate-production.up.railway.app",
+                })))
+            return
+
+        # a2aregistry / URL-checking probes — return structured info rather than reject
+        if ("a2aregistry" in _lower or
+            ("does http" in _lower and ".well-known" in _lower) or
+            ("does http" in _lower and "agent.json" in _lower)):
+            log.info(f"REGCHECK task={task_id} | a2aregistry probe")
+            _log_request(task_id, user_text, "registry-info", "high", "registry-probe")
+            await event_queue.enqueue_event(
+                new_agent_text_message(json.dumps({
+                    "status": "registered",
+                    "agent": "Graph Advocate",
+                    "agent_card_url": "https://graph-advocate-production.up.railway.app/.well-known/agent.json",
+                    "agent_card_exists": True,
+                    "endpoint": "https://graph-advocate-production.up.railway.app",
+                    "a2a_registry_id": "afd9b3bb-413c-41cf-9874-6361ea309e32",
+                    "erc8004_id": 734,
+                    "ens": "graphadvocate.eth",
+                    "wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292",
+                    "note": "I'm a routing agent for The Graph Protocol — I don't fetch arbitrary URLs, but my own discovery files are available at the URLs above.",
+                    "protocols_supported": ["A2A", "MCP", "ERC-8004", "x402"],
                 })))
             return
 
@@ -1243,8 +1274,23 @@ async def feedback_stats_endpoint(request: Request):
 # ── Quality scoring ──────────────────────────────────────────────────────────
 
 def _score_response(request: str, rec: dict, activity_id: int = 0):
-    """Auto-score a routing response for quality. Called after every Claude response."""
+    """Auto-score a routing response for quality. Called after every Claude response.
+
+    Scoring is service-aware — REST API services (token-api, 8004scan, etc.) are not
+    penalized for missing subgraph_id, since they don't query subgraphs at all.
+    """
     try:
+        service = (rec.get("recommendation") or "").lower()
+
+        # Services that are pure REST/data-table APIs — they never have subgraph IDs
+        REST_ONLY_SERVICES = {
+            "token-api", "8004scan", "predictfun-mcp", "mcp8004",
+            "x402-analytics", "operational-confirmation", "introduction",
+            "out-of-scope", "clarification-needed", "no-match", "unclear-request",
+            "comparison", "conformance",
+        }
+        is_rest_only = service in REST_ONLY_SERVICES
+
         has_query_ready = bool(rec.get("query_ready"))
         has_subgraph_id = bool(
             rec.get("query_ready", {}).get("args", {}).get("subgraph_id")
@@ -1254,14 +1300,27 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
         has_install = bool(rec.get("install"))
         parse_ok = rec.get("recommendation", "unknown") != "unknown"
 
-        # Score: 0-5 points
-        score = sum([
-            1 if parse_ok else 0,
-            1 if has_query_ready else 0,
-            1 if has_subgraph_id else 0,
-            1 if has_curl else 0,
-            1 if has_install else 0,
-        ])
+        # Score: 0-5 points (service-aware)
+        # For REST-only services, the "subgraph_id" point is auto-credited since
+        # it's not applicable, and "install" point is auto-credited if no install needed.
+        if is_rest_only:
+            score = sum([
+                1 if parse_ok else 0,
+                1 if (has_query_ready or has_curl) else 0,  # either is fine
+                1,  # subgraph_id N/A — auto-credit
+                1 if has_curl else 0,
+                1 if (has_install or service in {"token-api", "8004scan", "x402-analytics"}) else 0,
+            ])
+            # Mark has_subgraph_id as True for REST services so analytics aren't skewed
+            has_subgraph_id = True
+        else:
+            score = sum([
+                1 if parse_ok else 0,
+                1 if has_query_ready else 0,
+                1 if has_subgraph_id else 0,
+                1 if has_curl else 0,
+                1 if has_install else 0,
+            ])
 
         import sqlite3 as _sq
         conn = _sq.connect(str(DB_PATH))

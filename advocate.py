@@ -524,13 +524,53 @@ def _fallback_route(request: str) -> dict:
     }
 
 
+def _normalize_service_name(svc: str) -> str:
+    """Collapse Claude's free-form service labels into canonical short names.
+
+    Example: 'graph-aave-mcp (easiest) OR direct Aave V3 subgraph query' → 'graph-aave-mcp'
+             'Token API' → 'token-api'
+             'SUBGRAPH_REGISTRY' → 'subgraph-registry'
+    """
+    if not svc:
+        return svc
+    s = svc.strip()
+    s_lower = s.lower()
+
+    # Canonical service names — first match wins (order matters)
+    # Multi-service labels (combinations) collapse to the primary service
+    CANONICAL = [
+        ("graph-aave-mcp", "graph-aave-mcp"),
+        ("graph-polymarket-mcp", "graph-polymarket-mcp"),
+        ("graph-lending-mcp", "graph-lending-mcp"),
+        ("graph-limitless-mcp", "graph-limitless-mcp"),
+        ("predictfun-mcp", "predictfun-mcp"),
+        ("subgraph-registry", "subgraph-registry"),
+        ("subgraph_registry", "subgraph-registry"),
+        ("token-api", "token-api"),
+        ("token api", "token-api"),
+        ("substreams", "substreams"),
+        ("8004scan", "8004scan"),
+        ("mcp8004", "mcp8004"),
+        ("x402-analytics", "x402-analytics"),
+        ("x402 analytics", "x402-analytics"),
+    ]
+    for needle, canonical in CANONICAL:
+        if needle in s_lower:
+            return canonical
+    return s
+
+
 def _inject_missing_fields(rec: dict, request: str) -> dict:
     """Ensure every recommendation has a curl_example and get_started URL.
 
     Called after Claude's response is parsed. Fills in fields that Claude
     frequently omits so agents always receive a working example to run.
+    Also normalizes the service name to a canonical short label.
     """
-    svc = rec.get("recommendation", "")
+    svc_raw = rec.get("recommendation", "")
+    svc = _normalize_service_name(svc_raw)
+    if svc != svc_raw:
+        rec["recommendation"] = svc
     example = _SERVICE_CURL_EXAMPLES.get(svc, {})
 
     # Always inject get_started if missing
