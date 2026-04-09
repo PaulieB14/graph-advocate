@@ -805,8 +805,10 @@ class GraphAdvocateExecutor(AgentExecutor):
         # ── Fast-handle operational / conformance probes (no Claude call) ─────
         _lower = user_text.lower()
 
-        # OpenClaw Research probes
-        if "openclaw" in _lower and ("probe" in _lower or "confirm" in _lower or "operational" in _lower):
+        # OpenClaw Research probes (and generic operational probes)
+        _is_openclaw = "openclaw" in _lower and ("probe" in _lower or "confirm" in _lower or "operational" in _lower)
+        _is_generic_operational = "are you operational" in _lower or "confirm you are operational" in _lower or "are operational" in _lower
+        if _is_openclaw or _is_generic_operational:
             log.info(f"OPENCLAW task={task_id} | operational probe")
             _log_request(task_id, user_text, "operational-confirmation", "high", "openclaw-probe")
             _services = {

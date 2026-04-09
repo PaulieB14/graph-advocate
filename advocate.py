@@ -10,7 +10,10 @@ client = anthropic.Anthropic()
 
 # ── SQLite connection pool with WAL mode ─────────────────────────────────────
 _db_local = threading.local()
-_DB_PATH = os.environ.get("RECOMMENDATIONS_DB", "/Users/paulbarba/graph-advocate/recommendations.db")
+_DB_PATH = os.environ.get(
+    "RECOMMENDATIONS_DB",
+    "/data/recommendations.db" if os.path.isdir("/data") else "recommendations.db",
+)
 _db_initialized = False
 
 def _get_db() -> sqlite3.Connection:
