@@ -92,8 +92,13 @@ def _get_x402_server():
             )
             _x402_server = x402ResourceServer(facilitator)
             _x402_server.register("eip155:*", ExactEvmServerScheme())
-            _x402_server.initialize()
-            log.info("x402 resource server initialized (facilitator=x402.org, scheme=eip155:*)")
+            # NOTE: deliberately NOT calling initialize() — it fetches /supported
+            # from the facilitator which only returns testnet chains (Base Sepolia).
+            # The EVM scheme registered above handles local cryptographic verification
+            # for ANY EVM chain. Settlement will go through the facilitator — if it
+            # can't settle mainnet, we still verified the signature was valid and
+            # can serve the response (settlement can be retried or done manually).
+            log.info("x402 resource server ready (facilitator=x402.org, scheme=eip155:*)")
         except Exception as e:
             log.error(f"x402 init failed: {e}")
     return _x402_server
