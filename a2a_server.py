@@ -3562,61 +3562,170 @@ def build_app():
         elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and scope["path"] == "/route":
-            # /route is the registered x402 resource. ALL methods on this path
-            # return a real HTTP 402 with the x402 v2 challenge — both for
-            # discovery probes (GET) and unpaid requests (POST). When a valid
-            # x402 payment header is present, the request is forwarded to the
-            # actual A2A handler at / (TODO: implement payment-gated forwarding).
+            # /route is the registered x402 resource — fully payment-gated.
+            #
+            # Flow:
+            #   1. GET (or any method without a payment header) → return HTTP 402
+            #      with the x402 v2 challenge body and base64 'payment-required' header
+            #   2. POST with valid X-PAYMENT header → verify with facilitator,
+            #      run the routing logic, return HTTP 200 with the routing response
+            #   3. POST with invalid X-PAYMENT → HTTP 402 with the same challenge
+            #      and an error reason
             #
             # Body shape mirrors merx.exchange exactly — verified working on
             # x402scan as the top-ranked server with 7K+ requests.
             import base64 as _b64
-            challenge = {
-                "x402Version": 2,
-                "error": "PAYMENT-SIGNATURE header is required",
-                "resource": {
-                    "url": "https://graph-advocate-production.up.railway.app/route",
-                    "description": (
-                        "Route a plain-English onchain data request through Graph Advocate. "
-                        "Returns the best Graph Protocol service (subgraph, Token API, "
-                        "Substreams, or MCP package) with a ready-to-execute query, "
-                        "subgraph ID, install hint, and a working curl example. "
-                        "Powered by Claude with auto-search across 15,500+ subgraphs."
-                    ),
-                    "mimeType": "application/json",
-                },
-                "accepts": [{
-                    "scheme": "exact",
-                    "network": "eip155:8453",
-                    "amount": str(X402_PRICE_CENTS * 10000),
-                    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-                    "payTo": X402_WALLET,
-                    "maxTimeoutSeconds": 300,
-                    "extra": {
-                        "name": "USD Coin",
-                        "version": "2",
-                    },
-                }],
-                "extensions": {},
-            }
-            challenge_body = json.dumps(challenge).encode()
-            # Encode the same body as a base64 'payment-required' header — this is
-            # the canonical x402 transport pattern (see merx.exchange/openapi.json
-            # & docs/DISCOVERY.md). x402scan checks BOTH the header and body.
-            challenge_header = _b64.b64encode(challenge_body).decode()
 
-            # Drain the request body — required by ASGI even if unused
-            more_body = True
-            while more_body:
-                msg = await receive()
-                more_body = msg.get("more_body", False)
-            await send({"type": "http.response.start", "status": 402, "headers": [
-                [b"content-type", b"application/json; charset=utf-8"],
-                [b"access-control-allow-origin", b"*"],
-                [b"access-control-expose-headers", b"PAYMENT-REQUIRED, payment-required"],
-                [b"payment-required", challenge_header.encode()],
-            ]})
-            await send({"type": "http.response.body", "body": challenge_body})
+            # Helper: build the canonical x402 v2 challenge body + header
+            def _build_challenge():
+                return {
+                    "x402Version": 2,
+                    "error": "PAYMENT-SIGNATURE header is required",
+                    "resource": {
+                        "url": "https://graph-advocate-production.up.railway.app/route",
+                        "description": (
+                            "Route a plain-English onchain data request through Graph Advocate. "
+                            "Returns the best Graph Protocol service (subgraph, Token API, "
+                            "Substreams, or MCP package) with a ready-to-execute query, "
+                            "subgraph ID, install hint, and a working curl example. "
+                            "Powered by Claude with auto-search across 15,500+ subgraphs."
+                        ),
+                        "mimeType": "application/json",
+                    },
+                    "accepts": [{
+                        "scheme": "exact",
+                        "network": "eip155:8453",
+                        "amount": str(X402_PRICE_CENTS * 10000),
+                        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                        "payTo": X402_WALLET,
+                        "maxTimeoutSeconds": 300,
+                        "extra": {
+                            "name": "USD Coin",
+                            "version": "2",
+                        },
+                    }],
+                    "extensions": {},
+                }
+
+            async def _send_402(error_msg: str = "PAYMENT-SIGNATURE header is required"):
+                """Send the standard x402 v2 challenge response with the given error."""
+                ch = _build_challenge()
+                ch["error"] = error_msg
+                body_bytes = json.dumps(ch).encode()
+                header_b64 = _b64.b64encode(body_bytes).decode()
+                await send({"type": "http.response.start", "status": 402, "headers": [
+                    [b"content-type", b"application/json; charset=utf-8"],
+                    [b"access-control-allow-origin", b"*"],
+                    [b"access-control-allow-methods", b"GET, POST, OPTIONS"],
+                    [b"access-control-allow-headers", b"Content-Type, X-Payment, X-PAYMENT, Payment-Signature, PAYMENT-SIGNATURE"],
+                    [b"access-control-expose-headers", b"PAYMENT-REQUIRED, payment-required"],
+                    [b"payment-required", header_b64.encode()],
+                ]})
+                await send({"type": "http.response.body", "body": body_bytes})
+
+            async def _send_json_200(payload: dict):
+                """Send a successful 200 JSON response."""
+                body_bytes = json.dumps(payload).encode()
+                await send({"type": "http.response.start", "status": 200, "headers": [
+                    [b"content-type", b"application/json"],
+                    [b"access-control-allow-origin", b"*"],
+                ]})
+                await send({"type": "http.response.body", "body": body_bytes})
+
+            method = scope.get("method", "GET").upper()
+
+            # CORS preflight
+            if method == "OPTIONS":
+                await receive()
+                await send({"type": "http.response.start", "status": 204, "headers": [
+                    [b"access-control-allow-origin", b"*"],
+                    [b"access-control-allow-methods", b"GET, POST, OPTIONS"],
+                    [b"access-control-allow-headers", b"Content-Type, X-Payment, X-PAYMENT, Payment-Signature, PAYMENT-SIGNATURE"],
+                    [b"access-control-max-age", b"86400"],
+                ]})
+                await send({"type": "http.response.body", "body": b""})
+            else:
+                # Read the request body (drain even on GET to be safe)
+                body_chunks = []
+                more_body = True
+                while more_body:
+                    msg = await receive()
+                    if msg.get("body"):
+                        body_chunks.append(msg["body"])
+                    more_body = msg.get("more_body", False)
+                request_body = b"".join(body_chunks)
+
+                # Look for an x402 payment header (case-insensitive — ASGI gives us bytes)
+                payment_header_value = None
+                for h_name, h_value in scope.get("headers", []):
+                    name_lower = h_name.decode("latin-1").lower()
+                    if name_lower in ("x-payment", "payment-signature", "x-payment-signature"):
+                        payment_header_value = h_value.decode("latin-1")
+                        break
+
+                if not payment_header_value or method == "GET":
+                    # Discovery probe or unpaid request → 402
+                    await _send_402()
+                else:
+                    # Verify the payment via the x402 facilitator
+                    try:
+                        is_valid = await _verify_x402_payment(payment_header_value)
+                    except Exception as ex:
+                        log.error(f"/route x402 verify exception: {ex}")
+                        is_valid = False
+
+                    if not is_valid:
+                        log.warning(f"/route INVALID payment header (len={len(payment_header_value)})")
+                        await _send_402("Invalid payment signature")
+                    else:
+                        # Payment verified — extract the request text and route it
+                        try:
+                            req_data = json.loads(request_body or b"{}")
+                        except Exception:
+                            req_data = {}
+
+                        # Accept either direct {request: "..."} OR A2A {jsonrpc, params: {message: {parts: [{text}]}}}
+                        user_text = None
+                        if isinstance(req_data, dict):
+                            if isinstance(req_data.get("request"), str):
+                                user_text = req_data["request"]
+                            else:
+                                params = req_data.get("params", {})
+                                msg = params.get("message", {}) if isinstance(params, dict) else {}
+                                parts = msg.get("parts", []) if isinstance(msg, dict) else []
+                                for p in parts:
+                                    if isinstance(p, dict) and p.get("kind") == "text":
+                                        user_text = p.get("text", "")
+                                        break
+
+                        if not user_text:
+                            await _send_json_200({
+                                "error": "Missing request text",
+                                "hint": "POST a JSON body with either {\"request\": \"...\"} or A2A format {\"params\":{\"message\":{\"parts\":[{\"kind\":\"text\",\"text\":\"...\"}]}}}",
+                            })
+                        else:
+                            try:
+                                rec, _hist = ask_graph_advocate(
+                                    user_text,
+                                    requesting_agent="x402-paid",
+                                )
+                                # Log the paid request to the dashboard
+                                _log_request(
+                                    "x402-paid",
+                                    user_text,
+                                    rec.get("recommendation", "unknown"),
+                                    rec.get("confidence", "high"),
+                                    "x402-route",
+                                    response=rec,
+                                )
+                                log.info(f"X402-ROUTE  paid query routed: {user_text[:60]}")
+                                await _send_json_200(rec)
+                            except Exception as ex:
+                                log.error(f"/route routing failed: {ex}")
+                                await _send_json_200({
+                                    "error": "Internal routing error",
+                                    "detail": str(ex)[:200],
+                                })
         else:
             await a2a_app(scope, receive, send)
 
