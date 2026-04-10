@@ -3454,6 +3454,88 @@ def build_app():
             await mcp_asgi(scope, receive, send)
         elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality")):
             await extra(scope, receive, send)
+        elif scope["type"] == "http" and scope["path"] == "/" and scope["method"] in ("GET", "PUT", "PATCH", "DELETE", "OPTIONS"):
+            # x402scan & other discovery probers send GET/HEAD/etc. to the root
+            # to verify the endpoint speaks x402 and returns a valid Payment-Required
+            # challenge. The A2A app only handles POST, so we must intercept these
+            # probe methods and return a real HTTP 402 with the x402 v2 body.
+            #
+            # POST requests still fall through to a2a_app for normal routing.
+            challenge_body = json.dumps({
+                "x402Version": 2,
+                "error": "payment_required",
+                "accepts": [{
+                    "scheme": "exact",
+                    "network": "eip155:8453",
+                    "maxAmountRequired": str(X402_PRICE_CENTS * 10000),
+                    "resource": "https://graph-advocate-production.up.railway.app/",
+                    "description": (
+                        "Graph Advocate routes plain-English onchain data requests to "
+                        "the right Graph Protocol service. Free tier: "
+                        + str(DAILY_FREE_QUERIES) + " queries/day per requesting agent. "
+                        "After that, $0.01 USDC on Base via x402."
+                    ),
+                    "mimeType": "application/json",
+                    "payTo": X402_WALLET,
+                    "maxTimeoutSeconds": 300,
+                    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "outputSchema": {
+                        "input": {
+                            "type": "http",
+                            "method": "POST",
+                            "bodyType": "json",
+                            "schema": {
+                                "type": "object",
+                                "required": ["jsonrpc", "id", "method", "params"],
+                                "properties": {
+                                    "jsonrpc": {"type": "string", "const": "2.0"},
+                                    "id": {"type": ["string", "number"]},
+                                    "method": {"type": "string", "const": "message/send"},
+                                    "params": {
+                                        "type": "object",
+                                        "properties": {
+                                            "message": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "role": {"type": "string"},
+                                                    "messageId": {"type": "string"},
+                                                    "parts": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "kind": {"type": "string"},
+                                                                "text": {"type": "string", "description": "Plain-English onchain data request"},
+                                                            },
+                                                        },
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    "extra": {
+                        "name": "USD Coin",
+                        "version": "2",
+                        "facilitator": "https://x402.org/facilitator",
+                        "provider": "Graph Advocate (graphadvocate.eth)",
+                    },
+                }],
+            }).encode()
+            # Drain the request body — required by ASGI even if unused
+            more_body = True
+            while more_body:
+                msg = await receive()
+                more_body = msg.get("more_body", False)
+            await send({"type": "http.response.start", "status": 402, "headers": [
+                [b"content-type", b"application/json"],
+                [b"access-control-allow-origin", b"*"],
+                [b"x-payment-required", b"x402"],
+            ]})
+            await send({"type": "http.response.body", "body": challenge_body})
         else:
             await a2a_app(scope, receive, send)
 
