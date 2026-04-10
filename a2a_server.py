@@ -112,9 +112,9 @@ async def _verify_x402_payment(payment_header: str, strict: bool = False) -> boo
 
         log.info(f"x402 payment data type={type(payment_data).__name__}, len={len(payment_data) if isinstance(payment_data, (bytes, str)) else 'dict'}")
         payload = parse_payment_payload(payment_data)
-        result = await server.verify(payload)
+        result = await server.verify_payment(payload)
         if result.valid:
-            settle_result = await server.settle(payload)
+            settle_result = await server.settle_payment(payload)
             log.info(f"x402 payment settled via Ampersend wallet: {settle_result}")
             return True
         else:
