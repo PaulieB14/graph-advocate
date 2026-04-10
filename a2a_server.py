@@ -3178,6 +3178,184 @@ def build_app():
         http_handler=handler,
     ).build()
 
+    # ── x402scan discovery: /.well-known/x402 + /openapi.json ─────────────────
+    # Per https://github.com/Merit-Systems/x402scan/blob/main/docs/DISCOVERY.md
+    # x402scan looks for one of these in priority order:
+    #   1. /openapi.json with x-payment-info on each paid op (preferred)
+    #   2. /.well-known/x402 with a resources[] list (compatibility)
+    # Both point at our existing POST / endpoint and reuse the same payment
+    # config as _x402_payment_required_response().
+    BASE_URL = "https://graph-advocate-production.up.railway.app"
+    USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    PRICE_USDC_ATOMIC = str(X402_PRICE_CENTS * 10000)  # 1 cent = 10000 atomic USDC
+
+    async def well_known_x402_endpoint(request):
+        """GET /.well-known/x402 — x402scan discovery doc."""
+        return JSONResponse({
+            "version": 1,
+            "resources": [BASE_URL + "/"],
+            "instructions": (
+                "Graph Advocate routes plain-English onchain data requests to the right "
+                "Graph Protocol service (subgraphs, Token API, Substreams, MCP packages). "
+                "Free tier: " + str(DAILY_FREE_QUERIES) + " queries/day per agent. "
+                "After that, pay $0.01 USDC on Base via x402."
+            ),
+        }, headers={"Access-Control-Allow-Origin": "*"})
+
+    async def openapi_endpoint(request):
+        """GET /openapi.json — OpenAPI 3.1 spec with x-payment-info on /
+        for x402scan auto-discovery and any other tooling that consumes OpenAPI."""
+        spec = {
+            "openapi": "3.1.0",
+            "info": {
+                "title": "Graph Advocate",
+                "version": "1.0.0",
+                "description": (
+                    "Claude-powered routing agent for The Graph Protocol. Send a "
+                    "plain-English onchain data request and receive a ready-to-execute "
+                    "GraphQL query, the right subgraph ID, and an MCP/npm install hint."
+                ),
+                "contact": {
+                    "name": "Graph Advocate",
+                    "url": BASE_URL,
+                },
+            },
+            "servers": [{"url": BASE_URL}],
+            "x-discovery": {
+                "ownershipProofs": [],
+                "agent": {
+                    "name": "Graph Advocate",
+                    "ens": "graphadvocate.eth",
+                    "erc8004": "Agent #734 on Arbitrum",
+                    "wallet": X402_WALLET,
+                },
+            },
+            "components": {
+                "schemas": {
+                    "RoutingRequest": {
+                        "type": "object",
+                        "required": ["jsonrpc", "id", "method", "params"],
+                        "properties": {
+                            "jsonrpc": {"type": "string", "const": "2.0"},
+                            "id": {"type": ["string", "number"]},
+                            "method": {"type": "string", "const": "message/send"},
+                            "params": {
+                                "type": "object",
+                                "required": ["message"],
+                                "properties": {
+                                    "message": {
+                                        "type": "object",
+                                        "required": ["role", "messageId", "parts"],
+                                        "properties": {
+                                            "role": {"type": "string", "const": "user"},
+                                            "messageId": {"type": "string"},
+                                            "parts": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "kind": {"type": "string", "const": "text"},
+                                                        "text": {"type": "string", "description": "Plain-English onchain data request"},
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    "RoutingResponse": {
+                        "type": "object",
+                        "properties": {
+                            "recommendation": {"type": "string", "description": "Service to use (e.g. graph-aave-mcp, subgraph-registry, token-api)"},
+                            "reason": {"type": "string"},
+                            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                            "query_ready": {
+                                "type": "object",
+                                "description": "Tool name + args you can call directly",
+                                "properties": {
+                                    "tool": {"type": "string"},
+                                    "args": {"type": "object"},
+                                },
+                            },
+                            "curl_example": {"type": "string"},
+                            "install": {"type": "string", "description": "npm install / npx command if applicable"},
+                            "alternatives": {"type": "array"},
+                        },
+                    },
+                },
+            },
+            "paths": {
+                "/": {
+                    "post": {
+                        "operationId": "routeQuery",
+                        "summary": "Route an onchain data request",
+                        "description": (
+                            "Send a plain-English request via A2A JSON-RPC 2.0 (`message/send`). "
+                            "Free for the first " + str(DAILY_FREE_QUERIES) + " queries/day per requesting agent. "
+                            "After that, the endpoint requires x402 payment ($0.01 USDC on Base)."
+                        ),
+                        "requestBody": {
+                            "required": True,
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/RoutingRequest"},
+                                },
+                            },
+                        },
+                        "responses": {
+                            "200": {
+                                "description": "Routing recommendation with ready-to-run query",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {"$ref": "#/components/schemas/RoutingResponse"},
+                                    },
+                                },
+                            },
+                            "402": {
+                                "description": "Payment required (free tier exhausted)",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {"type": "object"},
+                                    },
+                                },
+                            },
+                        },
+                        "x-payment-info": {
+                            "protocols": ["x402"],
+                            "x402Version": 2,
+                            "freeTier": {
+                                "queriesPerDay": DAILY_FREE_QUERIES,
+                                "perRequester": True,
+                            },
+                            "price": {
+                                "mode": "fixed",
+                                "currency": "USD",
+                                "amount": "0.01",
+                            },
+                            "accepts": [{
+                                "scheme": "exact",
+                                "network": "eip155:8453",
+                                "asset": USDC_BASE,
+                                "assetSymbol": "USDC",
+                                "amount": PRICE_USDC_ATOMIC,
+                                "payTo": X402_WALLET,
+                                "maxTimeoutSeconds": 300,
+                                "extra": {
+                                    "name": "USD Coin",
+                                    "version": "2",
+                                    "facilitator": "https://x402.org/facilitator",
+                                    "provider": "Graph Advocate (graphadvocate.eth)",
+                                },
+                            }],
+                        },
+                    },
+                },
+            },
+        }
+        return JSONResponse(spec, headers={"Access-Control-Allow-Origin": "*"})
+
     # Mount /logs, /dashboard, /chat on top of the A2A app
     extra = Starlette(routes=[
         Route("/logs", logs_endpoint),
@@ -3191,6 +3369,9 @@ def build_app():
         Route("/quality", quality_stats_endpoint),
         Route("/chat", chat_get, methods=["GET"]),
         Route("/chat", chat_post, methods=["POST"]),
+        # x402scan discovery routes
+        Route("/.well-known/x402", well_known_x402_endpoint),
+        Route("/openapi.json", openapi_endpoint),
     ])
 
     # ── Remote MCP endpoint (Claude.ai + any MCP client) ─────────────────────
