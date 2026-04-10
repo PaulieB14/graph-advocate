@@ -75,8 +75,11 @@ def _get_x402_server():
             from x402.http import FacilitatorConfig, HTTPFacilitatorClient
             from x402.mechanisms.evm.exact import ExactEvmServerScheme
 
+            # Use the CDP facilitator for Base mainnet.
+            # x402.org/facilitator is testnet only (Base Sepolia).
+            # The SDK auto-reads CDP_API_KEY_ID and CDP_API_KEY_SECRET from env.
             facilitator = HTTPFacilitatorClient(
-                FacilitatorConfig(url="https://x402.org/facilitator")
+                FacilitatorConfig(url="https://api.cdp.coinbase.com/platform/v2/x402")
             )
             _x402_server = x402ResourceServer(facilitator)
             _x402_server.register("eip155:8453", ExactEvmServerScheme())
