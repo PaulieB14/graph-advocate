@@ -79,36 +79,27 @@ def _get_x402_server():
                 "https://x402.org/facilitator",
             )
 
-            # Build auth provider if CDP keys are available
-            auth_provider = None
+            # Use the CDP SDK's built-in x402 auth — create_facilitator_config()
+            # auto-reads CDP_API_KEY_ID and CDP_API_KEY_SECRET from env and builds
+            # the correct JWT-signed auth headers for each facilitator endpoint.
             cdp_key_id = os.environ.get("CDP_API_KEY_ID", "")
             cdp_secret = os.environ.get("CDP_API_KEY_SECRET", "")
-            if cdp_key_id and cdp_secret and "cdp.coinbase.com" in facilitator_url:
+
+            if cdp_key_id and cdp_secret:
                 try:
-                    from cdp.auth.utils.jwt import generate_jwt, JwtOptions
+                    from cdp.x402.x402 import create_facilitator_config as _cdp_fac_config
                     from x402.http import CreateHeadersAuthProvider
 
-                    def _make_cdp_headers():
-                        """Generate fresh CDP JWT for each facilitator call."""
-                        def _jwt_for(method: str, path: str) -> str:
-                            return generate_jwt(JwtOptions(
-                                api_key_id=cdp_key_id,
-                                api_key_secret=cdp_secret,
-                                request_method=method,
-                                request_host="api.cdp.coinbase.com",
-                                request_path=path,
-                            ))
-                        base_path = "/platform/v2/x402"
-                        return {
-                            "verify": {"Authorization": f"Bearer {_jwt_for('POST', base_path + '/verify')}"},
-                            "settle": {"Authorization": f"Bearer {_jwt_for('POST', base_path + '/settle')}"},
-                            "supported": {"Authorization": f"Bearer {_jwt_for('GET', base_path + '/supported')}"},
-                        }
-
-                    auth_provider = CreateHeadersAuthProvider(_make_cdp_headers)
-                    log.info(f"CDP auth provider created (cdp-sdk JWT, key={cdp_key_id[:8]}...)")
+                    cdp_config = _cdp_fac_config(cdp_key_id, cdp_secret)
+                    auth_provider = CreateHeadersAuthProvider(cdp_config["create_headers"])
+                    facilitator_url = cdp_config["url"]
+                    log.info(f"CDP x402 auth configured via cdp-sdk (url={facilitator_url}, key={cdp_key_id[:8]}...)")
                 except Exception as ae:
-                    log.warning(f"CDP auth setup failed (will use unauthenticated): {ae}")
+                    log.warning(f"CDP x402 auth setup failed: {ae} — falling back to unauthenticated")
+                    auth_provider = None
+            else:
+                auth_provider = None
+                log.info("No CDP keys — using default facilitator (may be testnet only)")
 
             facilitator = HTTPFacilitatorClient(
                 FacilitatorConfig(url=facilitator_url, auth_provider=auth_provider)
