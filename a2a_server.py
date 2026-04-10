@@ -90,8 +90,28 @@ async def _verify_x402_payment(payment_header: str, strict: bool = False) -> boo
         log.warning("x402 server not available — accepting payment on trust")
         return True  # Graceful degradation for legacy callers only
     try:
+        import base64 as _b64_verify
         from x402 import parse_payment_payload
-        payload = parse_payment_payload(payment_header)
+
+        # The payment header may be:
+        # 1. Base64-encoded JSON bytes (most common — AgentCash, x402 v2 clients)
+        # 2. Raw JSON string
+        # 3. Raw JSON bytes
+        # parse_payment_payload() expects bytes or dict, NOT str.
+        payment_data: bytes | dict
+        try:
+            # Try base64 decode first (most likely for x402 v2)
+            payment_data = _b64_verify.b64decode(payment_header)
+        except Exception:
+            # Not base64 — try parsing as JSON string → dict
+            try:
+                payment_data = json.loads(payment_header)
+            except Exception:
+                # Last resort — encode as UTF-8 bytes
+                payment_data = payment_header.encode("utf-8")
+
+        log.info(f"x402 payment data type={type(payment_data).__name__}, len={len(payment_data) if isinstance(payment_data, (bytes, str)) else 'dict'}")
+        payload = parse_payment_payload(payment_data)
         result = await server.verify(payload)
         if result.valid:
             settle_result = await server.settle(payload)
