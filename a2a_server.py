@@ -72,12 +72,23 @@ def _get_x402_server():
             log.error(f"x402 init failed: {e}")
     return _x402_server
 
-async def _verify_x402_payment(payment_header: str) -> bool:
-    """Verify an x402 payment from the X-PAYMENT header."""
+async def _verify_x402_payment(payment_header: str, strict: bool = False) -> bool:
+    """Verify an x402 payment from the X-PAYMENT header.
+
+    Args:
+        payment_header: the raw header value (typically a base64-encoded payload)
+        strict: if True, NEVER accept on graceful fallback — only accept if the
+            facilitator returns valid=True. Use strict=True for paid endpoints
+            like /route where free routing must not leak. Default False for
+            backwards-compatible legacy callers.
+    """
     server = _get_x402_server()
     if not server:
+        if strict:
+            log.warning("x402 server not available — REJECTING in strict mode")
+            return False
         log.warning("x402 server not available — accepting payment on trust")
-        return True  # Graceful degradation: accept if library fails to init
+        return True  # Graceful degradation for legacy callers only
     try:
         from x402 import parse_payment_payload
         payload = parse_payment_payload(payment_header)
@@ -91,6 +102,8 @@ async def _verify_x402_payment(payment_header: str) -> bool:
             return False
     except Exception as e:
         log.error(f"x402 verify error: {e}")
+        if strict:
+            return False  # In strict mode, any exception = rejection
         # Graceful: accept payment if verification library has issues
         return True
 
@@ -3667,9 +3680,10 @@ def build_app():
                     # Discovery probe or unpaid request → 402
                     await _send_402()
                 else:
-                    # Verify the payment via the x402 facilitator
+                    # Verify the payment via the x402 facilitator (STRICT — never
+                    # leak free routing if the verification library throws)
                     try:
-                        is_valid = await _verify_x402_payment(payment_header_value)
+                        is_valid = await _verify_x402_payment(payment_header_value, strict=True)
                     except Exception as ex:
                         log.error(f"/route x402 verify exception: {ex}")
                         is_valid = False
