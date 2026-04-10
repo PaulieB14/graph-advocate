@@ -60,13 +60,12 @@ X402_NETWORK = "base"
 _x402_server = None
 
 def _get_x402_server():
-    """Lazy-init the x402 resource server with the Coinbase facilitator + EVM scheme.
+    """Lazy-init the x402 resource server.
 
-    Based on the official docs at docs.cdp.coinbase.com/x402/quickstart-for-sellers:
-      1. Create HTTPFacilitatorClient pointing at x402.org/facilitator
-      2. Create x402ResourceServer(facilitator_client)
-      3. Register the EVM 'exact' scheme for Base mainnet (eip155:8453)
-      4. Call initialize() to fetch supported schemes from facilitator
+    Uses the official PaymentMiddlewareASGI approach from x402 SDK docs.
+    The facilitator URL comes from CDP_FACILITATOR_URL env var, defaulting
+    to x402.org/facilitator (testnet). For mainnet, set to
+    https://api.cdp.coinbase.com/platform/v2/x402 with CDP auth.
     """
     global _x402_server
     if _x402_server is None:
@@ -75,30 +74,45 @@ def _get_x402_server():
             from x402.http import FacilitatorConfig, HTTPFacilitatorClient
             from x402.mechanisms.evm.exact import ExactEvmServerScheme
 
-            # Use the CDP facilitator for Base mainnet.
-            # x402.org/facilitator is testnet only (Base Sepolia).
-            # CDP requires JWT-signed requests — use coinbase-advanced-py to generate.
-            # Per the official x402 Python README:
-            #   facilitator = HTTPFacilitatorClient(url="https://x402.org/facilitator")
-            #   server = x402ResourceServer(facilitator)
-            #   server.register("eip155:*", ExactEvmServerScheme())
-            #   server.initialize()
-            #
-            # The EVM scheme does on-chain verification locally — the facilitator
-            # is used for settlement (forwarding the signed tx on-chain).
-            # Using eip155:* registers for ALL EVM chains including Base mainnet.
+            facilitator_url = os.environ.get(
+                "X402_FACILITATOR_URL",
+                "https://x402.org/facilitator",
+            )
+
+            # Build auth provider if CDP keys are available
+            auth_provider = None
+            cdp_key_id = os.environ.get("CDP_API_KEY_ID", "")
+            cdp_secret = os.environ.get("CDP_API_KEY_SECRET", "")
+            if cdp_key_id and cdp_secret and "cdp.coinbase.com" in facilitator_url:
+                try:
+                    from coinbase import jwt_generator
+                    from x402.http import CreateHeadersAuthProvider
+
+                    def _make_cdp_headers():
+                        token = jwt_generator.build_rest_jwt(
+                            facilitator_url, cdp_key_id, cdp_secret,
+                        )
+                        h = {"Authorization": f"Bearer {token}"}
+                        return {"verify": h, "settle": h, "supported": h}
+
+                    auth_provider = CreateHeadersAuthProvider(_make_cdp_headers)
+                    log.info(f"CDP auth provider created for {facilitator_url}")
+                except Exception as ae:
+                    log.warning(f"CDP auth setup failed (will use unauthenticated): {ae}")
+
             facilitator = HTTPFacilitatorClient(
-                FacilitatorConfig(url="https://x402.org/facilitator")
+                FacilitatorConfig(url=facilitator_url, auth_provider=auth_provider)
             )
             _x402_server = x402ResourceServer(facilitator)
             _x402_server.register("eip155:*", ExactEvmServerScheme())
-            # NOTE: deliberately NOT calling initialize() — it fetches /supported
-            # from the facilitator which only returns testnet chains (Base Sepolia).
-            # The EVM scheme registered above handles local cryptographic verification
-            # for ANY EVM chain. Settlement will go through the facilitator — if it
-            # can't settle mainnet, we still verified the signature was valid and
-            # can serve the response (settlement can be retried or done manually).
-            log.info("x402 resource server ready (facilitator=x402.org, scheme=eip155:*)")
+
+            # Only call initialize() if using a facilitator that supports
+            # the target chain (CDP does, x402.org does not for mainnet)
+            if "cdp.coinbase.com" in facilitator_url:
+                _x402_server.initialize()
+                log.info(f"x402 server initialized with CDP facilitator")
+            else:
+                log.info(f"x402 server ready (facilitator={facilitator_url}, scheme=eip155:*)")
         except Exception as e:
             log.error(f"x402 init failed: {e}")
     return _x402_server
@@ -3528,6 +3542,85 @@ def build_app():
         """GET /favicon.ico — same PNG as graphadvocate.png (browsers accept PNG)."""
         return await graphadvocate_png_endpoint(request)
 
+    # ── x402-protected /route endpoint via PaymentMiddlewareASGI ────────────
+    # This is the OFFICIAL way to accept x402 payments per the SDK docs.
+    # The middleware handles: 402 challenge → verify → settle → respond.
+    _x402_route_app = None
+    try:
+        from x402.http.middleware.fastapi import PaymentMiddlewareASGI
+        from x402.http import PaymentOption
+        from x402.http.types import RouteConfig
+        from starlette.applications import Starlette as _RouteStarlette
+        from starlette.routing import Route as _RouteRoute
+        from starlette.responses import JSONResponse as _RouteJSON
+
+        async def _route_handler(request):
+            """The actual routing logic — runs ONLY after payment is verified."""
+            import json as _json
+            try:
+                body = await request.body()
+                req_data = _json.loads(body) if body else {}
+            except Exception:
+                req_data = {}
+
+            # Extract text from either simple or A2A format
+            user_text = None
+            if isinstance(req_data.get("request"), str):
+                user_text = req_data["request"]
+            else:
+                params = req_data.get("params", {})
+                msg = params.get("message", {}) if isinstance(params, dict) else {}
+                parts = msg.get("parts", []) if isinstance(msg, dict) else []
+                for p in parts:
+                    if isinstance(p, dict) and p.get("kind") == "text":
+                        user_text = p.get("text", "")
+                        break
+
+            if not user_text:
+                return _RouteJSON({
+                    "error": "Missing request text",
+                    "hint": "POST {\"request\": \"your query\"} or A2A format",
+                })
+
+            rec, _ = ask_graph_advocate(user_text, requesting_agent="x402-paid")
+            _log_request("x402-paid", user_text, rec.get("recommendation", "unknown"),
+                        rec.get("confidence", "high"), "x402-route", response=rec)
+            log.info(f"X402-ROUTE paid query: {user_text[:60]}")
+            return _RouteJSON(rec)
+
+        _inner_route_app = _RouteStarlette(routes=[
+            _RouteRoute("/route", _route_handler, methods=["POST", "GET"]),
+        ])
+
+        x402_server = _get_x402_server()
+        if x402_server:
+            _x402_route_app = PaymentMiddlewareASGI(
+                app=_inner_route_app,
+                routes={
+                    "POST /route": RouteConfig(
+                        accepts=[PaymentOption(
+                            scheme="exact",
+                            pay_to=X402_WALLET,
+                            price="$0.01",
+                            network="eip155:8453",
+                            max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"},
+                        )],
+                        description=(
+                            "Route an onchain data request through Graph Advocate. "
+                            "Returns a ready-to-execute query, subgraph ID, and MCP install hint."
+                        ),
+                        mime_type="application/json",
+                    ),
+                },
+                server=x402_server,
+            )
+            log.info("x402 PaymentMiddlewareASGI wrapped /route endpoint")
+        else:
+            log.warning("x402 server not available — /route will return 402 without verification capability")
+    except Exception as e:
+        log.error(f"x402 middleware setup failed: {e}")
+
     # Mount /logs, /dashboard, /chat on top of the A2A app
     extra = Starlette(routes=[
         Route("/logs", logs_endpoint),
@@ -3639,171 +3732,32 @@ def build_app():
         elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and scope["path"] == "/route":
-            # /route is the registered x402 resource — fully payment-gated.
-            #
-            # Flow:
-            #   1. GET (or any method without a payment header) → return HTTP 402
-            #      with the x402 v2 challenge body and base64 'payment-required' header
-            #   2. POST with valid X-PAYMENT header → verify with facilitator,
-            #      run the routing logic, return HTTP 200 with the routing response
-            #   3. POST with invalid X-PAYMENT → HTTP 402 with the same challenge
-            #      and an error reason
-            #
-            # Body shape mirrors merx.exchange exactly — verified working on
-            # x402scan as the top-ranked server with 7K+ requests.
-            import base64 as _b64
-
-            # Helper: build the canonical x402 v2 challenge body + header
-            def _build_challenge():
-                return {
-                    "x402Version": 2,
-                    "error": "PAYMENT-SIGNATURE header is required",
-                    "resource": {
-                        "url": "https://graph-advocate-production.up.railway.app/route",
-                        "description": (
-                            "Route a plain-English onchain data request through Graph Advocate. "
-                            "Returns the best Graph Protocol service (subgraph, Token API, "
-                            "Substreams, or MCP package) with a ready-to-execute query, "
-                            "subgraph ID, install hint, and a working curl example. "
-                            "Powered by Claude with auto-search across 15,500+ subgraphs."
-                        ),
-                        "mimeType": "application/json",
-                    },
-                    "accepts": [{
-                        "scheme": "exact",
-                        "network": "eip155:8453",
-                        "amount": str(X402_PRICE_CENTS * 10000),
-                        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-                        "payTo": X402_WALLET,
-                        "maxTimeoutSeconds": 300,
-                        "extra": {
-                            "name": "USD Coin",
-                            "version": "2",
-                        },
-                    }],
-                    "extensions": {},
-                }
-
-            async def _send_402(error_msg: str = "PAYMENT-SIGNATURE header is required"):
-                """Send the standard x402 v2 challenge response with the given error."""
-                ch = _build_challenge()
-                ch["error"] = error_msg
-                body_bytes = json.dumps(ch).encode()
-                header_b64 = _b64.b64encode(body_bytes).decode()
-                await send({"type": "http.response.start", "status": 402, "headers": [
-                    [b"content-type", b"application/json; charset=utf-8"],
-                    [b"access-control-allow-origin", b"*"],
-                    [b"access-control-allow-methods", b"GET, POST, OPTIONS"],
-                    [b"access-control-allow-headers", b"Content-Type, X-Payment, X-PAYMENT, Payment-Signature, PAYMENT-SIGNATURE"],
-                    [b"access-control-expose-headers", b"PAYMENT-REQUIRED, payment-required"],
-                    [b"payment-required", header_b64.encode()],
-                ]})
-                await send({"type": "http.response.body", "body": body_bytes})
-
-            async def _send_json_200(payload: dict):
-                """Send a successful 200 JSON response."""
-                body_bytes = json.dumps(payload).encode()
-                await send({"type": "http.response.start", "status": 200, "headers": [
-                    [b"content-type", b"application/json"],
-                    [b"access-control-allow-origin", b"*"],
-                ]})
-                await send({"type": "http.response.body", "body": body_bytes})
-
-            method = scope.get("method", "GET").upper()
-
-            # CORS preflight
-            if method == "OPTIONS":
-                await receive()
-                await send({"type": "http.response.start", "status": 204, "headers": [
-                    [b"access-control-allow-origin", b"*"],
-                    [b"access-control-allow-methods", b"GET, POST, OPTIONS"],
-                    [b"access-control-allow-headers", b"Content-Type, X-Payment, X-PAYMENT, Payment-Signature, PAYMENT-SIGNATURE"],
-                    [b"access-control-max-age", b"86400"],
-                ]})
-                await send({"type": "http.response.body", "body": b""})
+            # Forward to the x402 PaymentMiddlewareASGI-wrapped app.
+            # The middleware handles: 402 challenge, payment verification,
+            # on-chain settlement, and forwarding to _route_handler on success.
+            if _x402_route_app:
+                await _x402_route_app(scope, receive, send)
             else:
-                # Read the request body (drain even on GET to be safe)
-                body_chunks = []
+                # Fallback if middleware failed to init — return a static 402
+                import base64 as _b64f
+                ch = json.dumps({
+                    "x402Version": 2,
+                    "error": "x402 payment system unavailable — try POST / for free tier",
+                    "accepts": [{"scheme": "exact", "network": "eip155:8453",
+                                 "amount": str(X402_PRICE_CENTS * 10000),
+                                 "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                                 "payTo": X402_WALLET, "maxTimeoutSeconds": 300}],
+                    "extensions": {},
+                }).encode()
                 more_body = True
                 while more_body:
                     msg = await receive()
-                    if msg.get("body"):
-                        body_chunks.append(msg["body"])
                     more_body = msg.get("more_body", False)
-                request_body = b"".join(body_chunks)
-
-                # Look for an x402 payment header (case-insensitive — ASGI gives us bytes)
-                payment_header_value = None
-                for h_name, h_value in scope.get("headers", []):
-                    name_lower = h_name.decode("latin-1").lower()
-                    if name_lower in ("x-payment", "payment-signature", "x-payment-signature"):
-                        payment_header_value = h_value.decode("latin-1")
-                        break
-
-                if not payment_header_value or method == "GET":
-                    # Discovery probe or unpaid request → 402
-                    await _send_402()
-                else:
-                    # Verify the payment via the x402 facilitator (STRICT — never
-                    # leak free routing if the verification library throws)
-                    try:
-                        is_valid = await _verify_x402_payment(payment_header_value, strict=True)
-                    except Exception as ex:
-                        log.error(f"/route x402 verify exception: {ex}")
-                        is_valid = False
-
-                    if not is_valid:
-                        log.warning(f"/route INVALID payment header (len={len(payment_header_value)})")
-                        await _send_402("Invalid payment signature")
-                    else:
-                        # Payment verified — extract the request text and route it
-                        try:
-                            req_data = json.loads(request_body or b"{}")
-                        except Exception:
-                            req_data = {}
-
-                        # Accept either direct {request: "..."} OR A2A {jsonrpc, params: {message: {parts: [{text}]}}}
-                        user_text = None
-                        if isinstance(req_data, dict):
-                            if isinstance(req_data.get("request"), str):
-                                user_text = req_data["request"]
-                            else:
-                                params = req_data.get("params", {})
-                                msg = params.get("message", {}) if isinstance(params, dict) else {}
-                                parts = msg.get("parts", []) if isinstance(msg, dict) else []
-                                for p in parts:
-                                    if isinstance(p, dict) and p.get("kind") == "text":
-                                        user_text = p.get("text", "")
-                                        break
-
-                        if not user_text:
-                            await _send_json_200({
-                                "error": "Missing request text",
-                                "hint": "POST a JSON body with either {\"request\": \"...\"} or A2A format {\"params\":{\"message\":{\"parts\":[{\"kind\":\"text\",\"text\":\"...\"}]}}}",
-                            })
-                        else:
-                            try:
-                                rec, _hist = ask_graph_advocate(
-                                    user_text,
-                                    requesting_agent="x402-paid",
-                                )
-                                # Log the paid request to the dashboard
-                                _log_request(
-                                    "x402-paid",
-                                    user_text,
-                                    rec.get("recommendation", "unknown"),
-                                    rec.get("confidence", "high"),
-                                    "x402-route",
-                                    response=rec,
-                                )
-                                log.info(f"X402-ROUTE  paid query routed: {user_text[:60]}")
-                                await _send_json_200(rec)
-                            except Exception as ex:
-                                log.error(f"/route routing failed: {ex}")
-                                await _send_json_200({
-                                    "error": "Internal routing error",
-                                    "detail": str(ex)[:200],
-                                })
+                await send({"type": "http.response.start", "status": 402, "headers": [
+                    [b"content-type", b"application/json"],
+                    [b"payment-required", _b64f.b64encode(ch)],
+                ]})
+                await send({"type": "http.response.body", "body": ch})
         else:
             await a2a_app(scope, receive, send)
 
