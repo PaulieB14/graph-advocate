@@ -119,14 +119,10 @@ async def _verify_x402_payment(payment_header: str, strict: bool = False) -> boo
         requirements = PaymentRequirements(
             scheme="exact",
             network="eip155:8453",
-            maxAmountRequired="10000",
-            resource="https://graph-advocate-production.up.railway.app/route",
-            description="Graph Advocate onchain data routing",
-            mimeType="application/json",
-            payTo=X402_WALLET,
-            maxTimeoutSeconds=300,
             asset="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-            outputSchema=None,
+            amount=str(X402_PRICE_CENTS * 10000),
+            pay_to=X402_WALLET,
+            max_timeout_seconds=300,
             extra={"name": "USD Coin", "version": "2"},
         )
         result = await server.verify_payment(payload, requirements)
