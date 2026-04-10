@@ -939,12 +939,25 @@ def ask_graph_advocate(
 
     _log(requesting_agent, request, rec)
 
-    # Execute the recommendation — hardcoded fallback keys ensure this always works
-    if not rec.get("parse_error") and rec.get("query_ready"):
+    # Execute the recommendation — run the first query as a demo
+    query_ready = rec.get("query_ready")
+    if not rec.get("parse_error") and query_ready:
+        # If Claude returned multiple queries (list), execute just the first
+        # as a free demo and hint that full execution requires x402 payment.
+        if isinstance(query_ready, list) and len(query_ready) > 0:
+            rec["query_ready"] = query_ready[0]  # executor expects a dict
+            rec["additional_queries"] = len(query_ready) - 1
         try:
             execution_result = _execute_recommendation(rec)
             if execution_result:
                 rec["execution_result"] = execution_result
+                if isinstance(query_ready, list) and len(query_ready) > 1:
+                    rec["execution_result"]["note"] = (
+                        f"Showing results for the first token only. "
+                        f"{len(query_ready) - 1} more queries available — "
+                        f"pay $0.01 via x402 at POST /route for full results."
+                    )
+                    rec["remaining_queries"] = query_ready[1:]
         except Exception as e:
             log.error(f"Execution error: {e}")
             rec["execution_error"] = str(e)
