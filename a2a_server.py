@@ -3291,7 +3291,7 @@ def build_app():
         """
         return JSONResponse({
             "version": 1,
-            "resources": [BASE_URL + "/route"],
+            "resources": [BASE_URL + "/route", BASE_URL + "/tip"],
             "instructions": (
                 "POST a plain-English onchain data request and receive a "
                 "ready-to-execute query, the right subgraph ID, and an MCP install hint. "
@@ -3589,8 +3589,28 @@ def build_app():
             log.info(f"X402-ROUTE paid query: {user_text[:60]}")
             return _RouteJSON(rec)
 
+        async def _tip_handler(request):
+            """Runs after payment is verified — return a thank-you."""
+            import random
+            messages = [
+                "Thanks for the tip! Keeps the wheels rolling. 🛞",
+                "Appreciate you! This keeps Graph Advocate running for everyone. 🙏",
+                "Tip received — you're helping keep onchain data routing free for agents. ⚡",
+                "Legend. Your tip keeps the subgraphs flowing. 📊",
+                "Tipped and appreciated. Graph Advocate stays online because of supporters like you. 🚀",
+            ]
+            _log_request("x402-tip", "tip", "tip", "high", "x402-tip")
+            log.info("X402-TIP received!")
+            return _RouteJSON({
+                "message": random.choice(messages),
+                "from": "Graph Advocate (graphadvocate.eth)",
+                "agent_id": "ERC-8004 #734",
+                "tip": "received",
+            })
+
         _inner_route_app = _RouteStarlette(routes=[
             _RouteRoute("/route", _route_handler, methods=["POST", "GET"]),
+            _RouteRoute("/tip", _tip_handler, methods=["POST", "GET"]),
         ])
 
         x402_server = _get_x402_server()
@@ -3610,6 +3630,21 @@ def build_app():
                         description=(
                             "Route an onchain data request through Graph Advocate. "
                             "Returns a ready-to-execute query, subgraph ID, and MCP install hint."
+                        ),
+                        mime_type="application/json",
+                    ),
+                    "POST /tip": RouteConfig(
+                        accepts=[PaymentOption(
+                            scheme="exact",
+                            pay_to=X402_WALLET,
+                            price="$0.01",
+                            network="eip155:8453",
+                            max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"},
+                        )],
+                        description=(
+                            "Tip jar — keeps the wheels rolling. Any amount appreciated. "
+                            "Graph Advocate provides free onchain data routing for The Graph ecosystem."
                         ),
                         mime_type="application/json",
                     ),
@@ -3732,7 +3767,7 @@ def build_app():
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality")):
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and scope["path"] == "/route":
+        elif scope["type"] == "http" and scope["path"] in ("/route", "/tip"):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.
             # The middleware handles: 402 challenge, payment verification,
             # on-chain settlement, and forwarding to _route_handler on success.
