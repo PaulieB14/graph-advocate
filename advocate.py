@@ -540,7 +540,22 @@ def _fallback_route(request: str) -> dict:
     query_ready = None
 
     if svc == "token-api":
-        # Known contract addresses for common tokens (mainnet)
+        # Resolve token symbols to contract addresses via TKN (tkn.xyz)
+        # TKN is a decentralized token registry built on ENS — resolve
+        # symbol.tkn.eth to get the mainnet contract address for any token.
+        def _resolve_tkn(symbol: str) -> str | None:
+            """Resolve a token symbol to a contract address via tkn.xyz ENS."""
+            try:
+                from web3 import Web3
+                w3 = Web3(Web3.HTTPProvider("https://ethereum-rpc.publicnode.com"))
+                addr = w3.ens.address(f"{symbol.lower()}.tkn.eth")
+                if addr and addr != "0x0000000000000000000000000000000000000000":
+                    return addr
+            except Exception:
+                pass
+            return None
+
+        # Hardcoded fallback for common tokens (mainnet)
         _KNOWN_CONTRACTS = {
             "GRT": "0xc944E90C64B2c07662A292be6244BDC5Ee2F2d7e",
             "USDC": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -574,9 +589,19 @@ def _fallback_route(request: str) -> dict:
             first = tokens[0]
             first_addr = _KNOWN_CONTRACTS.get(first)
 
-            # Build address info for all detected tokens
-            known = {t: _KNOWN_CONTRACTS[t] for t in tokens if t in _KNOWN_CONTRACTS}
-            unknown = [t for t in tokens if t not in _KNOWN_CONTRACTS]
+            # Resolve addresses: TKN (live ENS) → hardcoded fallback → unknown
+            known = {}
+            unknown = []
+            for t in tokens:
+                if t in _KNOWN_CONTRACTS:
+                    known[t] = _KNOWN_CONTRACTS[t]
+                else:
+                    # Try TKN resolution (live, covers thousands of tokens)
+                    tkn_addr = _resolve_tkn(t)
+                    if tkn_addr:
+                        known[t] = tkn_addr
+                    else:
+                        unknown.append(t)
 
             addr_info = ""
             if known:
