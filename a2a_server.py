@@ -60,14 +60,28 @@ X402_NETWORK = "base"
 _x402_server = None
 
 def _get_x402_server():
-    """Lazy-init the x402 resource server."""
+    """Lazy-init the x402 resource server with the Coinbase facilitator + EVM scheme.
+
+    Based on the official docs at docs.cdp.coinbase.com/x402/quickstart-for-sellers:
+      1. Create HTTPFacilitatorClient pointing at x402.org/facilitator
+      2. Create x402ResourceServer(facilitator_client)
+      3. Register the EVM 'exact' scheme for Base mainnet (eip155:8453)
+      4. Call initialize() to fetch supported schemes from facilitator
+    """
     global _x402_server
     if _x402_server is None:
         try:
             from x402.server import x402ResourceServer
-            from x402.http import PaymentOption, RouteConfig, RoutesConfig
-            _x402_server = x402ResourceServer()
-            log.info("x402 resource server initialized (v2.6)")
+            from x402.http import FacilitatorConfig, HTTPFacilitatorClient
+            from x402.mechanisms.evm.exact import ExactEvmServerScheme
+
+            facilitator = HTTPFacilitatorClient(
+                FacilitatorConfig(url="https://x402.org/facilitator")
+            )
+            _x402_server = x402ResourceServer(facilitator)
+            _x402_server.register("eip155:8453", ExactEvmServerScheme())
+            _x402_server.initialize()
+            log.info("x402 resource server initialized (facilitator=x402.org, chain=eip155:8453)")
         except Exception as e:
             log.error(f"x402 init failed: {e}")
     return _x402_server
