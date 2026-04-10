@@ -3461,13 +3461,59 @@ def build_app():
             # probe methods and return a real HTTP 402 with the x402 v2 body.
             #
             # POST requests still fall through to a2a_app for normal routing.
+            # Bazaar input schema — agentcash/discovery v2 parser looks for it at
+            # extensions.bazaar.schema.properties.input.properties.body
+            _input_body_schema = {
+                "type": "object",
+                "required": ["jsonrpc", "id", "method", "params"],
+                "properties": {
+                    "jsonrpc": {"type": "string", "const": "2.0"},
+                    "id": {"type": ["string", "number"]},
+                    "method": {"type": "string", "const": "message/send"},
+                    "params": {
+                        "type": "object",
+                        "required": ["message"],
+                        "properties": {
+                            "message": {
+                                "type": "object",
+                                "required": ["role", "messageId", "parts"],
+                                "properties": {
+                                    "role": {"type": "string", "const": "user"},
+                                    "messageId": {"type": "string"},
+                                    "parts": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["kind", "text"],
+                                            "properties": {
+                                                "kind": {"type": "string", "const": "text"},
+                                                "text": {
+                                                    "type": "string",
+                                                    "description": "Plain-English onchain data request",
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+
             challenge_body = json.dumps({
+                # x402 v2 payment-required body — schema enforced by
+                # @agentcash/discovery validateAccept2() in v2/accepts.ts
                 "x402Version": 2,
                 "error": "payment_required",
                 "accepts": [{
                     "scheme": "exact",
                     "network": "eip155:8453",
-                    "maxAmountRequired": str(X402_PRICE_CENTS * 10000),
+                    # v2 uses "amount" (NOT "maxAmountRequired" — that's v1)
+                    "amount": str(X402_PRICE_CENTS * 10000),
+                    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "payTo": X402_WALLET,
+                    "maxTimeoutSeconds": 300,
                     "resource": "https://graph-advocate-production.up.railway.app/",
                     "description": (
                         "Graph Advocate routes plain-English onchain data requests to "
@@ -3476,39 +3522,35 @@ def build_app():
                         "After that, $0.01 USDC on Base via x402."
                     ),
                     "mimeType": "application/json",
-                    "payTo": X402_WALLET,
-                    "maxTimeoutSeconds": 300,
-                    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-                    "outputSchema": {
-                        "input": {
-                            "type": "http",
-                            "method": "POST",
-                            "bodyType": "json",
+                    # Bazaar extensions — required for x402scan to detect a
+                    # parseable input schema (else it marks the resource as
+                    # "skipped — strict non-invocable").
+                    "extensions": {
+                        "bazaar": {
+                            "info": {
+                                "name": "Graph Advocate",
+                                "description": "Onchain data routing for The Graph Protocol",
+                                "providerName": "graphadvocate.eth",
+                                "providerUrl": "https://graph-advocate-production.up.railway.app",
+                            },
                             "schema": {
                                 "type": "object",
-                                "required": ["jsonrpc", "id", "method", "params"],
                                 "properties": {
-                                    "jsonrpc": {"type": "string", "const": "2.0"},
-                                    "id": {"type": ["string", "number"]},
-                                    "method": {"type": "string", "const": "message/send"},
-                                    "params": {
+                                    "input": {
                                         "type": "object",
                                         "properties": {
-                                            "message": {
+                                            "body": _input_body_schema,
+                                        },
+                                    },
+                                    "output": {
+                                        "type": "object",
+                                        "properties": {
+                                            "example": {
                                                 "type": "object",
                                                 "properties": {
-                                                    "role": {"type": "string"},
-                                                    "messageId": {"type": "string"},
-                                                    "parts": {
-                                                        "type": "array",
-                                                        "items": {
-                                                            "type": "object",
-                                                            "properties": {
-                                                                "kind": {"type": "string"},
-                                                                "text": {"type": "string", "description": "Plain-English onchain data request"},
-                                                            },
-                                                        },
-                                                    },
+                                                    "recommendation": {"type": "string"},
+                                                    "reason": {"type": "string"},
+                                                    "query_ready": {"type": "object"},
                                                 },
                                             },
                                         },
