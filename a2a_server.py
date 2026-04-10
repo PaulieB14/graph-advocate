@@ -3344,6 +3344,113 @@ def build_app():
         }
         return JSONResponse(spec, headers={"Access-Control-Allow-Origin": "*"})
 
+    # ── Landing page with OG meta tags (for x402scan listing card) ────────────
+    # x402scan scrapes <title>, <meta name="description">, <link rel="icon">,
+    # and og:image tags from the origin URL to populate the marketplace listing.
+    # This page is ONLY served on GET / — POST / still routes to the A2A app.
+    LANDING_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Graph Advocate — Onchain Data Routing Agent</title>
+  <meta name="description" content="Claude-powered routing agent for The Graph Protocol. Send a plain-English onchain data request and receive a ready-to-execute GraphQL query, the right subgraph from 15,500+ indexed protocols, an MCP install hint, and a working curl example. Free tier: 10 queries/day, then $0.01 USDC on Base via x402.">
+  <link rel="icon" type="image/png" href="/graphadvocate.png">
+  <link rel="apple-touch-icon" href="/graphadvocate.png">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Graph Advocate — Onchain Data Routing Agent">
+  <meta property="og:description" content="Claude-powered routing for The Graph Protocol. 15,500+ subgraphs, Token API, Substreams, and 8+ MCP packages. Pay-per-query via x402 on Base.">
+  <meta property="og:image" content="https://graph-advocate-production.up.railway.app/graphadvocate.png">
+  <meta property="og:image:width" content="1024">
+  <meta property="og:image:height" content="1024">
+  <meta property="og:url" content="https://graph-advocate-production.up.railway.app">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Graph Advocate — Onchain Data Routing Agent">
+  <meta name="twitter:description" content="Claude-powered routing for The Graph Protocol. 15,500+ subgraphs queryable via x402.">
+  <meta name="twitter:image" content="https://graph-advocate-production.up.railway.app/graphadvocate.png">
+
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:linear-gradient(135deg,#0a0e1a 0%,#0f0c29 50%,#0a0e1a 100%);color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .wrap{max-width:720px;text-align:center}
+    .logo{width:200px;height:200px;border-radius:24px;margin:0 auto 24px;box-shadow:0 0 60px rgba(99,102,241,0.3)}
+    h1{font-size:2.4rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:12px;background:linear-gradient(135deg,#fff 0%,#a5b4fc 50%,#818cf8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    p.tagline{font-size:1.05rem;color:#a5b4fc;margin-bottom:24px;font-weight:500}
+    p.desc{color:#c7cee5;line-height:1.6;margin-bottom:32px}
+    .badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:32px}
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);font-size:0.78rem;font-weight:600;color:#a5b4fc}
+    .links{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .link{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#c7cee5;text-decoration:none;font-size:0.88rem;font-weight:600;transition:all 0.2s}
+    .link:hover{background:linear-gradient(135deg,#6366f1,#818cf8);border-color:transparent;color:#fff;transform:translateY(-1px)}
+    .footer{margin-top:48px;font-size:0.75rem;color:rgba(199,206,229,0.4);font-family:'JetBrains Mono',monospace}
+    code{background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:#a5b4fc}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <img src="/graphadvocate.png" alt="Graph Advocate" class="logo">
+    <h1>Graph Advocate</h1>
+    <p class="tagline">Onchain Data Routing for The Graph Protocol</p>
+    <p class="desc">
+      Send a plain-English data request and get back the right subgraph,
+      a ready-to-execute GraphQL query, an MCP install hint, and a working
+      curl example. Powered by Claude with auto-search across 15,500+ subgraphs.
+    </p>
+    <div class="badges">
+      <span class="badge">⚡ A2A v2</span>
+      <span class="badge">🔌 MCP</span>
+      <span class="badge">💳 x402 on Base</span>
+      <span class="badge">🆔 ERC-8004 #734</span>
+      <span class="badge">📛 graphadvocate.eth</span>
+    </div>
+    <div class="links">
+      <a class="link" href="/dashboard">📊 Live Dashboard</a>
+      <a class="link" href="/chat">💬 Try in Chat</a>
+      <a class="link" href="/openapi.json">{} OpenAPI</a>
+      <a class="link" href="/.well-known/agent-card.json">📋 Agent Card</a>
+      <a class="link" href="https://github.com/PaulieB14/graph-advocate" target="_blank">⭐ GitHub</a>
+    </div>
+    <div class="footer">
+      Free tier: 10 queries/day · then $0.01 USDC/query on Base via x402<br>
+      To call directly: <code>POST /route</code> with x402 payment header
+    </div>
+  </div>
+</body>
+</html>"""
+
+    async def landing_endpoint(request):
+        """GET / — HTML landing page with OG meta tags for x402scan listing."""
+        return HTMLResponse(LANDING_HTML, headers={
+            "cache-control": "public, max-age=300",
+        })
+
+    # Static asset endpoint — serves the bot pic for favicon and OG image
+    _STATIC_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    _GRAPHADVOCATE_PNG = None
+    try:
+        with open(os.path.join(_STATIC_PATH, "graphadvocate.png"), "rb") as f:
+            _GRAPHADVOCATE_PNG = f.read()
+    except Exception as e:
+        log.warning(f"graphadvocate.png not found at {_STATIC_PATH}: {e}")
+
+    async def graphadvocate_png_endpoint(request):
+        """GET /graphadvocate.png — bot logo (1024×1024 PNG)."""
+        if _GRAPHADVOCATE_PNG is None:
+            return JSONResponse({"error": "image not found"}, status_code=404)
+        from starlette.responses import Response
+        return Response(_GRAPHADVOCATE_PNG, media_type="image/png", headers={
+            "cache-control": "public, max-age=86400",
+            "access-control-allow-origin": "*",
+        })
+
+    async def favicon_endpoint(request):
+        """GET /favicon.ico — same PNG as graphadvocate.png (browsers accept PNG)."""
+        return await graphadvocate_png_endpoint(request)
+
     # Mount /logs, /dashboard, /chat on top of the A2A app
     extra = Starlette(routes=[
         Route("/logs", logs_endpoint),
@@ -3360,6 +3467,11 @@ def build_app():
         # x402scan discovery routes
         Route("/.well-known/x402", well_known_x402_endpoint),
         Route("/openapi.json", openapi_endpoint),
+        # Landing page + static assets (for x402scan listing card)
+        Route("/", landing_endpoint, methods=["GET"]),
+        Route("/graphadvocate.png", graphadvocate_png_endpoint),
+        Route("/favicon.ico", favicon_endpoint),
+        Route("/favicon.png", graphadvocate_png_endpoint),
     ])
 
     # ── Remote MCP endpoint (Claude.ai + any MCP client) ─────────────────────
@@ -3440,6 +3552,13 @@ def build_app():
             return
         if scope["type"] == "http" and scope["path"].startswith("/mcp"):
             await mcp_asgi(scope, receive, send)
+        elif scope["type"] == "http" and scope["path"] == "/" and scope.get("method", "POST") == "GET":
+            # GET / → HTML landing page (so x402scan can scrape OG meta tags)
+            # POST / still falls through to a2a_app for normal A2A traffic
+            await extra(scope, receive, send)
+        elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
+            # Static assets for the landing page + x402scan card
+            await extra(scope, receive, send)
         elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and scope["path"] == "/route":
