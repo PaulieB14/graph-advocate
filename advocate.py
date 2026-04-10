@@ -540,6 +540,29 @@ def _fallback_route(request: str) -> dict:
     query_ready = None
 
     if svc == "token-api":
+        # Known contract addresses for common tokens (mainnet)
+        _KNOWN_CONTRACTS = {
+            "GRT": "0xc944E90C64B2c07662A292be6244BDC5Ee2F2d7e",
+            "USDC": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+            "USDT": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            "WETH": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            "WBTC": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+            "LINK": "0x514910771AF9Ca656af840dff83E8264EcF986CA",
+            "UNI": "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
+            "AAVE": "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9",
+            "COMP": "0xc00e94Cb662C3520282E6f5717214004A7f26888",
+            "MKR": "0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2",
+            "SNX": "0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F",
+            "CRV": "0xD533a949740bb3306d119CC777fa900bA034cd52",
+            "LDO": "0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32",
+            "ARB": "0x912CE59144191C1204E64559FE8253a0e49E6548",  # Arbitrum
+            "OP": "0x4200000000000000000000000000000000000042",  # Optimism
+            "ENS": "0xC18360217D8F7Ab5e7c516566761Ea12Ce7F9D72",
+            "BAL": "0xba100000625a3754423978a60c9317c58a424e3D",
+            "SAFE": "0x5aFE3855358E112B5647B952709E6165e1c1eEEe",
+            "RPL": "0xD33526068D116cE69F19A9ee46F0bd304F21A51f",
+        }
+
         # Extract token symbols mentioned in the request
         import re as _re
         token_matches = _re.findall(r'\b[A-Z]{2,10}\b', request)
@@ -549,31 +572,49 @@ def _fallback_route(request: str) -> dict:
         )]
         if tokens:
             first = tokens[0]
+            first_addr = _KNOWN_CONTRACTS.get(first)
+
+            # Build address info for all detected tokens
+            known = {t: _KNOWN_CONTRACTS[t] for t in tokens if t in _KNOWN_CONTRACTS}
+            unknown = [t for t in tokens if t not in _KNOWN_CONTRACTS]
+
+            addr_info = ""
+            if known:
+                addr_info = "Known addresses: " + ", ".join(f"{t}={a}" for t, a in known.items())
+            if unknown:
+                addr_info += (" | " if addr_info else "") + f"Need to look up: {', '.join(unknown)}"
+
             reason = (
                 f"Use Token API's getV1EvmHolders endpoint for holder data. "
-                f"You'll need the contract address for each token ({', '.join(tokens[:5])}{'...' if len(tokens) > 5 else ''}). "
+                f"{addr_info}. "
                 f"Query each token separately with network=mainnet (or the chain it's on). "
                 f"Token API returns the top holders with balances — use this for concentration analysis."
             )
+
+            contract_display = first_addr or "CONTRACT_ADDRESS"
+            contract_note = "" if first_addr else f" (replace with {first}'s contract address)"
             curl = (
-                f"# Get holders for {first} (replace CONTRACT with the token's contract address)\n"
+                f"# Get holders for {first}{contract_note}\n"
                 f"curl 'https://token-api.thegraph.com/v1/evm/holders?"
-                f"contract=CONTRACT_ADDRESS&network=mainnet&limit=20&orderBy=balance&orderDirection=desc' \\\n"
+                f"contract={contract_display}&network=mainnet&limit=50&orderBy=balance&orderDirection=desc' \\\n"
                 f"  -H 'Authorization: Bearer YOUR_JWT'\n\n"
-                f"# Get a free JWT at https://thegraph.market/auth/tokenapi-env\n"
-                f"# Repeat for each token: {', '.join(tokens[:8])}"
+                f"# Get a free JWT at https://thegraph.market/auth/tokenapi-env"
             )
+            if len(tokens) > 1:
+                curl += f"\n# Repeat for each token: {', '.join(tokens[1:8])}"
+
             query_ready = {
                 "tool": "getV1EvmHolders",
                 "args": {
                     "network": "mainnet",
-                    "contract": f"<{first} contract address>",
-                    "limit": 20,
+                    "contract": first_addr or f"<{first} contract address>",
+                    "limit": 50,
                     "orderBy": "balance",
                     "orderDirection": "desc",
                 },
-                "note": f"Run this for each token. You need the contract address for: {', '.join(tokens[:10])}",
             }
+            if len(tokens) > 1:
+                query_ready["note"] = f"Run for each token. {addr_info}"
 
     return {
         "recommendation": svc,
