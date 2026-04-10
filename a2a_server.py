@@ -85,12 +85,22 @@ def _get_x402_server():
                 from coinbase import jwt_generator
                 from x402.http import CreateHeadersAuthProvider
 
+                # Coinbase jwt_generator expects PEM-formatted EC private key.
+                # CDP portal gives a raw base64 secret — wrap it in PEM if needed.
+                _cdp_pem_secret = cdp_secret
+                if not cdp_secret.strip().startswith("-----BEGIN"):
+                    _cdp_pem_secret = (
+                        "-----BEGIN EC PRIVATE KEY-----\n"
+                        + cdp_secret.strip()
+                        + "\n-----END EC PRIVATE KEY-----\n"
+                    )
+
                 def _cdp_create_headers():
                     """Generate JWT auth headers for each CDP facilitator endpoint."""
                     jwt_token = jwt_generator.build_rest_jwt(
                         f"https://api.cdp.coinbase.com/platform/v2/x402",
                         cdp_key_id,
-                        cdp_secret,
+                        _cdp_pem_secret,
                     )
                     auth_header = {"Authorization": f"Bearer {jwt_token}"}
                     return {"verify": auth_header, "settle": auth_header, "supported": auth_header}
