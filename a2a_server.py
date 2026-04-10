@@ -112,9 +112,26 @@ async def _verify_x402_payment(payment_header: str, strict: bool = False) -> boo
 
         log.info(f"x402 payment data type={type(payment_data).__name__}, len={len(payment_data) if isinstance(payment_data, (bytes, str)) else 'dict'}")
         payload = parse_payment_payload(payment_data)
-        result = await server.verify_payment(payload)
+
+        # Build the payment requirements object matching our accepts[] config.
+        # verify_payment() needs this to validate the payment matches what we asked for.
+        from x402.schemas.payments import PaymentRequirements
+        requirements = PaymentRequirements(
+            scheme="exact",
+            network="eip155:8453",
+            maxAmountRequired="10000",
+            resource="https://graph-advocate-production.up.railway.app/route",
+            description="Graph Advocate onchain data routing",
+            mimeType="application/json",
+            payTo=X402_WALLET,
+            maxTimeoutSeconds=300,
+            asset="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            outputSchema=None,
+            extra={"name": "USD Coin", "version": "2"},
+        )
+        result = await server.verify_payment(payload, requirements)
         if result.valid:
-            settle_result = await server.settle_payment(payload)
+            settle_result = await server.settle_payment(payload, requirements)
             log.info(f"x402 payment settled via Ampersend wallet: {settle_result}")
             return True
         else:
