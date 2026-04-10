@@ -77,9 +77,34 @@ def _get_x402_server():
 
             # Use the CDP facilitator for Base mainnet.
             # x402.org/facilitator is testnet only (Base Sepolia).
-            # The SDK auto-reads CDP_API_KEY_ID and CDP_API_KEY_SECRET from env.
+            # CDP requires JWT-signed requests — use coinbase-advanced-py to generate.
+            cdp_key_id = os.environ.get("CDP_API_KEY_ID", "")
+            cdp_secret = os.environ.get("CDP_API_KEY_SECRET", "")
+
+            if cdp_key_id and cdp_secret:
+                from coinbase import jwt_generator
+                from x402.http import CreateHeadersAuthProvider
+
+                def _cdp_create_headers():
+                    """Generate JWT auth headers for each CDP facilitator endpoint."""
+                    jwt_token = jwt_generator.build_rest_jwt(
+                        f"https://api.cdp.coinbase.com/platform/v2/x402",
+                        cdp_key_id,
+                        cdp_secret,
+                    )
+                    auth_header = {"Authorization": f"Bearer {jwt_token}"}
+                    return {"verify": auth_header, "settle": auth_header, "supported": auth_header}
+
+                auth_provider = CreateHeadersAuthProvider(_cdp_create_headers)
+                facilitator_url = "https://api.cdp.coinbase.com/platform/v2/x402"
+                log.info("Using CDP facilitator with JWT auth (Base mainnet)")
+            else:
+                auth_provider = None
+                facilitator_url = "https://x402.org/facilitator"
+                log.warning("No CDP_API_KEY_ID/SECRET — falling back to x402.org testnet facilitator")
+
             facilitator = HTTPFacilitatorClient(
-                FacilitatorConfig(url="https://api.cdp.coinbase.com/platform/v2/x402")
+                FacilitatorConfig(url=facilitator_url, auth_provider=auth_provider)
             )
             _x402_server = x402ResourceServer(facilitator)
             _x402_server.register("eip155:8453", ExactEvmServerScheme())

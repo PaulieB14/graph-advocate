@@ -9,3 +9,4 @@ uagents>=0.13.0
 mcp>=1.0.0
 
 x402[evm]>=2.5.0
+coinbase-advanced-py>=1.8.0
