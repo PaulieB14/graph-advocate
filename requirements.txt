@@ -9,5 +9,5 @@ uagents>=0.13.0
 mcp>=1.0.0
 
 x402[evm,fastapi]>=2.5.0
-coinbase-advanced-py>=1.8.0
+cdp-sdk>=1.40.0
 fastapi>=0.115.0

@@ -85,18 +85,28 @@ def _get_x402_server():
             cdp_secret = os.environ.get("CDP_API_KEY_SECRET", "")
             if cdp_key_id and cdp_secret and "cdp.coinbase.com" in facilitator_url:
                 try:
-                    from coinbase import jwt_generator
+                    from cdp.auth.utils.jwt import generate_jwt, JwtOptions
                     from x402.http import CreateHeadersAuthProvider
 
                     def _make_cdp_headers():
-                        token = jwt_generator.build_rest_jwt(
-                            facilitator_url, cdp_key_id, cdp_secret,
-                        )
-                        h = {"Authorization": f"Bearer {token}"}
-                        return {"verify": h, "settle": h, "supported": h}
+                        """Generate fresh CDP JWT for each facilitator call."""
+                        def _jwt_for(method: str, path: str) -> str:
+                            return generate_jwt(JwtOptions(
+                                api_key_id=cdp_key_id,
+                                api_key_secret=cdp_secret,
+                                request_method=method,
+                                request_host="api.cdp.coinbase.com",
+                                request_path=path,
+                            ))
+                        base_path = "/platform/v2/x402"
+                        return {
+                            "verify": {"Authorization": f"Bearer {_jwt_for('POST', base_path + '/verify')}"},
+                            "settle": {"Authorization": f"Bearer {_jwt_for('POST', base_path + '/settle')}"},
+                            "supported": {"Authorization": f"Bearer {_jwt_for('GET', base_path + '/supported')}"},
+                        }
 
                     auth_provider = CreateHeadersAuthProvider(_make_cdp_headers)
-                    log.info(f"CDP auth provider created for {facilitator_url}")
+                    log.info(f"CDP auth provider created (cdp-sdk JWT, key={cdp_key_id[:8]}...)")
                 except Exception as ae:
                     log.warning(f"CDP auth setup failed (will use unauthenticated): {ae}")
 
