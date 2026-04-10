@@ -532,12 +532,55 @@ def _fallback_route(request: str) -> dict:
         svc = "subgraph-registry"
 
     example = _SERVICE_CURL_EXAMPLES.get(svc, {})
+
+    # For token-api fallbacks, generate a more specific response based on the
+    # actual tokens/request instead of always returning the generic USDC example
+    reason = f"Keyword-based fallback routing for: {request[:100]}"
+    curl = example.get("curl_example", "")
+    query_ready = None
+
+    if svc == "token-api":
+        # Extract token symbols mentioned in the request
+        import re as _re
+        token_matches = _re.findall(r'\b[A-Z]{2,10}\b', request)
+        tokens = [t for t in token_matches if t not in (
+            "API", "GET", "POST", "FOR", "THE", "AND", "WITH", "TOP", "NFT",
+            "EVM", "USD", "ETH", "BTC", "MCP", "URL", "JSON", "USDC", "USDT",
+        )]
+        if tokens:
+            first = tokens[0]
+            reason = (
+                f"Use Token API's getV1EvmHolders endpoint for holder data. "
+                f"You'll need the contract address for each token ({', '.join(tokens[:5])}{'...' if len(tokens) > 5 else ''}). "
+                f"Query each token separately with network=mainnet (or the chain it's on). "
+                f"Token API returns the top holders with balances — use this for concentration analysis."
+            )
+            curl = (
+                f"# Get holders for {first} (replace CONTRACT with the token's contract address)\n"
+                f"curl 'https://token-api.thegraph.com/v1/evm/holders?"
+                f"contract=CONTRACT_ADDRESS&network=mainnet&limit=20&orderBy=balance&orderDirection=desc' \\\n"
+                f"  -H 'Authorization: Bearer YOUR_JWT'\n\n"
+                f"# Get a free JWT at https://thegraph.market/auth/tokenapi-env\n"
+                f"# Repeat for each token: {', '.join(tokens[:8])}"
+            )
+            query_ready = {
+                "tool": "getV1EvmHolders",
+                "args": {
+                    "network": "mainnet",
+                    "contract": f"<{first} contract address>",
+                    "limit": 20,
+                    "orderBy": "balance",
+                    "orderDirection": "desc",
+                },
+                "note": f"Run this for each token. You need the contract address for: {', '.join(tokens[:10])}",
+            }
+
     return {
         "recommendation": svc,
-        "reason": f"Keyword-based fallback routing for: {request[:100]}",
+        "reason": reason,
         "confidence": "medium",
-        "query_ready": None,
-        "curl_example": example.get("curl_example", ""),
+        "query_ready": query_ready,
+        "curl_example": curl,
         "install": example.get("install", ""),
         "get_started": example.get("get_started", "Free API key: https://thegraph.com/studio/"),
         "alternatives": [],
