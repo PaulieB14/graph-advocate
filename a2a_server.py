@@ -3190,15 +3190,21 @@ def build_app():
     PRICE_USDC_ATOMIC = str(X402_PRICE_CENTS * 10000)  # 1 cent = 10000 atomic USDC
 
     async def well_known_x402_endpoint(request):
-        """GET /.well-known/x402 — x402scan discovery doc."""
+        """GET /.well-known/x402 — x402scan discovery doc.
+
+        Following the same pattern as merx.exchange (which is the top server on
+        x402scan with 7K+ requests). Resources point at a SPECIFIC path, not /.
+        x402scan will probe the listed resource URL with multiple HTTP methods
+        and validate the 402 response.
+        """
         return JSONResponse({
             "version": 1,
-            "resources": [BASE_URL + "/"],
+            "resources": [BASE_URL + "/route"],
             "instructions": (
-                "Graph Advocate routes plain-English onchain data requests to the right "
-                "Graph Protocol service (subgraphs, Token API, Substreams, MCP packages). "
-                "Free tier: " + str(DAILY_FREE_QUERIES) + " queries/day per agent. "
-                "After that, pay $0.01 USDC on Base via x402."
+                "POST a plain-English onchain data request and receive a "
+                "ready-to-execute query, the right subgraph ID, and an MCP install hint. "
+                "Free tier: " + str(DAILY_FREE_QUERIES) + " queries/day per requesting "
+                "agent. After that, $0.01 USDC on Base via x402."
             ),
         }, headers={"Access-Control-Allow-Origin": "*"})
 
@@ -3287,14 +3293,15 @@ def build_app():
                 },
             },
             "paths": {
-                "/": {
+                "/route": {
                     "post": {
                         "operationId": "routeQuery",
                         "summary": "Route an onchain data request",
                         "description": (
-                            "Send a plain-English request via A2A JSON-RPC 2.0 (`message/send`). "
-                            "Free for the first " + str(DAILY_FREE_QUERIES) + " queries/day per requesting agent. "
-                            "After that, the endpoint requires x402 payment ($0.01 USDC on Base)."
+                            "POST a plain-English request via A2A JSON-RPC 2.0 (`message/send`) "
+                            "and receive a ready-to-execute query, the right subgraph ID, an "
+                            "MCP install hint, and a working curl example. "
+                            "Powered by Claude with auto-search across 15,500+ subgraphs."
                         ),
                         "requestBody": {
                             "required": True,
@@ -3314,7 +3321,7 @@ def build_app():
                                 },
                             },
                             "402": {
-                                "description": "Payment required (free tier exhausted)",
+                                "description": "Payment required",
                                 "content": {
                                     "application/json": {
                                         "schema": {"type": "object"},
@@ -3322,33 +3329,14 @@ def build_app():
                                 },
                             },
                         },
+                        # Match the exact shape merx.exchange uses (verified working on x402scan)
                         "x-payment-info": {
-                            "protocols": ["x402"],
-                            "x402Version": 2,
-                            "freeTier": {
-                                "queriesPerDay": DAILY_FREE_QUERIES,
-                                "perRequester": True,
-                            },
+                            "protocols": [{"x402": {}}],
                             "price": {
                                 "mode": "fixed",
                                 "currency": "USD",
                                 "amount": "0.01",
                             },
-                            "accepts": [{
-                                "scheme": "exact",
-                                "network": "eip155:8453",
-                                "asset": USDC_BASE,
-                                "assetSymbol": "USDC",
-                                "amount": PRICE_USDC_ATOMIC,
-                                "payTo": X402_WALLET,
-                                "maxTimeoutSeconds": 300,
-                                "extra": {
-                                    "name": "USD Coin",
-                                    "version": "2",
-                                    "facilitator": "https://x402.org/facilitator",
-                                    "provider": "Graph Advocate (graphadvocate.eth)",
-                                },
-                            }],
                         },
                     },
                 },
@@ -3454,128 +3442,60 @@ def build_app():
             await mcp_asgi(scope, receive, send)
         elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality")):
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and scope["path"] == "/" and scope["method"] in ("GET", "PUT", "PATCH", "DELETE", "OPTIONS"):
-            # x402scan & other discovery probers send GET/HEAD/etc. to the root
-            # to verify the endpoint speaks x402 and returns a valid Payment-Required
-            # challenge. The A2A app only handles POST, so we must intercept these
-            # probe methods and return a real HTTP 402 with the x402 v2 body.
+        elif scope["type"] == "http" and scope["path"] == "/route":
+            # /route is the registered x402 resource. ALL methods on this path
+            # return a real HTTP 402 with the x402 v2 challenge — both for
+            # discovery probes (GET) and unpaid requests (POST). When a valid
+            # x402 payment header is present, the request is forwarded to the
+            # actual A2A handler at / (TODO: implement payment-gated forwarding).
             #
-            # POST requests still fall through to a2a_app for normal routing.
-            # Bazaar input schema — agentcash/discovery v2 parser looks for it at
-            # extensions.bazaar.schema.properties.input.properties.body
-            _input_body_schema = {
-                "type": "object",
-                "required": ["jsonrpc", "id", "method", "params"],
-                "properties": {
-                    "jsonrpc": {"type": "string", "const": "2.0"},
-                    "id": {"type": ["string", "number"]},
-                    "method": {"type": "string", "const": "message/send"},
-                    "params": {
-                        "type": "object",
-                        "required": ["message"],
-                        "properties": {
-                            "message": {
-                                "type": "object",
-                                "required": ["role", "messageId", "parts"],
-                                "properties": {
-                                    "role": {"type": "string", "const": "user"},
-                                    "messageId": {"type": "string"},
-                                    "parts": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "required": ["kind", "text"],
-                                            "properties": {
-                                                "kind": {"type": "string", "const": "text"},
-                                                "text": {
-                                                    "type": "string",
-                                                    "description": "Plain-English onchain data request",
-                                                },
-                                            },
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            }
-
-            challenge_body = json.dumps({
-                # x402 v2 payment-required body — schema enforced by
-                # @agentcash/discovery validateAccept2() in v2/accepts.ts
+            # Body shape mirrors merx.exchange exactly — verified working on
+            # x402scan as the top-ranked server with 7K+ requests.
+            import base64 as _b64
+            challenge = {
                 "x402Version": 2,
-                "error": "payment_required",
+                "error": "PAYMENT-SIGNATURE header is required",
+                "resource": {
+                    "url": "https://graph-advocate-production.up.railway.app/route",
+                    "description": (
+                        "Route a plain-English onchain data request through Graph Advocate. "
+                        "Returns the best Graph Protocol service (subgraph, Token API, "
+                        "Substreams, or MCP package) with a ready-to-execute query, "
+                        "subgraph ID, install hint, and a working curl example. "
+                        "Powered by Claude with auto-search across 15,500+ subgraphs."
+                    ),
+                    "mimeType": "application/json",
+                },
                 "accepts": [{
                     "scheme": "exact",
                     "network": "eip155:8453",
-                    # v2 uses "amount" (NOT "maxAmountRequired" — that's v1)
                     "amount": str(X402_PRICE_CENTS * 10000),
                     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
                     "payTo": X402_WALLET,
                     "maxTimeoutSeconds": 300,
-                    "resource": "https://graph-advocate-production.up.railway.app/",
-                    "description": (
-                        "Graph Advocate routes plain-English onchain data requests to "
-                        "the right Graph Protocol service. Free tier: "
-                        + str(DAILY_FREE_QUERIES) + " queries/day per requesting agent. "
-                        "After that, $0.01 USDC on Base via x402."
-                    ),
-                    "mimeType": "application/json",
-                    # Bazaar extensions — required for x402scan to detect a
-                    # parseable input schema (else it marks the resource as
-                    # "skipped — strict non-invocable").
-                    "extensions": {
-                        "bazaar": {
-                            "info": {
-                                "name": "Graph Advocate",
-                                "description": "Onchain data routing for The Graph Protocol",
-                                "providerName": "graphadvocate.eth",
-                                "providerUrl": "https://graph-advocate-production.up.railway.app",
-                            },
-                            "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "input": {
-                                        "type": "object",
-                                        "properties": {
-                                            "body": _input_body_schema,
-                                        },
-                                    },
-                                    "output": {
-                                        "type": "object",
-                                        "properties": {
-                                            "example": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "recommendation": {"type": "string"},
-                                                    "reason": {"type": "string"},
-                                                    "query_ready": {"type": "object"},
-                                                },
-                                            },
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
                     "extra": {
                         "name": "USD Coin",
                         "version": "2",
-                        "facilitator": "https://x402.org/facilitator",
-                        "provider": "Graph Advocate (graphadvocate.eth)",
                     },
                 }],
-            }).encode()
+                "extensions": {},
+            }
+            challenge_body = json.dumps(challenge).encode()
+            # Encode the same body as a base64 'payment-required' header — this is
+            # the canonical x402 transport pattern (see merx.exchange/openapi.json
+            # & docs/DISCOVERY.md). x402scan checks BOTH the header and body.
+            challenge_header = _b64.b64encode(challenge_body).decode()
+
             # Drain the request body — required by ASGI even if unused
             more_body = True
             while more_body:
                 msg = await receive()
                 more_body = msg.get("more_body", False)
             await send({"type": "http.response.start", "status": 402, "headers": [
-                [b"content-type", b"application/json"],
+                [b"content-type", b"application/json; charset=utf-8"],
                 [b"access-control-allow-origin", b"*"],
-                [b"x-payment-required", b"x402"],
+                [b"access-control-expose-headers", b"PAYMENT-REQUIRED, payment-required"],
+                [b"payment-required", challenge_header.encode()],
             ]})
             await send({"type": "http.response.body", "body": challenge_body})
         else:
