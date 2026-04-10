@@ -78,48 +78,22 @@ def _get_x402_server():
             # Use the CDP facilitator for Base mainnet.
             # x402.org/facilitator is testnet only (Base Sepolia).
             # CDP requires JWT-signed requests — use coinbase-advanced-py to generate.
-            cdp_key_id = os.environ.get("CDP_API_KEY_ID", "")
-            cdp_secret = os.environ.get("CDP_API_KEY_SECRET", "")
-
-            if cdp_key_id and cdp_secret:
-                from coinbase import jwt_generator
-                from x402.http import CreateHeadersAuthProvider
-
-                # Coinbase jwt_generator expects PEM-formatted EC private key.
-                # CDP portal gives a raw base64 secret — wrap it in PEM if needed.
-                _cdp_pem_secret = cdp_secret
-                if not cdp_secret.strip().startswith("-----BEGIN"):
-                    _cdp_pem_secret = (
-                        "-----BEGIN EC PRIVATE KEY-----\n"
-                        + cdp_secret.strip()
-                        + "\n-----END EC PRIVATE KEY-----\n"
-                    )
-
-                def _cdp_create_headers():
-                    """Generate JWT auth headers for each CDP facilitator endpoint."""
-                    jwt_token = jwt_generator.build_rest_jwt(
-                        f"https://api.cdp.coinbase.com/platform/v2/x402",
-                        cdp_key_id,
-                        _cdp_pem_secret,
-                    )
-                    auth_header = {"Authorization": f"Bearer {jwt_token}"}
-                    return {"verify": auth_header, "settle": auth_header, "supported": auth_header}
-
-                auth_provider = CreateHeadersAuthProvider(_cdp_create_headers)
-                facilitator_url = "https://api.cdp.coinbase.com/platform/v2/x402"
-                log.info("Using CDP facilitator with JWT auth (Base mainnet)")
-            else:
-                auth_provider = None
-                facilitator_url = "https://x402.org/facilitator"
-                log.warning("No CDP_API_KEY_ID/SECRET — falling back to x402.org testnet facilitator")
-
+            # Per the official x402 Python README:
+            #   facilitator = HTTPFacilitatorClient(url="https://x402.org/facilitator")
+            #   server = x402ResourceServer(facilitator)
+            #   server.register("eip155:*", ExactEvmServerScheme())
+            #   server.initialize()
+            #
+            # The EVM scheme does on-chain verification locally — the facilitator
+            # is used for settlement (forwarding the signed tx on-chain).
+            # Using eip155:* registers for ALL EVM chains including Base mainnet.
             facilitator = HTTPFacilitatorClient(
-                FacilitatorConfig(url=facilitator_url, auth_provider=auth_provider)
+                FacilitatorConfig(url="https://x402.org/facilitator")
             )
             _x402_server = x402ResourceServer(facilitator)
-            _x402_server.register("eip155:8453", ExactEvmServerScheme())
+            _x402_server.register("eip155:*", ExactEvmServerScheme())
             _x402_server.initialize()
-            log.info("x402 resource server initialized (facilitator=x402.org, chain=eip155:8453)")
+            log.info("x402 resource server initialized (facilitator=x402.org, scheme=eip155:*)")
         except Exception as e:
             log.error(f"x402 init failed: {e}")
     return _x402_server
