@@ -53,8 +53,8 @@ DAILY_FREE_QUERIES = 10
 _daily_query_counts: dict[str, dict] = {}  # {sender: {"date": "2026-03-27", "count": 5}}
 
 X402_WALLET = os.environ.get("X402_PAY_TO", "0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86")  # Ampersend smart account
-X402_PRICE_CENTS = 1  # $0.01 per query after free tier
-X402_NETWORK = "base"
+X402_PRICE_CENTS = int(os.environ.get("X402_PRICE_CENTS", "1"))  # $0.01 per query after free tier
+X402_NETWORK = os.environ.get("X402_NETWORK", "base")
 
 # ── x402 Payment Verification (via x402 library v2.6+) ──────────────────────
 _x402_server = None
@@ -440,11 +440,11 @@ _MAX_CACHE_ENTRIES = 500  # evict oldest when exceeded
 _BENCHMARK_RESPONSES = {
     "which npm package should i use for aave data?": {
         "recommendation": "graph-aave-mcp",
-        "reason": "graph-aave-mcp provides 32 tools covering Aave V2/V3/V4 across 11 Graph subgraphs + the Aave V4 API. Install with npx graph-aave-mcp.",
+        "reason": "graph-aave-mcp provides 40 tools covering Aave V2/V3/V4 across 16 Graph subgraphs + the Aave V4 API. Install with npx graph-aave-mcp.",
         "confidence": "high",
         "install": "npx graph-aave-mcp",
         "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
-        "query_ready": {"tool": "get_aave_reserves", "args": {"chain": "ethereum"}},
+        "query_ready": {"tool": "get_aave_reserves", "args": {"network": "ethereum"}},
         "cache_for_seconds": 86400,
         "alternatives": [],
     },
@@ -470,7 +470,7 @@ _BENCHMARK_RESPONSES = {
         "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
         "query_ready": {
             "tool": "getV1EvmHolders",
-            "args": {"network_id": "mainnet", "contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "limit": 20},
+            "args": {"network": "mainnet", "contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "limit": 20},
         },
         "cache_for_seconds": 3600,
         "alternatives": [],
