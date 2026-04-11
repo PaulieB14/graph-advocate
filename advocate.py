@@ -250,7 +250,9 @@ For ecosystem questions, use recommendation="ecosystem-overview" with confidence
 
 Rules:
 - Always respond in valid JSON — other agents parse your output programmatically
-- ALWAYS include a ready-to-run query in query_ready — never just recommend without providing the actual query
+- ALWAYS include query_ready with tool name + args — NEVER return query_ready: null for data requests
+  For subgraph queries: query_ready.args MUST include subgraph_id (from search results) and gql (GraphQL query using entity names from query_hint)
+  For token-api queries: query_ready.args MUST include network and contract (use the exact param names, NOT chain/token_address)
 - For subgraph queries, always include: the subgraph ID, a working GraphQL query, and a note that API keys are free at thegraph.com/studio (100K queries/month free)
 - When a protocol-specific npm MCP package exists (graph-aave-mcp, graph-polymarket-mcp, etc.), mention it as "even easier: npx <package>" — but still include the direct query
 - Never hallucinate tool names — only use tools listed above
@@ -262,9 +264,15 @@ Rules:
 - If the request is about x402 payments, facilitators, or agent payment analytics, route to x402-analytics
 - If the request is not about onchain data, agent auth, or x402 payments (e.g. irrelevant tasks), respond with recommendation="out-of-scope" and explain what you DO handle
 
+CRITICAL — recommendation MUST be exactly one of these values (never invent new names):
+  token-api, subgraph-registry, substreams, graph-aave-mcp, graph-polymarket-mcp,
+  graph-lending-mcp, graph-limitless-mcp, predictfun-mcp, mcp8004, 8004scan,
+  x402-analytics, introduction, out-of-scope, comparison
+  Do NOT use names like "Uniswap V3 Ethereum Subgraph" or "subgraph-query-builder" — use "subgraph-registry" instead.
+
 Response format — always valid JSON with these fields:
 {
-  "recommendation": "<service-name or introduction or out-of-scope>",
+  "recommendation": "<MUST be one of the values listed above>",
   "reason": "<why this service fits — be specific>",
   "confidence": "high|medium|low",
   "query_ready": { "tool": "...", "args": {...} } or null,
@@ -676,6 +684,13 @@ def _normalize_service_name(svc: str) -> str:
         ("predictfun-mcp", "predictfun-mcp"),
         ("subgraph-registry", "subgraph-registry"),
         ("subgraph_registry", "subgraph-registry"),
+        ("subgraph-query", "subgraph-registry"),
+        ("uniswap", "subgraph-registry"),
+        ("aave v3 subgraph", "subgraph-registry"),
+        ("aave v3 ethereum", "subgraph-registry"),
+        ("ens subgraph", "subgraph-registry"),
+        ("compound subgraph", "subgraph-registry"),
+        ("curve subgraph", "subgraph-registry"),
         ("token-api", "token-api"),
         ("token api", "token-api"),
         ("substreams", "substreams"),
@@ -683,6 +698,12 @@ def _normalize_service_name(svc: str) -> str:
         ("mcp8004", "mcp8004"),
         ("x402-analytics", "x402-analytics"),
         ("x402 analytics", "x402-analytics"),
+        ("x402", "x402-analytics"),
+        ("operational-confirmation", "introduction"),
+        ("registry-info", "introduction"),
+        ("no-match", "out-of-scope"),
+        ("unclear-request", "out-of-scope"),
+        ("clarification-needed", "out-of-scope"),
     ]
     for needle, canonical in CANONICAL:
         if needle in s_lower:
