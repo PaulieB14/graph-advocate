@@ -128,6 +128,42 @@ class TestFallbackRoute(unittest.TestCase):
         result = self.fn("Token API vs subgraph for current USDC holder count")
         self.assertEqual(result["recommendation"], "token-api")
 
+    def test_aave_liquidations_query_template(self):
+        """The prompt from the live feed miss must now return a real query, not just a service tag."""
+        result = self.fn("Write a GraphQL query for Aave V3 liquidations above $50K")
+        self.assertEqual(result["recommendation"], "subgraph-registry")
+        qr = result.get("query_ready") or {}
+        self.assertEqual(qr.get("tool"), "execute_query_by_subgraph_id")
+        q = qr.get("args", {}).get("query", "")
+        self.assertIn("liquidates", q, "query should target the Messari `liquidates` entity")
+        self.assertIn("50000", q, "threshold must be parsed from '$50K'")
+        self.assertIn("amountUSD_gt", q, "filter must use amountUSD_gt")
+
+    def test_aave_liquidations_default_threshold(self):
+        """No threshold mentioned → default applied, query still shape-correct."""
+        result = self.fn("Give me a subgraph query for Aave liquidations")
+        qr = result.get("query_ready") or {}
+        q = qr.get("args", {}).get("query", "")
+        self.assertIn("liquidates", q)
+        self.assertIn("amountUSD_gt", q)
+
+    def test_uniswap_v3_pool_template(self):
+        result = self.fn("Write a GraphQL query for Uniswap V3 pools by TVL")
+        qr = result.get("query_ready") or {}
+        q = qr.get("args", {}).get("query", "")
+        self.assertEqual(result["recommendation"], "subgraph-registry")
+        self.assertIn("pools", q)
+        self.assertIn("totalValueLockedUSD", q)
+
+    def test_query_template_skipped_when_not_asking_for_query(self):
+        """Plain 'aave liquidations' without 'write a query' should route normally, not hit template."""
+        result = self.fn("recent Aave liquidations on Ethereum")
+        # Non-template path for this still goes to graph-aave-mcp via keyword router
+        self.assertEqual(result["recommendation"], "graph-aave-mcp")
+        # Template path wouldn't have fired, so no templated query_ready
+        # (but curl_example still exists from the MCP service entry)
+        self.assertTrue(result.get("curl_example"))
+
     def test_always_has_curl_example(self):
         """Every routed service must return a non-empty curl_example."""
         queries = [

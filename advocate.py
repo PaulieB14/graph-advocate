@@ -598,6 +598,136 @@ def _compare_route(request: str) -> dict | None:
     }
 
 
+def _wants_query(request: str) -> bool:
+    """Heuristic: is the user asking us to *write* a GraphQL/subgraph query?
+
+    These prompts need a concrete query string, not just a routing decision.
+    Fallback currently returns a generic curl example — which is worse than
+    useless for a "write me a query" request.
+    """
+    r = request.lower()
+    needles = (
+        "write a query", "write a graphql", "graphql query",
+        "subgraph query", "give me a query", "build a query",
+        "show me a query", "query for", "generate a query",
+    )
+    return any(n in r for n in needles)
+
+
+def _template_query(request: str) -> dict | None:
+    """Return a pre-built subgraph query response for common request patterns.
+
+    Used by _fallback_route when Claude couldn't produce one. Covers the
+    high-value prompts we've seen land in the 'unknown' bucket. Returns None
+    if no template matches — caller falls through to normal keyword routing.
+    """
+    if not _wants_query(request):
+        return None
+    r = request.lower()
+
+    def _parse_threshold(req_lower: str, default: int = 50000) -> int:
+        """Extract a USD threshold like '$50K', '1M', 'above 100000' from the request.
+
+        Skips protocol version numbers (V2, V3, V4) which would otherwise match.
+        """
+        import re
+        # Remove version tokens first so 'V3' doesn't get picked up as a number
+        cleaned = re.sub(r"\bv\d+\b", " ", req_lower, flags=re.I).replace(",", "")
+        # Prefer matches with a $ prefix or a k/m suffix (strong threshold signals);
+        # fall back to a plain 4+ digit number.
+        m = (re.search(r"\$\s*([\d]+(?:\.\d+)?)\s*([kKmM])?", cleaned)
+             or re.search(r"\b([\d]+(?:\.\d+)?)\s*([kKmM])\b", cleaned)
+             or re.search(r"\b(\d{4,}(?:\.\d+)?)\b", cleaned))
+        if not m:
+            return default
+        try:
+            n = float(m.group(1))
+            suf = (m.group(2) or "").lower() if m.lastindex and m.lastindex >= 2 else ""
+            if suf == "k": n *= 1_000
+            elif suf == "m": n *= 1_000_000
+            return max(int(n), 1)
+        except Exception:
+            return default
+
+    # Aave liquidations (any version — Messari standardized schema works for V2/V3)
+    if "aave" in r and ("liquidat" in r):
+        threshold = _parse_threshold(r, default=50000)
+        # Messari Aave V3 Ethereum — the standardized schema exposes `liquidates`
+        subgraph_id = "JCNWRypm7FYwV8fx5HhzZPSFaMxgkPuw4TnR3Gpi81zk"
+        query = (
+            "{\n"
+            "  liquidates(\n"
+            "    first: 50\n"
+            "    orderBy: amountUSD\n"
+            "    orderDirection: desc\n"
+            f"    where: {{ amountUSD_gt: \"{threshold}\" }}\n"
+            "  ) {\n"
+            "    id\n"
+            "    hash\n"
+            "    timestamp\n"
+            "    amountUSD\n"
+            "    liquidatee { id }\n"
+            "    liquidator { id }\n"
+            "    asset { symbol name }\n"
+            "  }\n"
+            "}"
+        )
+        endpoint = f"https://gateway.thegraph.com/api/<API_KEY>/subgraphs/id/{subgraph_id}"
+        one_line = query.replace("\n", " ").replace('"', '\\"')
+        curl = (
+            f'curl -X POST {endpoint} \\\n'
+            f'  -H "Content-Type: application/json" \\\n'
+            f'  -d \'{{"query":"{one_line}"}}\''
+        )
+        return {
+            "recommendation": "subgraph-registry",
+            "confidence": "high",
+            "reason": f"Templated Aave liquidations query (amountUSD > {threshold}) — Messari standardized schema",
+            "query_ready": {
+                "tool": "execute_query_by_subgraph_id",
+                "args": {"subgraph_id": subgraph_id, "query": query},
+            },
+            "curl_example": curl,
+            "endpoint": endpoint,
+            "notes": "Messari standardized `liquidates` entity works for Aave V2/V3 across chains — swap the subgraph_id for V2 or a different chain (Arbitrum/Optimism/Polygon) as needed.",
+        }
+
+    # Uniswap V3 pools by TVL
+    if "uniswap" in r and ("v3" in r or "v2" in r) and ("pool" in r or "tvl" in r or "liquidity" in r):
+        subgraph_id = "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV"  # Uniswap V3 Ethereum
+        query = (
+            "{\n"
+            "  pools(first: 20, orderBy: totalValueLockedUSD, orderDirection: desc) {\n"
+            "    id\n"
+            "    token0 { symbol }\n"
+            "    token1 { symbol }\n"
+            "    feeTier\n"
+            "    totalValueLockedUSD\n"
+            "    volumeUSD\n"
+            "  }\n"
+            "}"
+        )
+        endpoint = f"https://gateway.thegraph.com/api/<API_KEY>/subgraphs/id/{subgraph_id}"
+        one_line = query.replace("\n", " ").replace('"', '\\"')
+        return {
+            "recommendation": "subgraph-registry",
+            "confidence": "high",
+            "reason": "Templated Uniswap V3 top-pools-by-TVL query",
+            "query_ready": {
+                "tool": "execute_query_by_subgraph_id",
+                "args": {"subgraph_id": subgraph_id, "query": query},
+            },
+            "curl_example": (
+                f'curl -X POST {endpoint} \\\n'
+                f'  -H "Content-Type: application/json" \\\n'
+                f'  -d \'{{"query":"{one_line}"}}\''
+            ),
+            "endpoint": endpoint,
+        }
+
+    return None
+
+
 def _fallback_route(request: str) -> dict:
     """Keyword-based fallback router — fires when Claude's response can't be parsed
     or returns a JSON blob without a 'recommendation' field.
@@ -609,6 +739,13 @@ def _fallback_route(request: str) -> dict:
     cmp = _compare_route(request)
     if cmp is not None:
         return cmp
+
+    # Query-template path — if the user explicitly asked us to *write* a query
+    # for a known protocol, hand back a working templated query instead of a
+    # generic service curl example.
+    tpl = _template_query(request)
+    if tpl is not None:
+        return tpl
 
     req = request.lower()
 
@@ -1012,37 +1149,50 @@ def ask_graph_advocate(
         or (search_context and len(search_context) > 4000)  # lots of search results to synthesize
     )
 
-    if is_complex:
-        log.info(f"MODEL    using Opus (complex query)")
-        response = client.messages.create(
-            model="claude-opus-4-6",
-            system=SYSTEM,
-            messages=messages,
-            max_tokens=2000,
-            thinking={"type": "adaptive"},
-        )
-    else:
-        log.info(f"MODEL    using Haiku (simple routing)")
-        response = client.messages.create(
+    def _call_claude(msgs):
+        if is_complex:
+            return client.messages.create(
+                model="claude-opus-4-6",
+                system=SYSTEM,
+                messages=msgs,
+                max_tokens=2000,
+                thinking={"type": "adaptive"},
+            )
+        return client.messages.create(
             model="claude-haiku-4-5-20251001",
             system=SYSTEM,
-            messages=messages,
+            messages=msgs,
             max_tokens=2000,
         )
 
-    raw = next(
-        (b.text for b in response.content if b.type == "text"),
-        "",
-    )
+    log.info(f"MODEL    using {'Opus (complex query)' if is_complex else 'Haiku (simple routing)'}")
+    response = _call_claude(messages)
+    raw = next((b.text for b in response.content if b.type == "text"), "")
     messages.append({"role": "assistant", "content": response.content})
-
     rec = _extract_json(raw)
 
-    # If parse failed or recommendation is missing, use keyword fallback router
+    # Retry once on parse failure before falling back. Most parse errors are
+    # transient — truncation, a stray prose wrapper, a hallucinated trailing
+    # comment. A single retry with a JSON-only nudge resolves the majority.
+    if rec.get("parse_error"):
+        log.warning(f"JSON parse failed on first try, retrying | raw[:120]={raw[:120]!r}")
+        messages.append({
+            "role": "user",
+            "content": "Your previous response could not be parsed as JSON. Reply with ONLY a single valid JSON object matching the schema — no prose, no code fences, no explanation.",
+        })
+        try:
+            response = _call_claude(messages)
+            raw = next((b.text for b in response.content if b.type == "text"), "")
+            messages.append({"role": "assistant", "content": response.content})
+            rec = _extract_json(raw)
+        except Exception as e:
+            log.warning(f"Retry call failed: {e}")
+
+    # If parse still failed or recommendation is missing, use fallback router
     if rec.get("parse_error") or not rec.get("recommendation"):
         fallback = _fallback_route(request)
         if rec.get("parse_error"):
-            log.warning(f"JSON parse failed, using fallback router | raw[:120]={raw[:120]!r}")
+            log.warning(f"JSON parse failed after retry, using fallback router | raw[:120]={raw[:120]!r}")
             rec = fallback
         else:
             # Valid JSON but no recommendation — merge fallback in
