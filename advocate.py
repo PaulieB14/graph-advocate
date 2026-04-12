@@ -508,12 +508,108 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
 }
 
 
+def _compare_route(request: str) -> dict | None:
+    """Detect 'X vs Y' / 'X or Y' comparison questions between two known services.
+
+    These were ~100% of the historical 'unknown' bucket — one recurring probe
+    ("Token API vs subgraph for Uniswap pool data?") that the regular router
+    couldn't confidently classify. Return a direct answer instead of routing
+    the agent somewhere wrong. Returns None if this isn't a comparison prompt.
+    """
+    req = request.lower()
+    # Require a comparative connective AND two different service mentions
+    if not any(sep in req for sep in (" vs ", " vs. ", " versus ", " or ")):
+        return None
+
+    mentions = []
+    if any(w in req for w in ["token api", "token-api", "tokenapi"]):
+        mentions.append("token-api")
+    if any(w in req for w in ["subgraph", "the graph", "graphql"]):
+        mentions.append("subgraph-registry")
+    if "substream" in req:
+        mentions.append("substreams")
+    if "aave" in req:
+        mentions.append("graph-aave-mcp")
+    if "polymarket" in req:
+        mentions.append("graph-polymarket-mcp")
+    if "8004" in req:
+        mentions.append("8004scan")
+    mentions = list(dict.fromkeys(mentions))  # dedupe, preserve order
+    if len(mentions) < 2:
+        return None
+
+    a, b = mentions[0], mentions[1]
+    # Topic hint drives which side wins the "use X" recommendation
+    wants_history = any(w in req for w in ["historical", "history", "over time", "time series", "trend"])
+    wants_live = any(w in req for w in ["current", "live", "real-time", "realtime", "now", "latest"])
+
+    if {a, b} == {"token-api", "subgraph-registry"}:
+        answer = (
+            "Use **Token API** for current prices, balances, holders, swaps, and NFT data — "
+            "it's a prebuilt REST API with sub-second response and no schema work. "
+            "Use a **subgraph** (via the registry) for historical pool mechanics, custom "
+            "entity joins, protocol-specific state (TVL over time, positions, events), or "
+            "anything that needs a GraphQL join the REST API doesn't expose."
+        )
+        if wants_history:
+            pick = "subgraph-registry"
+        elif wants_live:
+            pick = "token-api"
+        else:
+            pick = "comparison"  # neutral — both are valid
+    elif {a, b} == {"token-api", "substreams"}:
+        answer = (
+            "**Token API** for shaped application data (balances, transfers, swaps) as REST. "
+            "**Substreams** for raw block/trace/event-log streaming when you need the firehose."
+        )
+        pick = "token-api" if wants_live else "comparison"
+    elif {a, b} == {"subgraph-registry", "substreams"}:
+        answer = (
+            "**Subgraph** for queryable entities and relationships via GraphQL. "
+            "**Substreams** for parallel raw-event processing, custom sinks, and "
+            "sub-block streaming pipelines. Substreams feed subgraphs — they're complements."
+        )
+        pick = "comparison"
+    else:
+        answer = (
+            f"**{a}** and **{b}** serve different use cases. Pick based on whether you need "
+            f"shaped REST data ({a}) or custom GraphQL/streaming ({b}). See their docs for details."
+        )
+        pick = "comparison"
+
+    # Borrow a concrete curl example from the more-actionable side (pick),
+    # falling back to the first option so callers always have something to run.
+    example = _SERVICE_CURL_EXAMPLES.get(
+        pick if pick != "comparison" else a, {}
+    ) or _SERVICE_CURL_EXAMPLES.get(a, {})
+
+    return {
+        "recommendation": pick,
+        "confidence": "high",
+        "answer": answer,
+        "alternatives": [
+            {"service": a, "confidence": "medium"},
+            {"service": b, "confidence": "medium"},
+        ],
+        "curl_example": example.get("curl_example", ""),
+        "install": example.get("install", ""),
+        "get_started": example.get("get_started", ""),
+        "reason": f"Comparison prompt between {a} and {b}",
+    }
+
+
 def _fallback_route(request: str) -> dict:
     """Keyword-based fallback router — fires when Claude's response can't be parsed
     or returns a JSON blob without a 'recommendation' field.
 
     Returns a minimal valid routing dict so the caller always gets a usable response.
     """
+    # Comparison detector runs first — otherwise "X vs Y" gets routed to whichever
+    # keyword happens to match earliest in the chain.
+    cmp = _compare_route(request)
+    if cmp is not None:
+        return cmp
+
     req = request.lower()
 
     # Ordered from most-specific to least-specific

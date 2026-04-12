@@ -114,6 +114,20 @@ class TestFallbackRoute(unittest.TestCase):
     def test_generic_routes_to_subgraph_registry(self):
         self._check("what data sources are available", "subgraph-registry")
 
+    def test_comparison_token_api_vs_subgraph(self):
+        """The recurring 'Token API vs subgraph' prompt must not fall through to 'unknown'."""
+        result = self.fn("Token API vs subgraph for Uniswap pool data?")
+        self.assertIn(result["recommendation"], {"comparison", "subgraph-registry", "token-api"})
+        self.assertTrue(result.get("answer"), "comparison route should return an answer")
+
+    def test_comparison_with_historical_prefers_subgraph(self):
+        result = self.fn("Token API vs subgraph for historical Uniswap pool TVL")
+        self.assertEqual(result["recommendation"], "subgraph-registry")
+
+    def test_comparison_with_current_prefers_token_api(self):
+        result = self.fn("Token API vs subgraph for current USDC holder count")
+        self.assertEqual(result["recommendation"], "token-api")
+
     def test_always_has_curl_example(self):
         """Every routed service must return a non-empty curl_example."""
         queries = [
