@@ -622,7 +622,68 @@ def _save_log():
         log.warning(f"Could not save log: {e}")
 
 
+# Canonical service enum — collapses Claude's free-text labels into stable buckets.
+# Anything not matched here stays as-is (lowercased, whitespace-collapsed) so new
+# services don't silently disappear — they just don't get aliased.
+_CANONICAL_SERVICES = {
+    "token-api", "subgraph-registry", "substreams",
+    "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
+    "graph-limitless-mcp", "predictfun-mcp", "mcp8004", "8004scan",
+    # meta/operational buckets (kept so headline filter can target them)
+    "introduction", "out-of-scope", "conformance", "cached", "unknown",
+    "rate-limited", "x402-paid", "x402-failed", "x402-tip", "payment-required",
+    "operational-confirmation", "registry-info", "clarification-needed",
+    "no-match", "unclear-request", "chat", "x402-analytics", "comparison",
+    "subgraph-query-builder",
+}
+
+# Services excluded from the headline quality avg — probes, system responses,
+# billing events. Kept in the by-service breakdown so they're still visible.
+_META_SERVICES_EXCLUDED_FROM_HEADLINE = {
+    "conformance", "introduction", "cached", "out-of-scope",
+    "operational-confirmation", "registry-info", "rate-limited",
+    "x402-paid", "x402-failed", "x402-tip", "payment-required",
+    "chat", "unknown",
+}
+
+
+def _normalize_service(service: str | None) -> str:
+    """Normalize a service label to a canonical bucket.
+
+    Claude sometimes emits free-text service names ("graph-aave-mcp (easiest) or
+    direct Aave V3 subgraph query") or case variants ("SUBGRAPH_REGISTRY"). This
+    folds them into stable enum values so analytics aren't splintered.
+    """
+    if not service:
+        return "unknown"
+    s = service.strip().lower().replace("_", "-")
+    # Exact canonical match (fast path)
+    if s in _CANONICAL_SERVICES:
+        return s
+    # Compound "A or B" / "A + B" → take the first service token
+    for sep in (" or ", " + ", " / ", " (easiest)", "(easiest)"):
+        if sep in s:
+            s = s.split(sep, 1)[0].strip()
+            if s in _CANONICAL_SERVICES:
+                return s
+    # Keyword fallbacks for common free-text patterns
+    if "aave" in s: return "graph-aave-mcp"
+    if "polymarket" in s: return "graph-polymarket-mcp"
+    if "limitless" in s: return "graph-limitless-mcp"
+    if "predict" in s and "fun" in s: return "predictfun-mcp"
+    if "8004" in s and "scan" in s: return "8004scan"
+    if "mcp8004" in s or ("8004" in s and "mcp" in s): return "mcp8004"
+    if "token" in s and "api" in s: return "token-api"
+    if "substream" in s: return "substreams"
+    if "subgraph" in s and ("registry" in s or "search" in s): return "subgraph-registry"
+    if "uniswap" in s or "sushi" in s: return "subgraph-registry"
+    # Last resort: return the cleaned string. New services land here until added
+    # to the canonical set — not silently dropped.
+    return s
+
+
 def _log_request(task_id: str, request: str, service: str, confidence: str, tool: str, response: dict | None = None):
+    service = _normalize_service(service)
     ts = datetime.now(timezone.utc).isoformat()
     REQUEST_LOG.append({
         "ts": ts,
@@ -671,6 +732,17 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         conn.close()
     except Exception as e:
         log.warning(f"Activity DB write failed: {e}")
+
+    # Auto-score every request (not just the Claude-routed path). For fast-paths
+    # that don't carry a response dict (greetings, rate-limits, probes), we
+    # synthesize a minimal record so the service-aware scorer can still grade it.
+    try:
+        rec_for_score = response if isinstance(response, dict) else {"recommendation": service}
+        if "recommendation" not in rec_for_score:
+            rec_for_score = {**rec_for_score, "recommendation": service}
+        _score_response(request, rec_for_score)
+    except Exception as e:
+        log.warning(f"Auto-score failed: {e}")
 
 
 # Load existing log on startup
@@ -1108,9 +1180,7 @@ class GraphAdvocateExecutor(AgentExecutor):
 
         log.info(f"ROUTED   task={task_id} | {service} ({confidence}) → {tool_name}")
         _log_request(task_id, user_text, service, confidence, tool_name, response=rec)
-
-        # Auto-score response quality
-        _score_response(user_text, rec)
+        # (scoring runs automatically inside _log_request)
 
         # Cache for persistent lookup
         _cache_response(user_text, rec)
@@ -1375,14 +1445,16 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
     penalized for missing subgraph_id, since they don't query subgraphs at all.
     """
     try:
-        service = (rec.get("recommendation") or "").lower()
+        service = _normalize_service(rec.get("recommendation"))
 
         # Services that are pure REST/data-table APIs — they never have subgraph IDs
         REST_ONLY_SERVICES = {
             "token-api", "8004scan", "predictfun-mcp", "mcp8004",
             "x402-analytics", "operational-confirmation", "introduction",
             "out-of-scope", "clarification-needed", "no-match", "unclear-request",
-            "comparison", "conformance",
+            "comparison", "conformance", "registry-info", "cached",
+            "rate-limited", "x402-paid", "x402-failed", "x402-tip",
+            "payment-required", "chat", "unknown",
         }
         is_rest_only = service in REST_ONLY_SERVICES
 
@@ -1427,7 +1499,7 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
                 datetime.now(timezone.utc).isoformat(),
                 activity_id,
                 request[:200],
-                rec.get("recommendation", "unknown"),
+                service,
                 has_query_ready,
                 has_subgraph_id,
                 has_curl,
@@ -1443,7 +1515,13 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
 
 
 async def quality_stats_endpoint(request: Request):
-    """GET /quality — response quality metrics."""
+    """GET /quality — response quality metrics.
+
+    Headline metrics are computed over "real user traffic" only — probe,
+    billing, and system responses (conformance, introduction, cached, x402-*,
+    etc.) are excluded so the headline number reflects actual routing quality.
+    The full by-service breakdown still includes everything so nothing is hidden.
+    """
     try:
         import sqlite3 as _sq
         conn = _sq.connect(str(DB_PATH))
@@ -1452,12 +1530,20 @@ async def quality_stats_endpoint(request: Request):
             conn.close()
             return JSONResponse({"total": 0, "message": "No quality data yet"})
 
-        avg_score = conn.execute("SELECT AVG(score) FROM quality_scores").fetchone()[0]
-        parse_rate = conn.execute("SELECT AVG(parse_success) * 100 FROM quality_scores").fetchone()[0]
-        query_ready_rate = conn.execute("SELECT AVG(has_query_ready) * 100 FROM quality_scores").fetchone()[0]
-        subgraph_rate = conn.execute("SELECT AVG(has_subgraph_id) * 100 FROM quality_scores").fetchone()[0]
-        curl_rate = conn.execute("SELECT AVG(has_curl_example) * 100 FROM quality_scores").fetchone()[0]
+        excluded = list(_META_SERVICES_EXCLUDED_FROM_HEADLINE)
+        placeholders = ",".join(["?"] * len(excluded))
+        where_real = f"WHERE service NOT IN ({placeholders})"
 
+        # Headline metrics — real routing traffic only
+        row = conn.execute(
+            f"SELECT COUNT(*), AVG(score), AVG(parse_success)*100, "
+            f"AVG(has_query_ready)*100, AVG(has_subgraph_id)*100, AVG(has_curl_example)*100 "
+            f"FROM quality_scores {where_real}", excluded
+        ).fetchone()
+        real_total, real_avg, real_parse, real_qr, real_sg, real_curl = row
+        real_total = real_total or 0
+
+        # Full by-service breakdown (everything, sorted by volume)
         by_service = conn.execute(
             "SELECT service, COUNT(*) as cnt, AVG(score) as avg_score "
             "FROM quality_scores GROUP BY service ORDER BY cnt DESC"
@@ -1469,14 +1555,20 @@ async def quality_stats_endpoint(request: Request):
         ).fetchall()
 
         conn.close()
+
+        def r1(x): return round(x, 1) if x is not None else 0.0
+        def r2(x): return round(x, 2) if x is not None else 0.0
+
         return JSONResponse({
             "total_scored": total,
-            "avg_score": round(avg_score, 2),
-            "parse_success_rate": round(parse_rate, 1),
-            "query_ready_rate": round(query_ready_rate, 1),
-            "subgraph_id_rate": round(subgraph_rate, 1),
-            "curl_example_rate": round(curl_rate, 1),
-            "by_service": [{"service": r[0], "count": r[1], "avg_score": round(r[2], 2)} for r in by_service],
+            "total_scored_real": real_total,
+            "excluded_services": excluded,
+            "avg_score": r2(real_avg),
+            "parse_success_rate": r1(real_parse),
+            "query_ready_rate": r1(real_qr),
+            "subgraph_id_rate": r1(real_sg),
+            "curl_example_rate": r1(real_curl),
+            "by_service": [{"service": r[0], "count": r[1], "avg_score": r2(r[2])} for r in by_service],
             "score_distribution": {str(r[0]): r[1] for r in dist},
         })
     except Exception as e:
@@ -2122,12 +2214,51 @@ async def dashboard_endpoint(request: Request):
   ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.2)}
 
   @media(max-width:768px){
-    body{padding:16px 12px}
-    .header-left h1{font-size:1.4rem}
-    .hero{grid-template-columns:1fr 1fr}
-    .hero-card{padding:16px 18px}
-    .hero-card .value{font-size:1.5rem}
-    .panel{padding:16px 18px}
+    body{padding:14px 10px;font-size:14px}
+    .wrap{max-width:100%}
+    /* Header: stack title above links */
+    .header{flex-direction:column;align-items:stretch;gap:12px}
+    .header-left{width:100%}
+    .header-left h1{font-size:1.25rem}
+    .header-right{display:flex;flex-wrap:wrap;gap:6px;width:100%}
+    .header-right .tab{padding:6px 10px;font-size:0.72rem;flex:0 0 auto}
+    /* Hero cards */
+    .hero{grid-template-columns:1fr 1fr;gap:10px}
+    .hero-card{padding:14px 14px}
+    .hero-card .value{font-size:1.35rem}
+    .hero-card .label{font-size:0.7rem}
+    /* Secondary stat strip */
+    .stats{grid-template-columns:repeat(2,1fr);gap:8px}
+    .stat{padding:10px 12px}
+    .stat .n{font-size:1.2rem}
+    /* Panels */
+    .panel{padding:14px 14px;border-radius:12px}
+    .svc-grid{grid-template-columns:1fr 1fr;gap:8px}
+    .donut-wrap{grid-template-columns:1fr;gap:16px;justify-items:center}
+    #donut-canvas{width:200px!important;height:200px!important}
+    /* Live activity feed — reflow each row into a stacked card */
+    .feed-row{grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:4px 10px;padding:10px 12px;align-items:center}
+    .feed-row .feed-ts{font-size:0.7rem;color:var(--text-muted);grid-column:1;grid-row:1}
+    .feed-row .feed-svc{justify-self:end;grid-column:2;grid-row:1;font-size:0.65rem;padding:2px 8px}
+    .feed-row .feed-request,.feed-row .feed-req{grid-column:1 / span 2;grid-row:2;white-space:normal;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    .feed-row .feed-task{font-size:0.65rem;opacity:0.5;grid-column:1 / span 2;grid-row:3;font-family:'JetBrains Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .feed-detail{padding:10px 12px;font-size:0.8rem}
+    /* Tab bar: horizontal scroll rather than wrap */
+    .tab-bar{width:100%;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+    .tab-btn{padding:8px 14px;font-size:0.78rem;flex:0 0 auto;white-space:nowrap}
+    /* Filters: stack, full width, no min-width overflow */
+    .feed-filters{flex-direction:column;align-items:stretch;gap:8px}
+    .feed-filters input,.feed-filters select{width:100%;min-width:0;padding:10px 12px}
+    /* Generic tables become horizontally scrollable */
+    table{font-size:0.8rem;display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+  }
+  @media(max-width:420px){
+    body{padding:10px 8px}
+    .hero{grid-template-columns:1fr}
+    .svc-grid{grid-template-columns:1fr}
+    .stats{grid-template-columns:1fr 1fr}
+    .header-left h1{font-size:1.1rem}
+    .tab-btn{padding:6px 10px;font-size:0.72rem}
   }
 </style>
 </head><body>
