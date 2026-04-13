@@ -57,6 +57,21 @@
     {
       "name": "github",
       "endpoint": "https://github.com/PaulieB14/graph-advocate"
+    },
+    {
+      "name": "llms_txt",
+      "endpoint": "https://graph-advocate-production.up.railway.app/llms.txt",
+      "version": "1.0"
+    },
+    {
+      "name": "agents_index",
+      "endpoint": "https://graph-advocate-production.up.railway.app/agents/index.json",
+      "version": "1.0"
+    },
+    {
+      "name": "capabilities",
+      "endpoint": "https://graph-advocate-production.up.railway.app/agents/capabilities.json",
+      "version": "1.0"
     }
   ],
   "registrations": [

@@ -11,7 +11,9 @@ Ask a question about blockchain data. Get back the right subgraph, a ready-to-ex
 [![x402scan](https://img.shields.io/badge/x402scan-listed-blue)](https://www.x402scan.com)
 [![ERC-8004](https://img.shields.io/badge/ERC--8004-%23734-purple)](https://www.8004scan.io/agents/arbitrum/734)
 
-[Live Dashboard](https://graph-advocate-production.up.railway.app/dashboard) · [Chat](https://graph-advocate-production.up.railway.app/chat) · [Agent Card](https://graph-advocate-production.up.railway.app/.well-known/agent-card.json)
+[Live Dashboard](https://graph-advocate-production.up.railway.app/dashboard) · [Chat](https://graph-advocate-production.up.railway.app/chat) · [Agent Card](https://graph-advocate-production.up.railway.app/.well-known/agent-card.json) · [llms.txt](https://graph-advocate-production.up.railway.app/llms.txt) · [capabilities.json](https://graph-advocate-production.up.railway.app/agents/capabilities.json)
+
+> **For LLM tools (Cursor, Claude Code, etc.):** point at `https://graph-advocate-production.up.railway.app/llms.txt` for auto-discovery of routing services and capabilities.
 
 </div>
 

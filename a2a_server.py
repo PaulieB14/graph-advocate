@@ -1213,6 +1213,7 @@ agent_card = AgentCard(
         state_transition_history=False,
     ),
     skills=SKILLS,
+    documentation_url=f"{PUBLIC_URL}/llms.txt",
     provider={
         "organization": "PaulieB14",
         "url": f"{PUBLIC_URL}/chat",
@@ -3532,6 +3533,8 @@ def build_app():
                 "Free tier: " + str(DAILY_FREE_QUERIES) + " queries/day per requesting "
                 "agent. After that, $0.01 USDC on Base via x402."
             ),
+            "documentation": BASE_URL + "/llms.txt",
+            "capabilities": BASE_URL + "/agents/capabilities.json",
         }, headers={"Access-Control-Allow-Origin": "*"})
 
     async def openapi_endpoint(request):
@@ -3560,7 +3563,15 @@ def build_app():
                     "ens": "graphadvocate.eth",
                     "erc8004": "Agent #734 on Arbitrum",
                     "wallet": X402_WALLET,
+                    "llms_txt": BASE_URL + "/llms.txt",
+                    "capabilities": BASE_URL + "/agents/capabilities.json",
                 },
+            },
+            "x-llms-txt": BASE_URL + "/llms.txt",
+            "x-agents-index": BASE_URL + "/agents/index.json",
+            "externalDocs": {
+                "description": "LLM-readable docs (llmstxt.org convention)",
+                "url": BASE_URL + "/llms.txt",
             },
             "components": {
                 "schemas": {

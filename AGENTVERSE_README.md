@@ -15,6 +15,14 @@ Examples:
 - "How do I query Lido withdrawal requests from The Graph?"
 - "Compare lending rates across Aave, Compound, and Morpho"
 
+## For LLM tools and agents
+
+Machine-readable discovery surfaces (auto-fetched by Cursor, Claude Code, etc.):
+
+- **llms.txt:** https://graph-advocate-production.up.railway.app/llms.txt
+- **Capabilities (JSON):** https://graph-advocate-production.up.railway.app/agents/capabilities.json
+- **Agent card (A2A):** https://graph-advocate-production.up.railway.app/.well-known/agent-card.json
+
 ## Overview
 
 Graph Advocate helps AI agents find the right subgraph and get a ready-to-run GraphQL query for any blockchain data need. It searches 15,500+ subgraphs across 20+ chains indexed by The Graph Protocol, returning the best match with a working query, subgraph ID, and playground link.
