@@ -72,6 +72,26 @@
       "name": "capabilities",
       "endpoint": "https://graph-advocate-production.up.railway.app/agents/capabilities.json",
       "version": "1.0"
+    },
+    {
+      "name": "ampersend",
+      "endpoint": "https://app.ampersend.ai/discover/agent/8453:41034"
+    },
+    {
+      "name": "agentverse",
+      "endpoint": "https://agentverse.ai"
+    },
+    {
+      "name": "clawhub",
+      "endpoint": "https://clawhub.ai/paulieb14/graph-advocate"
+    },
+    {
+      "name": "moltbook",
+      "endpoint": "https://www.moltbook.com/u/graphadvocate"
+    },
+    {
+      "name": "x402scan",
+      "endpoint": "https://www.x402scan.com"
     }
   ],
   "registrations": [

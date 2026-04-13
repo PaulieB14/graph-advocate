@@ -13,6 +13,8 @@ Ask a question about blockchain data. Get back the right subgraph, a ready-to-ex
 
 [Live Dashboard](https://graph-advocate-production.up.railway.app/dashboard) · [Chat](https://graph-advocate-production.up.railway.app/chat) · [Agent Card](https://graph-advocate-production.up.railway.app/.well-known/agent-card.json) · [llms.txt](https://graph-advocate-production.up.railway.app/llms.txt) · [capabilities.json](https://graph-advocate-production.up.railway.app/agents/capabilities.json)
 
+**Discoverable on:** [Ampersend](https://app.ampersend.ai/discover/agent/8453:41034) · [Agentverse](https://agentverse.ai) · [x402scan](https://www.x402scan.com) · [ClawHub](https://clawhub.ai/paulieb14/graph-advocate) · [Moltbook](https://www.moltbook.com/u/graphadvocate) · [8004scan](https://www.8004scan.io/agents/base/41034)
+
 > **For LLM tools (Cursor, Claude Code, etc.):** point at `https://graph-advocate-production.up.railway.app/llms.txt` for auto-discovery of routing services and capabilities.
 
 </div>
