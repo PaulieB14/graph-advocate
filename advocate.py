@@ -508,6 +508,164 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
 }
 
 
+# ── Public capability metadata (consumed by /agents/capabilities.json) ────────
+# Externalized so the routing surface is editable without touching code, and
+# so other agents can discover Graph Advocate's coverage without parsing the
+# system prompt. Mirrors Push Chain's /agents/capabilities.json pattern.
+_SERVICE_METADATA: dict[str, dict] = {
+    "token-api": {
+        "summary": "Hosted REST API for token data — balances, holders, transfers, swaps, NFTs across EVM, Solana, and TON.",
+        "best_for": [
+            "Wallet balances on Ethereum / Base / Arbitrum / Solana / TON",
+            "Top holders, biggest swaps, whale transfers",
+            "NFT collections and ownership",
+            "Current prices and 30-day balance history",
+        ],
+        "not_for": ["Custom GraphQL joins", "Historical pool mechanics that need protocol-specific entities"],
+        "auth": "Free JWT — https://thegraph.market/auth/tokenapi-env",
+        "interface": "REST",
+        "example_prompts": [
+            "Top 20 USDC holders on Ethereum",
+            "Wallet balances on Base for 0xabc…",
+            "Solana NFT sales last 7 days",
+        ],
+    },
+    "subgraph-registry": {
+        "summary": "Discover the right subgraph from 15,500+ indexed subgraphs and run GraphQL queries against it.",
+        "best_for": [
+            "Custom GraphQL with protocol-specific entities",
+            "Historical state (TVL over time, positions, events)",
+            "Joins not exposed by REST APIs",
+        ],
+        "not_for": ["One-shot 'current price/balance' lookups (use token-api)"],
+        "auth": "Free Graph Network API key — https://thegraph.com/studio/",
+        "interface": "GraphQL",
+        "example_prompts": [
+            "Uniswap V3 pool TVL and fee tiers",
+            "Lens Protocol followers over time",
+            "What subgraphs exist for NFT sales on Base?",
+        ],
+    },
+    "substreams": {
+        "summary": "Parallel, sub-block streaming of raw blockchain events, traces, and logs via the StreamingFast firehose.",
+        "best_for": [
+            "Custom indexing pipelines",
+            "Raw event logs across large block ranges",
+            "Streaming traces / receipts at full chain throughput",
+        ],
+        "not_for": ["Quick one-shot reads (subgraph or token-api are cheaper)"],
+        "auth": "JWT from https://thegraph.market — used with `substreams auth`",
+        "interface": "gRPC / CLI",
+        "example_prompts": [
+            "Raw decoded event logs, blocks 19000000 to 20000000",
+            "Stream all ERC20 transfers on Base",
+        ],
+    },
+    "graph-aave-mcp": {
+        "summary": "MCP server with 40+ tools over Aave V2 / V3 / V4, including cross-chain liquidation risk.",
+        "best_for": [
+            "Aave market state, positions, liquidations",
+            "Cross-chain Aave V4 hub/spoke topology",
+            "Yield and rate analytics",
+        ],
+        "not_for": ["Non-Aave lending protocols (use graph-lending-mcp)"],
+        "auth": "Free Graph Network API key",
+        "interface": "MCP (Model Context Protocol)",
+        "example_prompts": [
+            "Top Aave V3 markets by TVL on Ethereum",
+            "Recent Aave liquidations above $50K",
+        ],
+    },
+    "graph-polymarket-mcp": {
+        "summary": "MCP server with 31 tools over Polymarket prediction markets.",
+        "best_for": ["Hottest markets", "Trader PnL", "Order book depth"],
+        "not_for": ["Predict.fun (use predictfun-mcp)", "Limitless (use graph-limitless-mcp)"],
+        "auth": "None for REST endpoints; Graph API key for subgraph queries",
+        "interface": "MCP",
+        "example_prompts": ["Hottest Polymarket markets right now", "Top traders on Polymarket by PnL"],
+    },
+    "graph-lending-mcp": {
+        "summary": "Cross-protocol lending data via Messari standardized subgraphs (Aave, Compound, MakerDAO, etc.).",
+        "best_for": ["Comparing TVL across lending protocols", "Standardized borrow/supply rates"],
+        "not_for": ["Aave-specific deep features (use graph-aave-mcp)"],
+        "auth": "Free Graph Network API key",
+        "interface": "MCP",
+        "example_prompts": ["Compare Aave vs Compound TVL on Ethereum", "Top lending markets by utilization"],
+    },
+    "graph-limitless-mcp": {
+        "summary": "MCP server for Limitless prediction markets on Base.",
+        "best_for": ["Limitless market state and trades on Base"],
+        "auth": "Graph API key (env: GRAPH_API_KEY)",
+        "interface": "MCP",
+        "example_prompts": ["Active Limitless markets on Base"],
+    },
+    "predictfun-mcp": {
+        "summary": "MCP server for Predict.fun on BNB Chain.",
+        "best_for": ["Predict.fun markets and trader activity on BNB Chain"],
+        "auth": "None (public REST API)",
+        "interface": "MCP",
+        "example_prompts": ["Top Predict.fun markets by volume"],
+    },
+    "8004scan": {
+        "summary": "Discover and search ERC-8004 registered AI agents — identity, reputation, capabilities.",
+        "best_for": ["Finding agents by capability", "Reputation/feedback lookup", "Agent registry browsing"],
+        "auth": "None for public reads; register your own agent at 8004scan.io",
+        "interface": "REST",
+        "example_prompts": ["Find agents with MCP endpoints", "Agents with x402 support on Base"],
+    },
+    "mcp8004": {
+        "summary": "Auth middleware (npm package) for adding ERC-8004 identity verification to any MCP server.",
+        "best_for": ["Securing MCP server endpoints with on-chain agent identity", "Min-score gating"],
+        "auth": "npm install mcp8004",
+        "interface": "Library (TypeScript/JavaScript)",
+        "example_prompts": ["How do I require ERC-8004 auth on my MCP server?"],
+    },
+}
+
+
+def build_capabilities() -> dict:
+    """Build the /agents/capabilities.json payload by merging metadata with
+    the curl/install examples already maintained in _SERVICE_CURL_EXAMPLES.
+
+    Single source of truth: edit _SERVICE_METADATA and _SERVICE_CURL_EXAMPLES;
+    the public capability doc regenerates automatically.
+    """
+    capabilities = []
+    for service, meta in _SERVICE_METADATA.items():
+        ex = _SERVICE_CURL_EXAMPLES.get(service, {})
+        capabilities.append({
+            "service": service,
+            "summary": meta.get("summary", ""),
+            "best_for": meta.get("best_for", []),
+            "not_for": meta.get("not_for", []),
+            "interface": meta.get("interface"),
+            "auth": meta.get("auth"),
+            "install": ex.get("install"),
+            "curl_example": ex.get("curl_example"),
+            "get_started": ex.get("get_started"),
+            "example_prompts": meta.get("example_prompts", []),
+        })
+    return {
+        "agent": "graph-advocate",
+        "version": "1.0",
+        "endpoint": "https://graph-advocate-production.up.railway.app/",
+        "protocol": "A2A (JSON-RPC 2.0)",
+        "agent_card": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
+        "x402": {
+            "free_tier": "10 requests/day per sender",
+            "paid": "$0.01 USDC on Base after free tier",
+        },
+        "capabilities": capabilities,
+        "how_to_use": (
+            "Send a natural-language data question to POST / via A2A JSON-RPC. "
+            "Graph Advocate routes the question to the best service in this list "
+            "and returns a recommendation plus a ready-to-run curl/GraphQL/MCP example. "
+            "For batch / programmatic use, see /agents/capabilities.json (this file) "
+            "and the agent card."
+        ),
+    }
+
+
 def _compare_route(request: str) -> dict | None:
     """Detect 'X vs Y' / 'X or Y' comparison questions between two known services.
 

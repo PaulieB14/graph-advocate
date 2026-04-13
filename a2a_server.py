@@ -17,7 +17,7 @@ from pathlib import Path
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, HTMLResponse
+from starlette.responses import JSONResponse, HTMLResponse, PlainTextResponse
 from starlette.routing import Mount, Route
 
 from a2a.server.apps import A2AStarletteApplication
@@ -1512,6 +1512,109 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
         conn.close()
     except Exception as e:
         log.warning(f"Quality score write failed: {e}")
+
+
+async def llms_txt_endpoint(request: Request):
+    """GET /llms.txt — compact discovery file for LLM-driven dev tools.
+
+    Convention: https://llmstxt.org. Cursor, Claude Code, Anthropic Console,
+    and similar tools fetch this when given the domain. Plain text only,
+    < 100 lines, points at the richer /agents/capabilities.json.
+    """
+    body = """# Graph Advocate
+
+Routing agent for The Graph Protocol. Send a plain-English data question
+about any blockchain (Ethereum, Base, Arbitrum, Polygon, Solana, TON, BNB,
+Polymarket, Aave, Uniswap, ENS, ERC-8004 agents, etc.) and receive back
+the best service to use plus a ready-to-run curl / GraphQL / MCP example.
+
+Production: https://graph-advocate-production.up.railway.app
+Repository: https://github.com/PaulieB14/graph-advocate
+
+## Endpoints
+
+- POST /                           A2A JSON-RPC 2.0 (main agent endpoint)
+- GET  /.well-known/agent-card.json  A2A agent card
+- GET  /agents/capabilities.json   Machine-readable per-service capability list
+- GET  /chat                       Web chat UI
+- GET  /dashboard                  Live monitoring dashboard
+- POST /feedback                   Agent feedback submission
+- GET  /quality                    Response quality metrics
+- GET  /export/stats               Summary stats
+
+## Pricing
+
+- 10 requests/day per sender — free
+- After 10/day — $0.01 USDC on Base via x402
+
+## Routing services
+
+- token-api            — REST: balances, holders, swaps, NFTs (EVM/Solana/TON)
+- subgraph-registry    — GraphQL: 15,500+ subgraphs, custom queries
+- substreams           — gRPC: raw block/event/trace streaming
+- graph-aave-mcp       — MCP: Aave V2/V3/V4, 40 tools
+- graph-polymarket-mcp — MCP: Polymarket, 31 tools
+- graph-lending-mcp    — MCP: cross-protocol lending (Messari)
+- graph-limitless-mcp  — MCP: Limitless prediction markets on Base
+- predictfun-mcp       — MCP: Predict.fun on BNB Chain
+- 8004scan             — REST: ERC-8004 agent discovery
+- mcp8004              — Library: ERC-8004 auth middleware for MCP servers
+
+Full per-service definitions: /agents/capabilities.json
+
+## Example
+
+```bash
+curl -X POST https://graph-advocate-production.up.railway.app \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "parts": [{"kind": "text", "text": "Top USDC holders on Ethereum"}]
+      }
+    },
+    "id": 1
+  }'
+```
+
+## Identity
+
+- ERC-8004 agent #734 on Arbitrum, #41034 on Base
+- ENS: graphadvocate.eth
+- Wallet: 0x575267eEd09c338FAE5716A486A7B58A5749A292
+"""
+    return PlainTextResponse(body)
+
+
+async def capabilities_endpoint(request: Request):
+    """GET /agents/capabilities.json — machine-readable capability list.
+
+    Convention modeled on Push Chain's /agents/capabilities.json. Other
+    agents and dev tools fetch this to discover what Graph Advocate can
+    route to without parsing prose. Regenerated from _SERVICE_METADATA +
+    _SERVICE_CURL_EXAMPLES — single source of truth.
+    """
+    from advocate import build_capabilities
+    return JSONResponse(build_capabilities())
+
+
+async def agents_index_endpoint(request: Request):
+    """GET /agents/index.json — agent file discovery map (Push-Chain pattern)."""
+    base = "https://graph-advocate-production.up.railway.app"
+    return JSONResponse({
+        "agent": "graph-advocate",
+        "version": "1.0",
+        "files": {
+            "capabilities": f"{base}/agents/capabilities.json",
+            "agent_card":   f"{base}/.well-known/agent-card.json",
+            "llms_txt":     f"{base}/llms.txt",
+            "openapi":      f"{base}/openapi.json",
+        },
+        "start_here": f"{base}/llms.txt",
+    })
 
 
 async def quality_stats_endpoint(request: Request):
@@ -3799,6 +3902,10 @@ def build_app():
         Route("/feedback", feedback_endpoint, methods=["POST"]),
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
+        # Discovery surfaces for LLM-driven dev tools and other agents
+        Route("/llms.txt", llms_txt_endpoint),
+        Route("/agents/index.json", agents_index_endpoint),
+        Route("/agents/capabilities.json", capabilities_endpoint),
         Route("/chat", chat_get, methods=["GET"]),
         Route("/chat", chat_post, methods=["POST"]),
         # x402scan discovery routes
@@ -3896,7 +4003,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and scope["path"] in ("/route", "/tip"):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.
