@@ -1448,11 +1448,19 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
     try:
         service = _normalize_service(rec.get("recommendation"))
 
-        # Services that are pure REST/data-table APIs — they never have subgraph IDs
+        # Services that don't expose a subgraph_id by design — REST APIs, MCP
+        # tool servers, probes, and meta responses. Scoring auto-credits the
+        # subgraph_id point for these so they aren't penalized for a field
+        # that doesn't apply to their protocol.
         REST_ONLY_SERVICES = {
-            "token-api", "8004scan", "predictfun-mcp", "mcp8004",
-            "x402-analytics", "operational-confirmation", "introduction",
-            "out-of-scope", "clarification-needed", "no-match", "unclear-request",
+            # REST APIs
+            "token-api", "8004scan", "x402-analytics",
+            # MCP tool servers — use the Model Context Protocol, not raw subgraph queries
+            "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
+            "graph-limitless-mcp", "predictfun-mcp", "mcp8004",
+            # Probes / meta responses
+            "operational-confirmation", "introduction", "out-of-scope",
+            "clarification-needed", "no-match", "unclear-request",
             "comparison", "conformance", "registry-info", "cached",
             "rate-limited", "x402-paid", "x402-failed", "x402-tip",
             "payment-required", "chat", "unknown",
