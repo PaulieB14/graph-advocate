@@ -3,3 +3,6 @@ venv/
 __pycache__/
 *.pyc
 recommendations.db
+private_keys.json
+*.db-wal
+*.db-shm

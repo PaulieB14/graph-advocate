@@ -188,15 +188,32 @@ async def _verify_x402_payment(payment_header: str, strict: bool = False) -> boo
 
 
 def _check_daily_limit(task_id: str) -> bool:
-    """Return True if sender has exceeded daily free query limit."""
+    """Return True if sender has exceeded daily free query limit. Persisted to SQLite."""
     from datetime import date
+    import sqlite3 as _sq
     today = date.today().isoformat()
-    entry = _daily_query_counts.get(task_id, {"date": "", "count": 0})
-    if entry["date"] != today:
-        entry = {"date": today, "count": 0}
-    entry["count"] += 1
-    _daily_query_counts[task_id] = entry
-    return entry["count"] > DAILY_FREE_QUERIES
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        conn.execute(
+            "INSERT INTO daily_limits (sender, date, count) VALUES (?, ?, 1) "
+            "ON CONFLICT(sender, date) DO UPDATE SET count = count + 1",
+            (task_id, today),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT count FROM daily_limits WHERE sender = ? AND date = ?",
+            (task_id, today),
+        ).fetchone()
+        conn.close()
+        return (row[0] if row else 0) > DAILY_FREE_QUERIES
+    except Exception:
+        # Fallback to in-memory if DB fails
+        entry = _daily_query_counts.get(task_id, {"date": "", "count": 0})
+        if entry["date"] != today:
+            entry = {"date": today, "count": 0}
+        entry["count"] += 1
+        _daily_query_counts[task_id] = entry
+        return entry["count"] > DAILY_FREE_QUERIES
 
 
 def _x402_payment_required_response() -> dict:
@@ -595,6 +612,16 @@ def _init_activity_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_quality_ts ON quality_scores(timestamp)")
+
+        # Daily query limits — persists across deploys
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_limits (
+                sender TEXT NOT NULL,
+                date TEXT NOT NULL,
+                count INTEGER DEFAULT 0,
+                PRIMARY KEY (sender, date)
+            )
+        """)
 
         conn.commit()
         conn.close()
@@ -1065,6 +1092,39 @@ class GraphAdvocateExecutor(AgentExecutor):
             await event_queue.enqueue_event(new_agent_text_message(json.dumps(_chiark_resp)))
             return
 
+        # ── Non-data trivia probes (arithmetic, HTTP status, list counts, etc.) ──
+        # Bots often test agents with off-topic trivia ending in "Give me only the
+        # number." These never need Claude — return a canonical out-of-scope.
+        _probe_signals = (
+            "give me only the number",
+            "http status code",
+            "how many items are in this list",
+            "what is the capital of",
+            "what year was",
+            "how many letters",
+        )
+        import re as _re
+        _is_arith = bool(_re.search(
+            r"\bwhat\s+is\s+\d[\d,\.]*\s*(?:\*|\+|-|x|times|multiplied\s+by|plus|minus|divided\s+by|over)\s*\d",
+            _lower,
+        ))
+        if _is_arith or any(sig in _lower for sig in _probe_signals):
+            log.info(f"PROBE    task={task_id} | non-data trivia probe")
+            _probe_resp = {
+                "recommendation": "out-of-scope",
+                "reason": "Graph Advocate routes blockchain/data questions to The Graph services. This request isn't a data query.",
+                "confidence": "high",
+                "agent": "Graph Advocate",
+                "example_prompts": [
+                    "Top 20 USDC holders on Ethereum",
+                    "Uniswap V3 pool TVL",
+                    "Aave liquidations above $50K",
+                ],
+            }
+            _log_request(task_id, user_text, "out-of-scope", "high", "probe-static", response=_probe_resp)
+            await event_queue.enqueue_event(new_agent_text_message(json.dumps(_probe_resp)))
+            return
+
         # ── Fix 1: Static benchmark bot responses (saves ~120 Claude calls/day) ──
         _benchmark_resp = _match_benchmark_query(user_text)
         if _benchmark_resp is not None:
@@ -1221,10 +1281,27 @@ agent_card = AgentCard(
 )
 
 
+# ── Admin auth for sensitive endpoints ─────────────────────────────────────
+
+_ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+
+def _check_admin(request: Request) -> bool:
+    if not _ADMIN_TOKEN:
+        return True
+    auth = request.headers.get("authorization", "")
+    token = request.query_params.get("token", "")
+    return auth == f"Bearer {_ADMIN_TOKEN}" or token == _ADMIN_TOKEN
+
+def _unauthorized():
+    return JSONResponse({"error": "Unauthorized — set ADMIN_TOKEN and pass as Bearer token or ?token= param"}, status_code=401)
+
+
 # ── /export endpoints (grant reporting) ──────────────────────────────────────
 
 async def export_json_endpoint(request: Request):
     """Export full activity history as JSON for grant reporting."""
+    if not _check_admin(request):
+        return _unauthorized()
     try:
         import sqlite3 as _sq
         conn = _sq.connect(str(DB_PATH))
@@ -1245,6 +1322,8 @@ async def export_json_endpoint(request: Request):
 
 async def export_csv_endpoint(request: Request):
     """Export full activity history as CSV for grant reporting."""
+    if not _check_admin(request):
+        return _unauthorized()
     try:
         import sqlite3 as _sq
         import csv, io
@@ -1273,6 +1352,8 @@ async def export_csv_endpoint(request: Request):
 
 async def export_stats_endpoint(request: Request):
     """Export summary stats for grant reporting."""
+    if not _check_admin(request):
+        return _unauthorized()
     try:
         import sqlite3 as _sq
         conn = _sq.connect(str(DB_PATH))
@@ -1402,6 +1483,8 @@ async def feedback_endpoint(request: Request):
 
 async def feedback_stats_endpoint(request: Request):
     """GET /feedback/stats — summary of all feedback received."""
+    if not _check_admin(request):
+        return _unauthorized()
     try:
         import sqlite3 as _sq
         conn = _sq.connect(str(DB_PATH))
@@ -1453,8 +1536,8 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
         # subgraph_id point for these so they aren't penalized for a field
         # that doesn't apply to their protocol.
         REST_ONLY_SERVICES = {
-            # REST APIs
-            "token-api", "8004scan", "x402-analytics",
+            # REST APIs and non-subgraph services
+            "token-api", "8004scan", "x402-analytics", "substreams",
             # MCP tool servers — use the Model Context Protocol, not raw subgraph queries
             "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
             "graph-limitless-mcp", "predictfun-mcp", "mcp8004",
@@ -1485,17 +1568,20 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
                 1 if (has_query_ready or has_curl) else 0,  # either is fine
                 1,  # subgraph_id N/A — auto-credit
                 1 if has_curl else 0,
-                1 if (has_install or service in {"token-api", "8004scan", "x402-analytics"}) else 0,
+                1 if (has_install or service in {"token-api", "8004scan", "x402-analytics", "substreams"}) else 0,
             ])
             # Mark has_subgraph_id as True for REST services so analytics aren't skewed
             has_subgraph_id = True
         else:
+            # Services that query the Graph gateway directly over HTTP don't need
+            # an install step — auto-credit the install point for them.
+            install_na = service in {"subgraph-registry", "substreams"}
             score = sum([
                 1 if parse_ok else 0,
                 1 if has_query_ready else 0,
                 1 if has_subgraph_id else 0,
                 1 if has_curl else 0,
-                1 if has_install else 0,
+                1 if (has_install or install_na) else 0,
             ])
 
         import sqlite3 as _sq
@@ -1610,6 +1696,12 @@ async def capabilities_endpoint(request: Request):
     return JSONResponse(build_capabilities())
 
 
+async def mcp_catalog_endpoint(request: Request):
+    """GET /mcp/catalog — list of protocol-specific MCP servers (npm installable)."""
+    from advocate import build_mcp_catalog
+    return JSONResponse(build_mcp_catalog())
+
+
 async def agents_index_endpoint(request: Request):
     """GET /agents/index.json — agent file discovery map (Push-Chain pattern)."""
     base = "https://graph-advocate-production.up.railway.app"
@@ -1634,6 +1726,8 @@ async def quality_stats_endpoint(request: Request):
     etc.) are excluded so the headline number reflects actual routing quality.
     The full by-service breakdown still includes everything so nothing is hidden.
     """
+    if not _check_admin(request):
+        return _unauthorized()
     try:
         import sqlite3 as _sq
         conn = _sq.connect(str(DB_PATH))
@@ -1690,6 +1784,8 @@ async def quality_stats_endpoint(request: Request):
 # ── /logs and /dashboard endpoints ───────────────────────────────────────────
 
 async def logs_endpoint(request: Request):
+    if not _check_admin(request):
+        return _unauthorized()
     return JSONResponse(list(reversed(REQUEST_LOG)))
 
 
@@ -3091,6 +3187,28 @@ CHAT_HTML = """<!DOCTYPE html>
     border: 1px solid var(--border);
     border-bottom-left-radius: 4px;
   }
+  .feedback {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    margin-left: 42px;
+    font-size: .72rem;
+    color: var(--text-dim);
+    align-items: center;
+  }
+  .feedback button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 3px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: .72rem;
+    transition: all .15s;
+  }
+  .feedback button:hover:not(:disabled) { background: var(--bg-card); color: var(--text); }
+  .feedback button.active { background: rgba(99,102,241,.15); color: var(--accent-hover); border-color: var(--accent-hover); }
+  .feedback button:disabled { opacity: .5; cursor: default; }
   .bubble a { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 2px; }
   .bubble a:hover { color: #a5b4fc; }
   .bubble code {
@@ -3295,7 +3413,29 @@ function useSuggestion(btn) {
   sendMsg();
 }
 
-function appendMsg(role, html) {
+let _lastUserQuery = '';
+let _sessionId = 'web-' + Math.random().toString(36).substring(2, 10);
+
+function submitFeedback(btn, useful) {
+  const row = btn.closest('.fb-row');
+  const req = row.dataset.req;
+  const svc = row.dataset.svc || '';
+  row.querySelectorAll('button').forEach(b => b.disabled = true);
+  btn.classList.add('active');
+  row.querySelector('.fb-thanks').textContent = useful ? '✓ Thanks!' : '✓ Noted';
+  fetch('/feedback', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      agent_id: _sessionId,
+      request: req,
+      service_recommended: svc,
+      was_useful: useful,
+    }),
+  }).catch(() => {});
+}
+
+function appendMsg(role, html, meta) {
   // Hide welcome card on first message
   if (welcomeEl) welcomeEl.style.display = 'none';
 
@@ -3317,6 +3457,20 @@ function appendMsg(role, html) {
   row.appendChild(avatar);
   row.appendChild(bubble);
   messagesEl.appendChild(row);
+
+  if (role === 'assistant' && meta && meta.request) {
+    const fb = document.createElement('div');
+    fb.className = 'feedback fb-row';
+    fb.dataset.req = meta.request;
+    fb.dataset.svc = meta.service || '';
+    fb.innerHTML =
+      '<span>Was this helpful?</span>' +
+      '<button onclick="submitFeedback(this, true)">👍 Yes</button>' +
+      '<button onclick="submitFeedback(this, false)">👎 No</button>' +
+      '<span class="fb-thanks"></span>';
+    messagesEl.appendChild(fb);
+  }
+
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
@@ -3345,6 +3499,7 @@ function renderMd(text) {
 async function sendMsg() {
   const text = inputEl.value.trim();
   if (!text) return;
+  _lastUserQuery = text;
   inputEl.value = '';
   appendMsg('user', escapeHtml(text));
   sendBtn.disabled = true;
@@ -3359,7 +3514,8 @@ async function sendMsg() {
     });
     const data = await res.json();
     typingEl.classList.remove('show');
-    appendMsg('assistant', renderMd(data.reply || 'Sorry, something went wrong.'));
+    appendMsg('assistant', renderMd(data.reply || 'Sorry, something went wrong.'),
+      {request: text, service: data.service || ''});
   } catch (e) {
     typingEl.classList.remove('show');
     appendMsg('assistant', 'Network error — please try again.');
@@ -3925,6 +4081,7 @@ def build_app():
         Route("/llms.txt", llms_txt_endpoint),
         Route("/agents/index.json", agents_index_endpoint),
         Route("/agents/capabilities.json", capabilities_endpoint),
+        Route("/mcp/catalog", mcp_catalog_endpoint),
         Route("/chat", chat_get, methods=["GET"]),
         Route("/chat", chat_post, methods=["POST"]),
         # x402scan discovery routes

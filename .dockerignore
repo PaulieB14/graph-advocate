@@ -3,5 +3,9 @@ venv/
 __pycache__/
 *.pyc
 recommendations.db
+private_keys.json
+*.db
+*.db-wal
+*.db-shm
 dashboard.html
 .git/

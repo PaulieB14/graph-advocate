@@ -10,6 +10,7 @@ client = anthropic.Anthropic()
 
 # ── SQLite connection pool with WAL mode ─────────────────────────────────────
 _db_local = threading.local()
+_db_init_lock = threading.Lock()
 _DB_PATH = os.environ.get(
     "RECOMMENDATIONS_DB",
     "/data/recommendations.db" if os.path.isdir("/data") else "recommendations.db",
@@ -26,24 +27,25 @@ def _get_db() -> sqlite3.Connection:
         conn.execute("PRAGMA busy_timeout=5000")
         _db_local.conn = conn
     if not _db_initialized:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS recommendations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                requesting_agent TEXT,
-                request TEXT,
-                service_chosen TEXT,
-                confidence TEXT,
-                response_json TEXT
-            )
-        """)
-        # Migrate: add response_json column if missing (existing DBs)
-        try:
-            conn.execute("SELECT response_json FROM recommendations LIMIT 1")
-        except sqlite3.OperationalError:
-            conn.execute("ALTER TABLE recommendations ADD COLUMN response_json TEXT")
-        conn.commit()
-        _db_initialized = True
+        with _db_init_lock:
+            if not _db_initialized:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS recommendations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT,
+                        requesting_agent TEXT,
+                        request TEXT,
+                        service_chosen TEXT,
+                        confidence TEXT,
+                        response_json TEXT
+                    )
+                """)
+                try:
+                    conn.execute("SELECT response_json FROM recommendations LIMIT 1")
+                except sqlite3.OperationalError:
+                    conn.execute("ALTER TABLE recommendations ADD COLUMN response_json TEXT")
+                conn.commit()
+                _db_initialized = True
     return conn
 
 SYSTEM = """You are the Graph Advocate — an expert agent embedded in a multi-agent system.
@@ -70,9 +72,11 @@ Key data: agent names, scores, MCP/A2A endpoints, x402 support, ENS names, OASF 
 Note: If 8004scan search results appear in the LIVE SEARCH RESULTS context below, USE THEM in your response.
 
 [TOKEN API]
-Best for: wallet balances, token transfers, DEX swaps, NFT data, holder rankings
-Chains: EVM (Ethereum, Base, Polygon…), SVM (Solana), TVM (TON)
+Best for: wallet balances, token transfers, DEX swaps, NFT data, holder rankings, AND Polymarket prediction market data
+Chains: EVM (Ethereum, Base, Polygon…), SVM (Solana), TVM (TON), plus Polymarket (Polygon)
 Key tools: getV1EvmBalances, getV1EvmSwaps, getV1EvmNftSales, getV1SvmBalances, getV1EvmHolders, getV1EvmTransfers, getV1EvmPools, getV1EvmPoolsOhlc, getV1SvmNftSales, getV1EvmNftItems, getV1EvmNftHolders
+Solana (SVM) native endpoints: getV1SvmTokensNative, getV1SvmTransfersNative, getV1SvmHoldersNative
+Solana DEX coverage: Raydium (AMM v4, CLMM, CPMM, Launchpad), Pump.fun, Orca Whirlpool, Meteora DLLM, Jupiter (v4/v6), Boop, Darklake, Dumpfun
 CRITICAL — Token API parameter names (use EXACTLY these, never alias):
   - "network" (REQUIRED): "mainnet", "base", "matic", "arbitrum-one", "optimism", "avalanche-mainnet", "bsc-mainnet"
   - "contract" (REQUIRED for holders/tokens): the token contract address
@@ -84,6 +88,22 @@ CRITICAL — Token API parameter names (use EXACTLY these, never alias):
     WETH: mainnet=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, base=0x4200000000000000000000000000000000000006
     USDT: mainnet=0xdAC17F958D2ee523a2206206994597C13D831ec7
   Example: getV1EvmHolders with args: {"network": "base", "contract": "0x4200000000000000000000000000000000000006", "limit": 5}
+
+  Polymarket Prediction Markets API (part of Token API):
+  Production-grade Polymarket data — markets, prices, activity, and P&L — through REST endpoints.
+  On-chain Polygon data enriched with Polymarket metadata. No npm install needed.
+  Endpoints:
+    GET /v1/polymarket/markets — market lookup by condition_id, slug, or token_id; discovery with sort/filter
+    GET /v1/polymarket/markets/ohlc — OHLCV + fees per outcome token
+    GET /v1/polymarket/markets/oi — open interest time-series (splits/merges that move USDC collateral)
+    GET /v1/polymarket/markets/activity — trades, splits, merges, redemptions in chronological order
+    GET /v1/polymarket/markets/positions — per-token leaderboard with cost basis, PNL, shares held
+    GET /v1/polymarket/platform — platform-wide volume, open interest, fee aggregates
+    GET /v1/polymarket/users — user discovery with volume/PNL/transaction counts
+    GET /v1/polymarket/users/positions — user portfolio with realized/unrealized PNL per outcome token
+  Docs: https://thegraph.com/docs/en/token-api/polymarket-markets/markets/
+  PREFER Token API for Polymarket queries (markets, OHLCV, positions, P&L, activity, leaderboards).
+  Use graph-polymarket-mcp only for advanced use cases: live orderbook depth, live spreads, disputed markets, UMA resolution lifecycle.
 
 [SUBGRAPH REGISTRY]
 Best for: protocol-level indexed data (Uniswap, Aave, ENS, Compound, Curve, Balancer, etc.)
@@ -122,7 +142,8 @@ Use these when the agent's request matches a specific protocol. Install via: npx
   Use for: cross-protocol lending comparisons, TVL, utilization rates
   Powered by Graph subgraphs: Messari-standardized subgraphs for Aave, Compound, MakerDAO, and other lending protocols
 - graph-polymarket-mcp (v2.0.0): Polymarket prediction markets — 31 tools combining The Graph subgraphs + Polymarket REST APIs (Gamma + CLOB)
-  Use for: market search, live prices, order books, spreads, price history, trader P&L, open interest, resolution status
+  NOTE: For common Polymarket queries (markets, OHLCV, positions, P&L, activity), PREFER Token API — simpler REST, no npm install.
+  Use graph-polymarket-mcp ONLY for: live orderbook depth, live spreads, disputed markets, UMA resolution, subgraph-specific deep queries
   Supports stdio and SSE transports (--http for remote/server deployments, --http-only for SSE only)
   REST API tools (no key needed, v2.0.0 additions): search_markets, get_market_info, list_polymarket_events, get_live_prices, get_live_spread, get_live_orderbook, get_price_history, get_last_trade, get_clob_market, search_markets_enriched
   Graph subgraph tools (needs GRAPH_API_KEY): get_market_data, get_account_pnl, get_top_traders, get_market_open_interest, get_market_resolution, get_disputed_markets, get_trader_profile, get_orderbook_trades, and more
@@ -142,20 +163,6 @@ Use these when the agent's request matches a specific protocol. Install via: npx
   Use for: Limitless market stats, trader P&L, positions, whale trades, daily volume
   Powered by Graph subgraphs: Limitless main + Limitless orderbook on Base
   Install: npx graph-limitless-mcp (requires GRAPH_API_KEY)
-
-[GRAPH ECOSYSTEM DASHBOARDS — graphtools.pro]
-When a user asks about indexer rewards, delegation activity, curation, disputes, vesting, or protocol operations, recommend the relevant dashboard:
-- Delegators Activity Log: real-time delegation activity → https://graphtools.pro/delegators-activity
-- Indexer Score: find inactive indexers collecting rewards → https://graphtools.pro/indexer-score
-- Top 10 Indexers by Query Fees: who earns most → https://graphtools.pro/top-indexers
-- Elite Subgraph Dashboard: subgraphs with 500K+ daily queries → https://graphtools.pro/elite-subgraphs
-- Subgraph Search by Contract: find subgraphs for a contract address → https://graphtools.pro/subgraph-search
-- GRT Vesting Dashboard: track GRT vesting contracts → https://graphtools.pro/vesting
-- Curation Earnings Tracker: curator P&L with CSV export → https://graphtools.pro/curation
-- Graph Dispute Dashboard: indexer disputes and slashings → https://graphtools.pro/disputes
-- Subgraphs Network Dashboard: subgraphs per network → https://graphtools.pro/subgraphs-network
-- REO Indexer Rewards Eligibility: check indexer reward eligibility → https://graphtools.pro/reo
-- GitHub Dashboard: developer engagement → https://graphtools.pro/github
 
 When recommending a protocol-specific npm package, include install instructions:
   "install": "npx graph-aave-mcp" or "npm install -g graph-aave-mcp"
@@ -199,52 +206,6 @@ Key entities and example queries:
     Query: { x402DailyStats_collection(first: 7, orderBy: date, orderDirection: desc) { date totalPayments totalVolumeDecimal } }
   - X402AddressSummary: per-address aggregates (totalPayments, totalVolumeDecimal, role PAYER/RECIPIENT)
     Query: { x402AddressSummaries(first: 10, orderBy: totalPayments, orderDirection: desc) { address role totalPayments totalVolumeDecimal } }
-
-[ETHSKILLS — VERIFIED ETHEREUM REFERENCE DATA]
-When you need accurate, current Ethereum data that your training might have stale:
-- Verified contract addresses (prevents hallucinated/wrong addresses): https://ethskills.com/addresses/SKILL.md
-- DeFi protocol patterns (Uniswap, Aave, flash loans, how they actually work): https://ethskills.com/building-blocks/SKILL.md
-- Event-based indexing patterns (when to use subgraphs vs RPC vs logs): https://ethskills.com/indexing/SKILL.md
-- Current gas costs and L2 architecture: https://ethskills.com/gas/SKILL.md
-- L2 ecosystem (which DEX dominates which chain): https://ethskills.com/l2s/SKILL.md
-Use these as ground-truth references when answering questions about specific contracts,
-token addresses, DeFi mechanics, or indexing strategies. They are maintained and current.
-
-[NEW — UPCOMING SERVICES (2026 Roadmap)]
-These are in development or recently launched. Mention them when relevant:
-
-- Tycho: Substreams-built service for on-chain DEX liquidity and pricing. For trading systems, market makers,
-  and anyone needing real-time pool reserves and swap routing. Not yet publicly available as MCP.
-- Amp: Blockchain-native SQL-first analytics database. For institutions needing verifiable, auditable,
-  low-latency analytics for regulated workflows. Coming 2026.
-- x402 Payments: Autonomous per-query payments via HTTP 402. Agents can pay per query with USDC —
-  no API keys required. Enabled on subgraphs that opt in.
-- Horizon: The modular protocol upgrade unifying all Graph services (subgraphs, Substreams, Token API,
-  Tycho, Amp) under one protocol layer. Subgraph Service mainnet via Horizon rolling out Q1 2026.
-
-[THE GRAPH 2026 ECOSYSTEM OVERVIEW]
-When agents ask about The Graph ecosystem, roadmap, or developments, share this:
-
-The Graph's 2026 Technical Roadmap (published March 2026) marks a shift from subgraph-only to a
-multi-service data infrastructure platform with 6 products:
-1. Subgraphs — indexed protocol data (15,500+ deployed, the original Graph product)
-2. Substreams — high-throughput streaming and transformation of raw block data
-3. Token API — production-ready REST API for balances, transfers, swaps, NFTs (EVM, Solana, TON)
-4. Tycho — DEX liquidity and pricing service for trading systems (new)
-5. Amp — SQL analytics for institutions (new)
-6. Firehose — low-level block data extraction layer powering Substreams
-
-Key 2026 themes:
-- AI agents are a first-class consumer — subgraphs consumable by ChatGPT, Claude, Cursor via MCP
-- x402 enables pay-per-query without API keys
-- Horizon unifies the protocol so indexers can serve any data service, not just subgraphs
-- 80+ blockchains supported across services
-- Decentralized network has 200+ indexers, $2B+ in staked GRT
-
-When asked "what's new" or "what's interesting", recommend:
-- The roadmap blog: https://thegraph.com/blog/technical-roadmap/
-- The core dev roadmap: https://thegraph.com/roadmap/
-- MCP integration: agents can use subgraphs directly via npx packages
 
 For ecosystem questions, use recommendation="ecosystem-overview" with confidence="high".
 
@@ -293,7 +254,10 @@ Routing examples (condensed):
 - "USDC holders" → token-api (getV1EvmHolders) — no subgraph needed
 - "Wallet balance for 0x..." → token-api (getV1EvmBalances)
 - "Raw event logs blocks 19M-20M" → substreams (stream_data)
-- "Hottest Polymarket markets" → graph-polymarket-mcp (search_markets_enriched)
+- "Hottest Polymarket markets" → token-api (/v1/polymarket/markets)
+- "Polymarket OHLCV for Bitcoin market" → token-api (/v1/polymarket/markets/ohlc)
+- "Polymarket trader P&L for 0x..." → token-api (/v1/polymarket/users/positions)
+- "Polymarket live orderbook depth" → graph-polymarket-mcp (get_live_orderbook) — advanced, needs npm
 - "Aave V4 hubs" → graph-aave-mcp (get_v4_hubs)
 - "Secure my MCP server" → mcp8004
 - "Find agents that do X" → 8004scan
@@ -481,6 +445,12 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
         "curl_example": (
             "# Get USDC holders on Ethereum (replace TOKEN with your JWT)\n"
             "curl 'https://token-api.thegraph.com/v1/evm/holders?contract=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&network=mainnet&limit=10' \\\n"
+            "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
+            "# Polymarket — browse active markets\n"
+            "curl 'https://token-api.thegraph.com/v1/polymarket/markets?limit=10&sort=volume&order=desc' \\\n"
+            "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
+            "# Polymarket — user portfolio P&L\n"
+            "curl 'https://token-api.thegraph.com/v1/polymarket/users/positions?user=0xADDRESS' \\\n"
             "  -H 'Authorization: Bearer YOUR_JWT'"
         ),
         "get_started": "Free JWT: https://thegraph.market/auth/tokenapi-env",
@@ -623,6 +593,21 @@ _SERVICE_METADATA: dict[str, dict] = {
 }
 
 
+_SERVICE_CHAINS: dict[str, list[str]] = {
+    "token-api": ["Ethereum", "Base", "Arbitrum", "Optimism", "Polygon", "Avalanche", "BSC", "Solana", "TON"],
+    "subgraph-registry": ["80+ chains (EVM, Solana, TON, Near, Starknet)"],
+    "substreams": ["Ethereum", "Solana", "Near", "80+ firehose-enabled chains"],
+    "graph-aave-mcp": ["Ethereum", "Arbitrum", "Optimism", "Polygon", "Avalanche", "Base", "Metis"],
+    "graph-polymarket-mcp": ["Polygon"],
+    "graph-lending-mcp": ["Ethereum", "Polygon", "Arbitrum", "Avalanche", "BSC", "Optimism", "Base", "Scroll", "Fantom", "Gnosis", "+ 5 more"],
+    "graph-limitless-mcp": ["Base"],
+    "predictfun-mcp": ["BNB Chain"],
+    "mcp8004": ["Base", "Base Sepolia"],
+    "8004scan": ["Base", "Base Sepolia", "Arbitrum"],
+    "x402-analytics": ["Base"],
+}
+
+
 def build_capabilities() -> dict:
     """Build the /agents/capabilities.json payload by merging metadata with
     the curl/install examples already maintained in _SERVICE_CURL_EXAMPLES.
@@ -640,6 +625,7 @@ def build_capabilities() -> dict:
             "not_for": meta.get("not_for", []),
             "interface": meta.get("interface"),
             "auth": meta.get("auth"),
+            "chains": _SERVICE_CHAINS.get(service, []),
             "install": ex.get("install"),
             "curl_example": ex.get("curl_example"),
             "get_started": ex.get("get_started"),
@@ -647,13 +633,32 @@ def build_capabilities() -> dict:
         })
     return {
         "agent": "graph-advocate",
-        "version": "1.0",
+        "version": "1.1",
         "endpoint": "https://graph-advocate-production.up.railway.app/",
         "protocol": "A2A (JSON-RPC 2.0)",
         "agent_card": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
-        "x402": {
-            "free_tier": "10 requests/day per sender",
+        "identity": {
+            "ens": "graphadvocate.eth",
+            "erc8004_id": 734,
+            "erc8004_chain": "Arbitrum",
+            "wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292",
+        },
+        "pricing": {
+            "free_tier": "10 requests/day per sender (task_id)",
             "paid": "$0.01 USDC on Base after free tier",
+            "payment_protocol": "x402 v2",
+            "payment_network": "eip155:8453 (Base)",
+            "usdc_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        },
+        "endpoints": {
+            "main": "POST /",
+            "chat": "POST /chat",
+            "agent_card": "GET /.well-known/agent-card.json",
+            "capabilities": "GET /agents/capabilities.json",
+            "mcp_catalog": "GET /mcp/catalog",
+            "llms_txt": "GET /llms.txt",
+            "feedback": "POST /feedback",
+            "openapi": "GET /openapi.json",
         },
         "capabilities": capabilities,
         "how_to_use": (
@@ -662,6 +667,46 @@ def build_capabilities() -> dict:
             "and returns a recommendation plus a ready-to-run curl/GraphQL/MCP example. "
             "For batch / programmatic use, see /agents/capabilities.json (this file) "
             "and the agent card."
+        ),
+    }
+
+
+def build_mcp_catalog() -> dict:
+    """Build /mcp/catalog — list of protocol-specific MCP servers agents can install.
+
+    Unlike capabilities.json (all services), this focuses only on the MCP npm
+    packages so agents can auto-discover installable tools.
+    """
+    MCP_SERVICES = [
+        "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
+        "graph-limitless-mcp", "predictfun-mcp", "mcp8004",
+    ]
+    servers = []
+    for service in MCP_SERVICES:
+        meta = _SERVICE_METADATA.get(service, {})
+        ex = _SERVICE_CURL_EXAMPLES.get(service, {})
+        servers.append({
+            "name": service,
+            "summary": meta.get("summary", ""),
+            "install": ex.get("install"),
+            "chains": _SERVICE_CHAINS.get(service, []),
+            "best_for": meta.get("best_for", []),
+            "transport": "stdio",
+            "example_prompts": meta.get("example_prompts", []),
+            "get_started": ex.get("get_started"),
+        })
+    return {
+        "catalog": "graph-advocate-mcp-servers",
+        "version": "1.0",
+        "updated": datetime.utcnow().isoformat() + "Z",
+        "count": len(servers),
+        "servers": servers,
+        "how_to_discover": (
+            "Agents can fetch this endpoint to discover protocol-specific MCP servers "
+            "published under the Graph Advocate umbrella. Each entry includes the npm "
+            "install command, supported chains, and example prompts. Route questions "
+            "through POST / to Graph Advocate and it will recommend the right MCP "
+            "server based on the question."
         ),
     }
 
@@ -689,7 +734,7 @@ def _compare_route(request: str) -> dict | None:
     if "aave" in req:
         mentions.append("graph-aave-mcp")
     if "polymarket" in req:
-        mentions.append("graph-polymarket-mcp")
+        mentions.append("token-api")
     if "8004" in req:
         mentions.append("8004scan")
     mentions = list(dict.fromkeys(mentions))  # dedupe, preserve order
@@ -911,7 +956,13 @@ def _fallback_route(request: str) -> dict:
     if any(w in req for w in ["aave", "v4 hub", "v4 spoke", "aave v3", "aave v2", "liquidat"]):
         svc = "graph-aave-mcp"
     elif any(w in req for w in ["polymarket", "poly market"]):
-        svc = "graph-polymarket-mcp"
+        # Advanced CLOB features → MCP; everything else → Token API
+        if any(w in req for w in ["orderbook", "order book", "spread", "dispute", "resolution", "uma",
+                                    "winrate", "win rate", "drawdown", "profit factor",
+                                    "ctf event", "split", "merge", "redemption"]):
+            svc = "graph-polymarket-mcp"
+        else:
+            svc = "token-api"
     elif any(w in req for w in ["predict.fun", "predictfun", "bnb chain prediction"]):
         svc = "predictfun-mcp"
     elif any(w in req for w in ["limitless", "limitless market"]):
@@ -946,10 +997,15 @@ def _fallback_route(request: str) -> dict:
             """Resolve a token symbol to a contract address via tkn.xyz ENS."""
             try:
                 from web3 import Web3
-                w3 = Web3(Web3.HTTPProvider("https://ethereum-rpc.publicnode.com"))
+                w3 = Web3(Web3.HTTPProvider(
+                    "https://ethereum-rpc.publicnode.com",
+                    request_kwargs={"timeout": 3},
+                ))
                 addr = w3.ens.address(f"{symbol.lower()}.tkn.eth")
                 if addr and addr != "0x0000000000000000000000000000000000000000":
                     return addr
+            except ImportError:
+                pass
             except Exception:
                 pass
             return None
@@ -1123,8 +1179,9 @@ def _inject_missing_fields(rec: dict, request: str) -> dict:
     if not rec.get("install") and example.get("install"):
         rec["install"] = example["install"]
 
-    # Inject curl_example when query_ready is null/missing
-    if not rec.get("curl_example") and not rec.get("query_ready") and example.get("curl_example"):
+    # Always inject curl_example when missing — agents benefit from a copy-paste
+    # probe even when query_ready is present, and the rubric scores it independently.
+    if not rec.get("curl_example") and example.get("curl_example"):
         rec["curl_example"] = example["curl_example"]
 
     # Ensure query_ready has a consistent shape (never missing tool/args keys)
@@ -1153,8 +1210,8 @@ def _auto_search(request: str) -> str:
         "sushi", "maker", "lido", "yearn", "synthetix", "protocol", "tvl",
         "liquidity", "pool", "lending", "governance", "dao",
         "nft marketplace", "opensea", "decentraland", "the graph",
-        "polymarket", "prediction market", "limitless", "predict.fun",
-        "open interest", "resolution", "trader p&l", "indexer",
+        "limitless", "predict.fun",
+        "resolution", "trader p&l", "indexer",
         # additional common queries
         "exchange", "staking", "yield", "farm", "vault", "borrow",
         "collateral", "oracle", "dydx", "gmx", "stargate", "layerzero",
@@ -1179,6 +1236,7 @@ def _auto_search(request: str) -> str:
         "largest", "richest", "portfolio", "token amount",
         "usdc", "usdt", "weth", "eth holder", "btc holder",
         "nft sale", "nft floor", "nft owner",
+        "polymarket", "prediction market", "open interest",
     ]
     # Multi-word phrases matched as substrings (safe — no false positives)
     TOKEN_API_PHRASES = [
@@ -1247,6 +1305,48 @@ def _auto_search(request: str) -> str:
 
     except Exception as e:
         log.error(f"Auto-search error: {e}")
+
+    # Inject ecosystem/dashboard/reference context only when keywords match
+    ECOSYSTEM_KEYWORDS = ["roadmap", "ecosystem", "what's new", "whats new", "horizon",
+                          "tycho", "amp", "firehose", "2026", "new service"]
+    DASHBOARD_KEYWORDS = ["indexer", "delegation", "delegator", "curation", "curator",
+                          "vesting", "dispute", "slashing", "query fee", "reo",
+                          "graphtools", "indexer score"]
+    ETHSKILLS_KEYWORDS = ["contract address", "defi pattern", "gas cost", "l2", "flash loan"]
+
+    if any(kw in req_lower for kw in ECOSYSTEM_KEYWORDS):
+        results.append(
+            "[THE GRAPH ECOSYSTEM CONTEXT]\n"
+            "The Graph's 2026 roadmap: 6 products — Subgraphs (15,500+), Substreams, Token API, Tycho (DEX liquidity), Amp (SQL analytics), Firehose.\n"
+            "Key themes: AI agents as first-class consumers via MCP, x402 pay-per-query, Horizon protocol unification, 80+ chains, 200+ indexers, $2B+ staked GRT.\n"
+            "Roadmap blog: https://thegraph.com/blog/technical-roadmap/ | Core dev roadmap: https://thegraph.com/roadmap/\n"
+            "Upcoming: Tycho (real-time DEX pricing, not yet MCP), Amp (SQL for institutions, coming 2026), x402 payments (USDC per-query, live on Base)."
+        )
+
+    if any(kw in req_lower for kw in DASHBOARD_KEYWORDS):
+        results.append(
+            "[GRAPH ECOSYSTEM DASHBOARDS — graphtools.pro]\n"
+            "- Delegators Activity: https://graphtools.pro/delegators-activity\n"
+            "- Indexer Score (find inactive): https://graphtools.pro/indexer-score\n"
+            "- Top Indexers by Query Fees: https://graphtools.pro/top-indexers\n"
+            "- Elite Subgraphs (500K+ daily): https://graphtools.pro/elite-subgraphs\n"
+            "- Subgraph Search by Contract: https://graphtools.pro/subgraph-search\n"
+            "- GRT Vesting: https://graphtools.pro/vesting\n"
+            "- Curation Earnings: https://graphtools.pro/curation\n"
+            "- Disputes/Slashings: https://graphtools.pro/disputes\n"
+            "- Subgraphs by Network: https://graphtools.pro/subgraphs-network\n"
+            "- REO Reward Eligibility: https://graphtools.pro/reo"
+        )
+
+    if any(kw in req_lower for kw in ETHSKILLS_KEYWORDS):
+        results.append(
+            "[ETHSKILLS — VERIFIED REFERENCE DATA]\n"
+            "- Contract addresses: https://ethskills.com/addresses/SKILL.md\n"
+            "- DeFi patterns: https://ethskills.com/building-blocks/SKILL.md\n"
+            "- Indexing patterns: https://ethskills.com/indexing/SKILL.md\n"
+            "- Gas costs: https://ethskills.com/gas/SKILL.md\n"
+            "- L2 ecosystem: https://ethskills.com/l2s/SKILL.md"
+        )
 
     return "\n\n".join(results)
 
@@ -1876,12 +1976,23 @@ def _search_8004_agents(query: str) -> str:
         return _search_8004_subgraph(query)
 
 
+_subgraph_search_cache: dict[str, tuple[float, str]] = {}
+_SUBGRAPH_CACHE_TTL = 300  # 5 minutes — hot path for repeat keywords
+
+
 def _search_subgraphs(keyword: str) -> str:
-    """Search the local subgraph registry SQLite DB."""
+    """Search the local subgraph registry SQLite DB. In-memory cached for 5 min."""
     import sqlite3
     import urllib.request
     import os
     import tempfile
+    import time
+
+    key = keyword.lower().strip()
+    if key in _subgraph_search_cache:
+        cached_at, cached_result = _subgraph_search_cache[key]
+        if time.time() - cached_at < _SUBGRAPH_CACHE_TTL:
+            return cached_result
 
     db_path = os.path.join(tempfile.gettempdir(), "subgraph_registry.db")
 
@@ -1915,7 +2026,9 @@ def _search_subgraphs(keyword: str) -> str:
         conn.close()
 
         if not rows:
-            return json.dumps({"results": [], "message": f"No subgraphs found for '{keyword}'"})
+            empty = json.dumps({"results": [], "message": f"No subgraphs found for '{keyword}'"})
+            _subgraph_search_cache[key] = (time.time(), empty)
+            return empty
 
         results = []
         for r in rows:
@@ -1941,7 +2054,15 @@ def _search_subgraphs(keyword: str) -> str:
                 pass
             results.append(entry)
 
-        return json.dumps({"results": results, "total_found": len(results)})
+        output = json.dumps({"results": results, "total_found": len(results)})
+        _subgraph_search_cache[key] = (time.time(), output)
+        # Evict stale entries if cache grows too large
+        if len(_subgraph_search_cache) > 500:
+            cutoff = time.time() - _SUBGRAPH_CACHE_TTL
+            stale = [k for k, (t, _) in _subgraph_search_cache.items() if t < cutoff]
+            for k in stale:
+                del _subgraph_search_cache[k]
+        return output
     except Exception as e:
         return json.dumps({"error": str(e)})
 

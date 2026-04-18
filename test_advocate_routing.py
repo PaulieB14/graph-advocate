@@ -93,8 +93,11 @@ class TestFallbackRoute(unittest.TestCase):
     def test_liquidation_routes_to_aave(self):
         self._check("recent Aave liquidations on Ethereum", "graph-aave-mcp")
 
-    def test_polymarket_routes_correctly(self):
-        self._check("hottest Polymarket prediction markets", "graph-polymarket-mcp")
+    def test_polymarket_routes_to_token_api(self):
+        self._check("hottest Polymarket prediction markets", "token-api")
+
+    def test_polymarket_orderbook_routes_to_mcp(self):
+        self._check("Polymarket live orderbook depth", "graph-polymarket-mcp")
 
     def test_holder_routes_to_token_api(self):
         self._check("top 20 USDC holders on Ethereum", "token-api")
@@ -246,8 +249,8 @@ class TestAutoSearchKeywords(unittest.TestCase):
             "sushi", "maker", "lido", "yearn", "synthetix", "protocol", "tvl",
             "liquidity", "pool", "lending", "governance", "dao",
             "nft marketplace", "opensea", "decentraland", "the graph",
-            "polymarket", "prediction market", "limitless", "predict.fun",
-            "open interest", "resolution", "trader p&l", "indexer",
+            "limitless", "predict.fun",
+            "resolution", "trader p&l", "indexer",
             "exchange", "staking", "yield", "farm", "vault", "borrow",
             "collateral", "oracle", "dydx", "gmx", "stargate", "layerzero",
             "pancake", "quickswap", "velodrome", "aerodrome", "camelot",
@@ -263,6 +266,7 @@ class TestAutoSearchKeywords(unittest.TestCase):
             "largest", "richest", "portfolio", "token amount",
             "usdc", "usdt", "weth", "eth holder", "btc holder",
             "nft sale", "nft floor", "nft owner",
+            "polymarket", "prediction market", "open interest",
         ]
 
     def _run_subgraph(self, text):
@@ -321,6 +325,98 @@ class TestServiceCurlExamples(unittest.TestCase):
             )
 
 
+class TestGreetingDetection(unittest.TestCase):
+    """Verify _is_greeting handles common patterns."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("RECOMMENDATIONS_DB", "/tmp/test_advocate.db")
+        from a2a_server import _is_greeting
+        self.fn = _is_greeting
+
+    def test_basic_greetings(self):
+        for g in ["hi", "hello", "hey", "yo", "howdy", "hola"]:
+            self.assertTrue(self.fn(g), f"{g!r} should be a greeting")
+
+    def test_greetings_case_insensitive(self):
+        self.assertTrue(self.fn("Hello"))
+        self.assertTrue(self.fn("HI"))
+
+    def test_data_queries_not_greetings(self):
+        for q in ["top USDC holders", "Aave liquidations", "Polymarket markets"]:
+            self.assertFalse(self.fn(q), f"{q!r} should NOT be a greeting")
+
+
+class TestBenchmarkMatching(unittest.TestCase):
+    """Verify _match_benchmark_query catches known bot queries."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("RECOMMENDATIONS_DB", "/tmp/test_advocate.db")
+        from a2a_server import _match_benchmark_query
+        self.fn = _match_benchmark_query
+
+    def test_known_benchmarks_match(self):
+        self.assertIsNotNone(self.fn("Which npm package should I use for Aave data?"))
+        self.assertIsNotNone(self.fn("Token API vs subgraph for Uniswap pool data?"))
+        self.assertIsNotNone(self.fn("Top 20 USDC holders on Ethereum"))
+
+    def test_case_insensitive(self):
+        self.assertIsNotNone(self.fn("TOP 20 USDC HOLDERS ON ETHEREUM"))
+
+    def test_unknown_queries_dont_match(self):
+        self.assertIsNone(self.fn("What is the weather?"))
+        self.assertIsNone(self.fn("Aave liquidations above 50K"))
+
+    def test_returns_correct_service(self):
+        r = self.fn("Which npm package should I use for Aave data?")
+        self.assertEqual(r["recommendation"], "graph-aave-mcp")
+        r = self.fn("Top 20 USDC holders on Ethereum")
+        self.assertEqual(r["recommendation"], "token-api")
+
+
+class TestPolymarketRouting(unittest.TestCase):
+    """Polymarket should route to token-api by default, MCP for advanced queries."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("RECOMMENDATIONS_DB", "/tmp/test_advocate.db")
+        from advocate import _fallback_route
+        self.fn = _fallback_route
+
+    def test_basic_polymarket_to_token_api(self):
+        for q in ["Polymarket markets", "Polymarket OHLCV", "Polymarket user P&L"]:
+            r = self.fn(q)
+            self.assertEqual(r["recommendation"], "token-api", f"{q!r} should route to token-api")
+
+    def test_advanced_polymarket_to_mcp(self):
+        for q in ["Polymarket live orderbook", "Polymarket spread", "Polymarket disputed markets",
+                   "Polymarket resolution status", "Polymarket trader winrate",
+                   "Polymarket drawdown stats"]:
+            r = self.fn(q)
+            self.assertEqual(r["recommendation"], "graph-polymarket-mcp",
+                             f"{q!r} should route to graph-polymarket-mcp")
+
+
+class TestCompareRoute(unittest.TestCase):
+    """_compare_route should detect multi-service comparison requests."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("RECOMMENDATIONS_DB", "/tmp/test_advocate.db")
+        from advocate import _compare_route
+        self.fn = _compare_route
+
+    def test_detects_comparison(self):
+        result = self.fn("Token API vs subgraph for Uniswap")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["recommendation"], "comparison")
+
+    def test_no_comparison_single_service(self):
+        result = self.fn("top USDC holders")
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
@@ -329,6 +425,10 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestInjectMissingFields))
     suite.addTests(loader.loadTestsFromTestCase(TestAutoSearchKeywords))
     suite.addTests(loader.loadTestsFromTestCase(TestServiceCurlExamples))
+    suite.addTests(loader.loadTestsFromTestCase(TestGreetingDetection))
+    suite.addTests(loader.loadTestsFromTestCase(TestBenchmarkMatching))
+    suite.addTests(loader.loadTestsFromTestCase(TestPolymarketRouting))
+    suite.addTests(loader.loadTestsFromTestCase(TestCompareRoute))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
