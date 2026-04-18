@@ -4170,6 +4170,10 @@ def build_app():
             ]})
             await send({"type": "http.response.body", "body": body})
             return
+        if scope["type"] == "http" and scope["path"] == "/mcp/catalog":
+            # Machine-readable catalog lives in `extra`, not the MCP SSE server
+            await extra(scope, receive, send)
+            return
         if scope["type"] == "http" and scope["path"].startswith("/mcp"):
             await mcp_asgi(scope, receive, send)
         elif scope["type"] == "http" and scope["path"] == "/" and scope.get("method", "POST") == "GET":
