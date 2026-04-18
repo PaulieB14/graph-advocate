@@ -2,6 +2,16 @@
 
 `npx graph-polymarket-mcp` — 31 tools combining 8 Graph subgraphs + REST APIs.
 
+## When to Use This vs Token API
+
+**Prefer Token API** (`/v1/polymarket/*`) for common queries — markets, OHLCV, activity, positions, P&L, leaderboards, platform stats. Simpler REST, no npm install.
+
+**Use this MCP** for advanced queries only:
+- Live orderbook depth, live spreads (real-time CLOB data)
+- Disputed markets, UMA resolution lifecycle
+- Trader winrate, drawdown, profit factor (subgraph-specific P&L stats)
+- CTF events (splits, merges, redemptions) per trader
+
 ## REST API Tools (no key needed)
 | Tool | Description |
 |------|-------------|

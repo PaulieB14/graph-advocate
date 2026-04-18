@@ -1,7 +1,7 @@
 ---
 name: graph-advocate
-description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 14,733+ subgraphs, Token API (EVM/Solana/TON), x402 payment analytics, and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, ENS, governance, x402, prediction market, onchain data, blockchain."
-version: 2.0.0
+description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 15,500+ subgraphs, Token API (EVM/Solana/TON + Polymarket), x402 payment analytics, and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, ENS, governance, x402, prediction market, onchain data, blockchain."
+version: 2.1.0
 homepage: https://github.com/PaulieB14/graph-advocate
 metadata:
   clawdbot:
@@ -19,15 +19,19 @@ Match the user's intent to the right service. Load only the reference you need.
 | Intent | Service | Reference | Use for |
 |--------|---------|-----------|---------|
 | **Token balances, holders, swaps, NFTs** | token-api | [token-api.md](references/token-api.md) | Wallet data across EVM, Solana, TON |
-| **Find a subgraph for a protocol** | subgraph-registry | [subgraph-registry.md](references/subgraph-registry.md) | Search 14,733+ subgraphs by protocol/chain |
+| **Polymarket markets, OHLCV, P&L, positions** | token-api | [token-api.md](references/token-api.md) | REST endpoints under `/v1/polymarket/*` — no npm install |
+| **Find a subgraph for a protocol** | subgraph-registry | [subgraph-registry.md](references/subgraph-registry.md) | Search 15,500+ subgraphs by protocol/chain |
 | **Aave lending data** | graph-aave-mcp | [aave.md](references/aave.md) | 40 tools — V2/V3/V4, liquidations, rates |
-| **Polymarket prediction markets** | graph-polymarket-mcp | [polymarket.md](references/polymarket.md) | 31 tools — prices, P&L, open interest |
+| **Polymarket advanced (orderbook, disputes, trader winrate/drawdown)** | graph-polymarket-mcp | [polymarket.md](references/polymarket.md) | 31 tools — live CLOB, UMA resolution, subgraph-specific P&L stats |
+| **Cross-protocol lending** | graph-lending-mcp | — | Messari standardized — 40+ protocols on 15 chains |
+| **Limitless prediction markets** | graph-limitless-mcp | — | Markets on Base |
+| **Predict.fun prediction markets** | predictfun-mcp | — | BNB Chain prediction markets |
 | **x402 payment analytics** | x402-analytics | [x402.md](references/x402.md) | Payment volume, facilitators, daily stats on Base |
 | **Raw block data, streaming** | substreams | — | Traces, logs, custom transformations |
 | **Agent discovery (ERC-8004)** | 8004scan | — | Find AI agents by capability |
 | **MCP server auth** | mcp8004 | — | ERC-8004 identity verification |
-| **Cross-protocol lending** | graph-lending-mcp | — | Compare Aave/Compound/Morpho rates |
-| **Limitless prediction markets** | graph-limitless-mcp | — | Markets on Base |
+
+**Polymarket routing rule:** Prefer `token-api` for common queries (markets, OHLCV, activity, user positions, P&L, platform stats). Only route to `graph-polymarket-mcp` for advanced queries: live orderbook depth, live spreads, disputed markets, UMA resolution, trader winrate/drawdown/profit factor, CTF splits/merges/redemptions.
 
 If the request spans two services, use both and combine results.
 
@@ -35,8 +39,14 @@ If the request spans two services, use both and combine results.
 
 ```
 "Top 10 USDC holders on Ethereum"           → token-api
-"Best subgraph for Uniswap V3 on Arbitrum?" → subgraph-registry  
+"Best subgraph for Uniswap V3 on Arbitrum?" → subgraph-registry
 "Aave V3 liquidations above $50K"           → graph-aave-mcp
+"Hottest Polymarket markets"                → token-api (/v1/polymarket/markets)
+"Polymarket OHLCV for Bitcoin market"       → token-api (/v1/polymarket/markets/ohlc)
+"Polymarket trader P&L for 0x..."           → token-api (/v1/polymarket/users/positions)
+"Polymarket live orderbook depth"           → graph-polymarket-mcp (advanced)
+"Polymarket trader winrate/drawdown"        → graph-polymarket-mcp (subgraph P&L stats)
+"Compare Aave vs Compound TVL"              → graph-lending-mcp
 "x402 payment volume on Base today"         → x402-analytics
 "Find agents that do trading"               → 8004scan
 ```
@@ -45,7 +55,7 @@ If the request spans two services, use both and combine results.
 
 1. Agent sends plain-English question
 2. Graph Advocate identifies the best service
-3. Searches the subgraph registry (14,733 subgraphs with query hints)
+3. Searches the subgraph registry (15,500+ subgraphs with query hints)
 4. Executes the query and returns **live data** in the response
 5. Includes `get_started` link for agents to get their own free API key
 
@@ -70,6 +80,9 @@ If the request spans two services, use both and combine results.
 | POST | `https://graph-advocate-production.up.railway.app/` | A2A JSON-RPC 2.0 |
 | POST | `https://graph-advocate-production.up.railway.app/chat` | Simple HTTP chat |
 | GET | `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json` | Agent card |
+| GET | `https://graph-advocate-production.up.railway.app/agents/capabilities.json` | Machine-readable capability list |
+| GET | `https://graph-advocate-production.up.railway.app/mcp/catalog` | List of installable MCP servers |
+| GET | `https://graph-advocate-production.up.railway.app/llms.txt` | LLM-friendly discovery file |
 | GET | `https://graph-advocate-production.up.railway.app/dashboard` | Live monitoring |
 | POST | `https://graph-advocate-production.up.railway.app/feedback` | Agent feedback |
 

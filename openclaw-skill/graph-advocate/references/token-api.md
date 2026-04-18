@@ -29,8 +29,37 @@ Get key: https://thegraph.market/auth/tokenapi-env
 | getV1SvmBalances | GET /v1/svm/balances | network, owner |
 | getV1SvmSwaps | GET /v1/svm/swaps | network |
 
+## Solana (SVM) Native Endpoints (new)
+| Endpoint | Purpose |
+|----------|---------|
+| GET /v1/svm/tokens/native | Native SOL tokens |
+| GET /v1/svm/transfers/native | Native SOL transfers |
+| GET /v1/svm/holders/native | Native SOL holders |
+
+Solana DEX coverage on `/v1/svm/swaps` and `/v1/svm/dexes`: Raydium (AMM v4, CLMM, CPMM, Launchpad), Pump.fun (pumpfun, pumpfun_amm), Orca Whirlpool, Meteora DLLM, Jupiter (v4/v6), Boop, Darklake, Dumpfun.
+
+## Polymarket Prediction Markets (new)
+Production-grade Polymarket data — markets, prices, activity, P&L — on Polygon. No npm install needed.
+
+| Endpoint | Purpose |
+|----------|---------|
+| GET /v1/polymarket/markets | Market lookup by condition_id, slug, or token_id |
+| GET /v1/polymarket/markets/ohlc | OHLCV + fees per outcome token |
+| GET /v1/polymarket/markets/oi | Open interest time-series |
+| GET /v1/polymarket/markets/activity | Trades, splits, merges, redemptions |
+| GET /v1/polymarket/markets/positions | Per-token leaderboard (cost basis, PNL) |
+| GET /v1/polymarket/platform | Platform-wide volume, OI, fee aggregates |
+| GET /v1/polymarket/users | User discovery with volume/PNL/tx counts |
+| GET /v1/polymarket/users/positions | User portfolio with realized/unrealized PNL |
+
+**When to use Token API vs graph-polymarket-mcp:**
+- Token API — markets, OHLCV, positions, P&L, activity, leaderboards (simpler REST)
+- graph-polymarket-mcp — live orderbook depth, live spreads, disputed markets, UMA resolution, trader winrate/drawdown/profit factor
+
+Docs: https://thegraph.com/docs/en/token-api/polymarket-markets/markets/
+
 ## Full Specification
 Fetch the complete endpoint reference (all params, response schemas, examples):
 **https://token-api.thegraph.com/skills.md**
 
-This skills.md is the authoritative source — if anything in this reference conflicts, trust skills.md.
+Note: as of 2026-04-17, `skills.md` has not yet been updated with the Polymarket or Solana-native endpoints listed above. The Pinax team is working on the update. Until then, trust the tables above for those specific endpoints.
