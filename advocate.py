@@ -1421,11 +1421,21 @@ def ask_graph_advocate(
         "pros and cons", "strategy", "optimize", "multiple", "cross-chain",
         "ecosystem", "roadmap", "what's new", "overview",
     ]
+    # Strong signals — if any of these appear, Opus regardless of length
+    STRONG_COMPLEX_SIGNALS = {"compare", "vs", "versus", "tradeoff", "trade-off"}
+    has_strong_signal = any(sig in req_lower for sig in STRONG_COMPLEX_SIGNALS)
+
     is_complex = (
         any(sig in req_lower for sig in COMPLEX_SIGNALS)
         or len(request) > 600  # long queries need more reasoning
         or (search_context and len(search_context) > 4000)  # lots of search results to synthesize
     )
+
+    # Short queries (≤30 chars) almost never need Opus. A 4-word non-English
+    # query like "Vat dit samen" was escalating to Opus via fuzzy search-context
+    # growth — ~15x cost for no benefit. Downgrade unless a strong signal is present.
+    if len(request) <= 30 and not has_strong_signal:
+        is_complex = False
 
     def _call_claude(msgs):
         if is_complex:

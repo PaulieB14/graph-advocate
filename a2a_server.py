@@ -437,6 +437,26 @@ logging.basicConfig(
 )
 log = logging.getLogger("graph-advocate")
 
+
+# Suppress noisy pydantic tracebacks from the a2a library when a peer sends a
+# malformed JSON-RPC request — the library still returns a structured -32602
+# response to the client and emits a companion WARNING with the validation
+# details. The ERROR + traceback is redundant log noise.
+class _SuppressA2AValidationTraceback(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        if record.levelno == logging.ERROR and "Failed to validate base JSON-RPC request" in msg:
+            return False
+        return True
+
+
+logging.getLogger("a2a.server.apps.jsonrpc.jsonrpc_app").addFilter(
+    _SuppressA2AValidationTraceback()
+)
+
 PORT = int(os.environ.get("PORT", 8765))
 PUBLIC_URL = os.environ.get("ADVOCATE_PUBLIC_URL", f"http://localhost:{PORT}")
 
@@ -509,33 +529,65 @@ def _match_benchmark_query(text: str) -> dict | None:
 _CACHE_TTL_SECONDS = 86400  # 24 hours
 
 
+def _normalize_cache_key(text: str) -> str:
+    """Produce a canonical form of a request for cache lookup.
+
+    Normalizes out common preambles and stylistic variations that don't change
+    intent so "Question X" and "Question X\n---\nPayment offer: I will pay 2000…"
+    share a cache hit.
+    """
+    import re as _re
+    if not text:
+        return ""
+    t = text.strip()
+    # Strip A2A "---" separator blocks (often followed by payment offer boilerplate)
+    # Keep only the portion before the first --- line.
+    parts = _re.split(r"\n\s*-{3,}\s*\n", t, maxsplit=1)
+    t = parts[0]
+    # Remove common benchmark-bot payment preamble if it appears before the ---
+    t = _re.sub(r"(?is)payment offer[:].*?(?=\n\n|$)", "", t)
+    # Collapse whitespace and trim
+    t = _re.sub(r"\s+", " ", t).strip()
+    # Normalize case and strip trailing sentence-terminator variation
+    t = t.lower().rstrip("?!.")
+    return t
+
+
 def _get_cached_response(text: str) -> dict | None:
-    """Check SQLite for a cached response within TTL."""
-    import time
+    """Check SQLite for a cached response within TTL.
+
+    Lookup is done on the normalized cache key so queries that differ only in
+    payment preamble, trailing punctuation, or capitalisation share a hit.
+    """
     try:
+        norm = _normalize_cache_key(text)
+        if not norm:
+            return None
         import sqlite3 as _sq
         conn = _sq.connect(str(DB_PATH))
-        row = conn.execute(
-            "SELECT response_json, timestamp FROM activity "
-            "WHERE request = ? AND service NOT IN ('introduction', 'out-of-scope', 'rate-limited', 'conformance', 'cached', 'benchmark-static') "
+        # Candidate query: pull recent entries with a response, filter in-app
+        # by normalized match. Limited to 200 rows to keep the scan cheap.
+        rows = conn.execute(
+            "SELECT request, response_json, timestamp FROM activity "
+            "WHERE service NOT IN ('introduction', 'out-of-scope', 'rate-limited', 'conformance', 'cached', 'benchmark-static') "
             "AND response_json IS NOT NULL "
-            "ORDER BY timestamp DESC LIMIT 1",
-            (text.strip(),),
-        ).fetchone()
+            "ORDER BY timestamp DESC LIMIT 200"
+        ).fetchall()
         conn.close()
-        if row and row[0]:
-            # Check age
+        for raw_req, resp_json, ts in rows:
+            if _normalize_cache_key(raw_req) != norm:
+                continue
             from datetime import datetime as _dt
             try:
-                cached_time = _dt.fromisoformat(row[1].replace("Z", "+00:00"))
+                cached_time = _dt.fromisoformat(ts.replace("Z", "+00:00"))
                 age = (datetime.now(timezone.utc) - cached_time).total_seconds()
                 if age < _CACHE_TTL_SECONDS:
-                    resp = json.loads(row[0])
+                    resp = json.loads(resp_json)
                     resp["_cached"] = True
                     resp["_cached_age_seconds"] = int(age)
                     return resp
             except Exception:
-                pass
+                continue
     except Exception as e:
         log.warning(f"Cache lookup failed: {e}")
     return None
@@ -544,7 +596,7 @@ def _get_cached_response(text: str) -> dict | None:
 def _cache_response(text: str, rec: dict):
     """Store response in the in-memory cache (SQLite persistence via _log_request)."""
     import time as _time
-    _RESPONSE_CACHE[text.strip().lower()] = (_time.time(), rec)
+    _RESPONSE_CACHE[_normalize_cache_key(text)] = (_time.time(), rec)
     if len(_RESPONSE_CACHE) > _MAX_CACHE_ENTRIES:
         sorted_keys = sorted(_RESPONSE_CACHE, key=lambda k: _RESPONSE_CACHE[k][0])
         for k in sorted_keys[:len(_RESPONSE_CACHE) - _MAX_CACHE_ENTRIES]:
