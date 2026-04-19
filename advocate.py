@@ -1378,6 +1378,7 @@ def ask_graph_advocate(
     request: str,
     history: list = None,
     requesting_agent: str = "unknown",
+    priority: bool = False,
 ) -> tuple[dict, list]:
     import logging
     log = logging.getLogger("graph-advocate")
@@ -1436,6 +1437,10 @@ def ask_graph_advocate(
     # growth — ~15x cost for no benefit. Downgrade unless a strong signal is present.
     if len(request) <= 30 and not has_strong_signal:
         is_complex = False
+
+    # Paid (x402) requests always get Opus — they paid for premium quality.
+    if priority:
+        is_complex = True
 
     def _call_claude(msgs):
         if is_complex:

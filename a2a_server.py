@@ -216,6 +216,28 @@ def _check_daily_limit(task_id: str) -> bool:
         return entry["count"] > DAILY_FREE_QUERIES
 
 
+def _get_daily_count(task_id: str) -> int:
+    """Read the current daily count for a sender WITHOUT incrementing.
+
+    Used to decide whether to show a tip nudge mid-session. Zero if no
+    entry exists yet today.
+    """
+    from datetime import date
+    import sqlite3 as _sq
+    today = date.today().isoformat()
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        row = conn.execute(
+            "SELECT count FROM daily_limits WHERE sender = ? AND date = ?",
+            (task_id, today),
+        ).fetchone()
+        conn.close()
+        return row[0] if row else 0
+    except Exception:
+        entry = _daily_query_counts.get(task_id, {"date": "", "count": 0})
+        return entry["count"] if entry["date"] == today else 0
+
+
 def _x402_payment_required_response() -> dict:
     """Return a 402 Payment Required response with x402 v2 details."""
     return {
@@ -1017,6 +1039,7 @@ class GraphAdvocateExecutor(AgentExecutor):
         # ── Daily free tier check — x402 paywall after limit ────────────────
         # Exempt health checks and conformance probes from daily limit
         is_health_check = "conformance probe" in user_text.lower() or "please acknowledge" in user_text.lower()
+        _is_paid_request = False  # flipped to True when x402 payment is verified
         if not is_health_check and _check_daily_limit(task_id):
             # Check if payment was included in the request context
             # A2A doesn't have HTTP headers, so check for payment in message text
@@ -1030,10 +1053,10 @@ class GraphAdvocateExecutor(AgentExecutor):
             if payment_header:
                 paid = await _verify_x402_payment(payment_header)
                 if paid:
-                    log.info(f"X402-PAID task={task_id} | payment verified, proceeding")
+                    log.info(f"X402-PAID task={task_id} | payment verified, priority treatment")
                     _log_request(task_id, user_text, "x402-paid", "high", "verified")
-                    # Reset daily count for this paid request
-                    pass  # Continue to normal processing below
+                    _is_paid_request = True
+                    # Continue to normal processing with priority flag
                 else:
                     log.info(f"X402-FAIL task={task_id} | payment verification failed")
                     _log_request(task_id, user_text, "x402-failed", "high", "invalid")
@@ -1258,6 +1281,7 @@ class GraphAdvocateExecutor(AgentExecutor):
             user_text,
             history=history,
             requesting_agent=f"a2a:{task_id}",
+            priority=_is_paid_request,
         )
         self._history[task_id] = updated_history
         # Cache the response for repeat queries (bounded)
@@ -1291,6 +1315,38 @@ class GraphAdvocateExecutor(AgentExecutor):
                 rec["cache_for_seconds"] = 1800  # 30 min default
 
         log.info(f"ROUTED   task={task_id} | {service} ({confidence}) → {tool_name}")
+
+        # ── Priority markers for paid (x402-verified) requests ──────────────
+        if _is_paid_request:
+            rec["priority"] = True
+            rec["paid"] = True
+            rec["tier"] = "premium"
+            rec["thank_you"] = "Thanks for paying — you got Opus-tier routing with priority treatment."
+
+        # ── Tip nudge for unpaid users mid-session (not pushy) ──────────────
+        # Shown once per session at query 5. Skipped for meta-responses so the
+        # hint only appears after the user has received real routing value.
+        _SKIP_TIP_SERVICES = {
+            "introduction", "out-of-scope", "rate-limited", "payment-required",
+            "payment-failed", "benchmark", "cached",
+        }
+        try:
+            if not _is_paid_request and service not in _SKIP_TIP_SERVICES:
+                count = _get_daily_count(task_id)
+                if count == 5:
+                    rec["tip"] = {
+                        "message": (
+                            "Graph Advocate stays free because people chip in. "
+                            "If this routing saved you time, a tip keeps the service running — "
+                            "or skip a future call by sending a tip now."
+                        ),
+                        "endpoint": f"{PUBLIC_URL}/tip",
+                        "amount_suggested": "$0.10 USDC on Base (voluntary)",
+                        "wallet": "graphadvocate.eth",
+                    }
+        except Exception:
+            pass  # nudge failure never blocks the response
+
         _log_request(task_id, user_text, service, confidence, tool_name, response=rec)
         # (scoring runs automatically inside _log_request)
 
