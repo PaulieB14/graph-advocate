@@ -320,12 +320,15 @@ def _extract_json(raw: str) -> dict:
     """Robustly extract a JSON object from Claude's response.
 
     Tries in order:
-      1. Markdown code fence (```json ... ``` or ``` ... ```)
+      1. Markdown code fence with closing marker (```json ... ``` or ``` ... ```)
       2. Full raw string as-is
-      3. Outermost { ... } object found anywhere in the text
+      3. Leading-fence-only recovery (handles truncated responses where the
+         closing ``` was cut off by max_tokens). Strips the opening fence line
+         and attempts to parse the rest, falling back to the last balanced `}`.
+      4. Outermost { ... } object found anywhere in the text
     Returns {"raw": ..., "parse_error": True} only when all attempts fail.
     """
-    # 1. Code fence
+    # 1. Closed code fence (happy path when response is complete)
     fence = re.search(r"```(?:json)?\n?([\s\S]*?)\n?```", raw)
     if fence:
         try:
@@ -340,7 +343,24 @@ def _extract_json(raw: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # 3. Find outermost { ... } — handles text before/after JSON
+    # 3. Leading fence with no closing fence (truncated response). Strip the
+    # opening ``` line and try to parse, or fall back to last complete '}'.
+    if stripped.startswith("```"):
+        body = stripped.split("\n", 1)[1] if "\n" in stripped else ""
+        if body.endswith("```"):
+            body = body[:-3]
+        body = body.strip()
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            last_close = body.rfind("}")
+            if last_close != -1:
+                try:
+                    return json.loads(body[: last_close + 1])
+                except json.JSONDecodeError:
+                    pass
+
+    # 4. Find outermost { ... } — handles text before/after JSON
     start = stripped.find("{")
     if start != -1:
         depth = 0
@@ -1923,18 +1943,23 @@ def _search_8004_agents(query: str) -> str:
         )
         if r.status_code == 200:
             data = r.json()
-            agents = data.get("data", data.get("agents", []))
+            if not isinstance(data, dict):
+                return ""
+            agents = data.get("data") or data.get("agents") or []
             if not agents:
                 return ""
             results = []
             for a in agents[:10]:
+                if not isinstance(a, dict):
+                    continue
                 name = a.get("name", "unnamed")
                 chain = a.get("chain_id", "?")
                 token_id = a.get("token_id", "?")
                 score = a.get("total_score", 0)
                 desc = (a.get("description") or "")[:100]
-                mcp = a.get("services", {}).get("mcp", {}).get("endpoint", "")
-                a2a = a.get("services", {}).get("a2a", {}).get("endpoint", "")
+                services = a.get("services") or {}
+                mcp = ((services.get("mcp") or {}).get("endpoint")) or ""
+                a2a = ((services.get("a2a") or {}).get("endpoint")) or ""
                 x402 = a.get("x402_supported", False)
                 ens = a.get("ens", "")
                 entry = f"- {name} (#{token_id}, score: {score})"
