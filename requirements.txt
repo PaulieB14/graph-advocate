@@ -8,6 +8,6 @@ PyNaCl>=1.5.0
 uagents>=0.13.0
 mcp>=1.0.0
 
-x402[evm,fastapi]>=2.5.0
+x402[evm,fastapi]>=2.7.0
 cdp-sdk>=1.40.0
 fastapi>=0.115.0

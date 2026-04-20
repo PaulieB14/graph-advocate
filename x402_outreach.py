@@ -71,6 +71,17 @@ def _bootstrap() -> tuple[Any, Any, str]:
 
     client = x402Client()
     client.register("eip155:8453", ExactEvmScheme(signer=signer))
+
+    # Upto scheme lets us pay endpoints that use usage-based billing (LLM token
+    # count, compute time). Added in x402 Python SDK >= 2.7.0; the import is
+    # guarded so older SDKs still boot.
+    try:
+        from x402.mechanisms.evm.upto import UptoEvmClientScheme
+        client.register("eip155:*", UptoEvmClientScheme(signer=signer))
+        log.info("x402 outbound: registered UptoEvmClientScheme (usage-based billing)")
+    except ImportError:
+        log.info("x402 outbound: UptoEvmClientScheme unavailable (SDK < 2.7.0) — exact-only")
+
     client.register_policy(prefer_network("eip155:8453"))
 
     http = wrapHttpxWithPayment(client, timeout=60.0)
