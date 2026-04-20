@@ -4365,7 +4365,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and scope["path"] in ("/route", "/tip"):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.
