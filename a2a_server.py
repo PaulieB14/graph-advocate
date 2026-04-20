@@ -1001,6 +1001,18 @@ class GraphAdvocateExecutor(AgentExecutor):
         # Log sender info for debugging — helps identify which agents contact us
         sender_address = metadata.get("sender", metadata.get("address", metadata.get("from", "")))
         sender_name = metadata.get("name", metadata.get("agent_name", ""))
+
+        # Stable sender identity for daily-limit + tip nudge tracking. A2A
+        # auto-generates a fresh task_id for every request, so keying off
+        # task_id alone means every request is its own bucket and nothing
+        # (daily cap, tip nudge) ever accumulates. Prefer a stable signal:
+        # explicit sender address/name from metadata, then context_id
+        # (session-level in A2A), falling back to task_id as a last resort.
+        sender_id = (
+            str(sender_address).lower() if sender_address else (
+                sender_name.lower() if sender_name else (context_id or task_id)
+            )
+        )
         if sender_address or sender_name or metadata:
             log.info(f"SENDER   task={task_id} context={context_id} name={sender_name} addr={sender_address} meta={list(metadata.keys()) if metadata else '(none)'}")
         history = self._history.get(task_id, [])
@@ -1040,7 +1052,7 @@ class GraphAdvocateExecutor(AgentExecutor):
         # Exempt health checks and conformance probes from daily limit
         is_health_check = "conformance probe" in user_text.lower() or "please acknowledge" in user_text.lower()
         _is_paid_request = False  # flipped to True when x402 payment is verified
-        if not is_health_check and _check_daily_limit(task_id):
+        if not is_health_check and _check_daily_limit(sender_id):
             # Check if payment was included in the request context
             # A2A doesn't have HTTP headers, so check for payment in message text
             payment_header = None
@@ -1332,7 +1344,7 @@ class GraphAdvocateExecutor(AgentExecutor):
         }
         try:
             if not _is_paid_request and service not in _SKIP_TIP_SERVICES:
-                count = _get_daily_count(task_id)
+                count = _get_daily_count(sender_id)
                 if count == 5:
                     rec["tip"] = {
                         "message": (
