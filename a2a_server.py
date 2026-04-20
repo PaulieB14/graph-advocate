@@ -4141,6 +4141,7 @@ def build_app():
         from x402.http.middleware.fastapi import PaymentMiddlewareASGI
         from x402.http import PaymentOption
         from x402.http.types import RouteConfig
+        from x402.extensions.bazaar import declare_discovery_extension, OutputConfig
         from starlette.applications import Starlette as _RouteStarlette
         from starlette.routing import Route as _RouteRoute
         from starlette.responses import JSONResponse as _RouteJSON
@@ -4222,6 +4223,36 @@ def build_app():
                             "Returns a ready-to-execute query, subgraph ID, and MCP install hint."
                         ),
                         mime_type="application/json",
+                        extensions=declare_discovery_extension(
+                            input={"request": "wallet balance for vitalik.eth on base"},
+                            input_schema={
+                                "type": "object",
+                                "properties": {
+                                    "request": {"type": "string", "description": "Plain-English onchain data question"},
+                                },
+                                "required": ["request"],
+                            },
+                            output=OutputConfig(
+                                example={
+                                    "recommendation": "token-api",
+                                    "reason": "wallet balance query on an EVM chain",
+                                    "confidence": "high",
+                                    "query_ready": {"tool": "getV1EvmBalances", "args": {"network": "base", "address": "0x..."}},
+                                    "alternatives": [],
+                                },
+                                schema={
+                                    "type": "object",
+                                    "properties": {
+                                        "recommendation": {"type": "string"},
+                                        "reason": {"type": "string"},
+                                        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                                        "query_ready": {"type": "object"},
+                                        "alternatives": {"type": "array"},
+                                    },
+                                    "required": ["recommendation", "reason", "confidence"],
+                                },
+                            ),
+                        ),
                     ),
                     "POST /tip": RouteConfig(
                         accepts=[PaymentOption(
@@ -4237,6 +4268,16 @@ def build_app():
                             "Graph Advocate provides free onchain data routing for The Graph ecosystem."
                         ),
                         mime_type="application/json",
+                        extensions=declare_discovery_extension(
+                            output=OutputConfig(
+                                example={
+                                    "message": "Thanks for the tip!",
+                                    "from": "Graph Advocate (graphadvocate.eth)",
+                                    "agent_id": "ERC-8004 #734",
+                                    "tip": "received",
+                                },
+                            ),
+                        ),
                     ),
                 },
                 server=x402_server,
