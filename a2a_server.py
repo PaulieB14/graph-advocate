@@ -1545,6 +1545,67 @@ async def export_stats_endpoint(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ── Outbound x402 outreach (admin-only) ─────────────────────────────────────
+# Pays-to-call another agent that gates its endpoint with x402 (e.g. ClawdMint).
+# Requires GA_BASE_WALLET_PK env var on Railway (user-controlled; server-side only).
+# Protected by ADMIN_TOKEN.
+
+async def outreach_pay_endpoint(request: Request):
+    """POST /admin/outreach-pay — send a paid x402 A2A message.
+
+    Body:
+      {
+        "target_url": "https://clawdmint-api.vercel.app/a2a",
+        "message": "Hello from Graph Advocate…",
+        "max_usdc": "0.05"    // optional, default 0.05
+      }
+    """
+    if not _check_admin(request):
+        return _unauthorized()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+
+    target_url = (body.get("target_url") or "").strip()
+    message = (body.get("message") or "").strip()
+    if not target_url.startswith("http") or not message:
+        return JSONResponse(
+            {"error": "target_url (http/https) and message are required"},
+            status_code=400,
+        )
+
+    from decimal import Decimal
+    try:
+        max_usdc = Decimal(str(body.get("max_usdc", "0.05")))
+    except Exception:
+        max_usdc = Decimal("0.05")
+
+    # Hard cap — even if an operator sets max_usdc higher, refuse > $1.
+    # This module is for test/outreach scale, not production trading.
+    if max_usdc > Decimal("1.00"):
+        return JSONResponse(
+            {"error": "max_usdc capped at $1.00 for safety"},
+            status_code=400,
+        )
+
+    try:
+        from x402_outreach import send_paid_a2a
+        result = await send_paid_a2a(target_url, message, max_usdc=max_usdc)
+    except Exception as exc:
+        log.error(f"outreach-pay failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": str(exc), "stage": "dispatch"},
+            status_code=500,
+        )
+
+    log.info(
+        f"X402-OUTREACH target={target_url} status={result.get('status')} "
+        f"ok={result.get('ok')} wallet={result.get('wallet')}"
+    )
+    return JSONResponse(result)
+
+
 # ── Feedback endpoint ────────────────────────────────────────────────────────
 
 async def feedback_endpoint(request: Request):
@@ -4194,6 +4255,7 @@ def build_app():
         Route("/export/json", export_json_endpoint),
         Route("/export/csv", export_csv_endpoint),
         Route("/export/stats", export_stats_endpoint),
+        Route("/admin/outreach-pay", outreach_pay_endpoint, methods=["POST"]),
         Route("/feedback", feedback_endpoint, methods=["POST"]),
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
