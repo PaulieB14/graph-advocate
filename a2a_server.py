@@ -1662,6 +1662,27 @@ async def feedback_endpoint(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+async def bazaar_search_endpoint(request: Request):
+    """GET /bazaar/search?q=<query>&max_price=<usdc>&network=<caip2> — search x402 Bazaar."""
+    q = request.query_params.get("q", "").strip()
+    if not q:
+        return JSONResponse({"error": "Missing ?q=<query>"}, status_code=400)
+    try:
+        max_price = request.query_params.get("max_price")
+        max_price_f = float(max_price) if max_price else None
+    except ValueError:
+        max_price_f = None
+    network = request.query_params.get("network") or None
+    try:
+        limit = min(int(request.query_params.get("limit", "10")), 25)
+    except ValueError:
+        limit = 10
+    from advocate import _search_x402_bazaar
+    import json as _json
+    return JSONResponse(_json.loads(_search_x402_bazaar(q, max_price_usdc=max_price_f,
+                                                        network=network, limit=limit)))
+
+
 async def feedback_stats_endpoint(request: Request):
     """GET /feedback/stats — summary of all feedback received."""
     if not _check_admin(request):
@@ -4300,6 +4321,7 @@ def build_app():
         Route("/feedback", feedback_endpoint, methods=["POST"]),
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
+        Route("/bazaar/search", bazaar_search_endpoint),
         # Discovery surfaces for LLM-driven dev tools and other agents
         Route("/llms.txt", llms_txt_endpoint),
         Route("/agents/index.json", agents_index_endpoint),
@@ -4406,7 +4428,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and scope["path"] in ("/route", "/tip"):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.

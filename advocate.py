@@ -1270,6 +1270,12 @@ def _auto_search(request: str) -> str:
         "agent identity", "agent reputation", "registered agent",
         "mcp agent", "a2a agent", "x402 agent",
     ]
+    # Keywords that suggest searching the x402 Bazaar for paid services
+    X402_BAZAAR_KEYWORDS = [
+        "x402", "bazaar", "paid api", "paid service", "pay per",
+        "usdc per", "pay-per-request", "agentic commerce", "agentic marketplace",
+        "find a service", "paid endpoint", "x402 service", "x402 endpoint",
+    ]
 
     run_subgraph = _any_word_match(SUBGRAPH_KEYWORDS, req_lower)
     run_substreams = _any_word_match(SUBSTREAMS_KEYWORDS, req_lower)
@@ -1278,6 +1284,7 @@ def _auto_search(request: str) -> str:
         or any(p in req_lower for p in TOKEN_API_PHRASES)
     )
     run_agent_search = any(kw in req_lower for kw in AGENT_SEARCH_KEYWORDS)
+    run_bazaar = any(kw in req_lower for kw in X402_BAZAAR_KEYWORDS)
 
     # If nothing matched, run subgraph search as default (most common)
     if not run_subgraph and not run_substreams and not run_token_api:
@@ -1322,6 +1329,12 @@ def _auto_search(request: str) -> str:
             agent_results = _search_8004_agents(search_term)
             if agent_results:
                 results.append(f"[ERC-8004 AGENT SEARCH for '{search_term}']\n{agent_results}")
+
+        if run_bazaar:
+            bz_results = _search_x402_bazaar(request, limit=8)
+            bz_data = json.loads(bz_results)
+            if bz_data.get("results"):
+                results.append(f"[X402 BAZAAR SEARCH for '{search_term}']\n{bz_results}")
 
     except Exception as e:
         log.error(f"Auto-search error: {e}")
@@ -2146,6 +2159,116 @@ def _search_substreams(keyword: str) -> str:
         return json.dumps({"results": results, "total_found": len(results)})
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+
+_x402_bazaar_cache: dict[str, tuple[float, list]] = {}
+_X402_BAZAAR_CACHE_TTL = 3600  # 1h — index has ~15k items, static-ish
+
+
+def _fetch_x402_bazaar_index() -> list:
+    """Fetch the full CDP x402 Bazaar discovery index. Cached for 1h."""
+    import time
+    import urllib.request
+    import logging
+    log = logging.getLogger("graph-advocate")
+
+    cached = _x402_bazaar_cache.get("index")
+    if cached and time.time() - cached[0] < _X402_BAZAAR_CACHE_TTL:
+        return cached[1]
+
+    items = []
+    base = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    try:
+        for offset in range(0, 20000, 1000):
+            with urllib.request.urlopen(f"{base}?limit=1000&offset={offset}", timeout=15) as r:
+                d = json.loads(r.read())
+            batch = d.get("items", [])
+            items.extend(batch)
+            if len(batch) < 1000:
+                break
+        _x402_bazaar_cache["index"] = (time.time(), items)
+        log.info(f"x402-bazaar: indexed {len(items)} resources")
+        return items
+    except Exception as e:
+        log.error(f"x402-bazaar: fetch failed — {e}")
+        return cached[1] if cached else []
+
+
+def _search_x402_bazaar(query: str, max_price_usdc: float | None = None,
+                        network: str | None = None, limit: int = 8) -> str:
+    """Keyword-rank the x402 Bazaar for a query. Returns JSON."""
+    items = _fetch_x402_bazaar_index()
+    if not items:
+        return json.dumps({"results": [], "message": "Bazaar index unavailable"})
+
+    tokens = [t for t in re.findall(r"[a-z0-9]+", query.lower()) if len(t) >= 3]
+    if not tokens:
+        return json.dumps({"results": [], "message": "Query too short"})
+
+    def searchable(i):
+        parts = [i.get("resource", "")]
+        for acc in i.get("accepts", []):
+            parts.append(acc.get("description", ""))
+            parts.append(acc.get("mimeType", ""))
+            extra = acc.get("outputSchema") or {}
+            if isinstance(extra, dict):
+                parts.append(json.dumps(extra)[:2000])
+        return " ".join(parts).lower()
+
+    scored = []
+    for item in items:
+        text = searchable(item)
+        score = sum(text.count(t) for t in tokens)
+        if score == 0:
+            continue
+
+        accepts = item.get("accepts", [])
+        if not accepts:
+            continue
+
+        # Price + network filters
+        passed = False
+        for acc in accepts:
+            if network and acc.get("network") != network:
+                continue
+            if max_price_usdc is not None:
+                amount_raw = int(acc.get("maxAmountRequired") or acc.get("amount") or 0)
+                decimals = int((acc.get("extra") or {}).get("decimals") or 6)
+                price_usdc = amount_raw / (10 ** decimals) if amount_raw else 0
+                if price_usdc > max_price_usdc:
+                    continue
+            passed = True
+            break
+        if not passed:
+            continue
+        scored.append((score, item))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for score, item in scored[:limit]:
+        acc = item.get("accepts", [{}])[0]
+        amount_raw = int(acc.get("maxAmountRequired") or acc.get("amount") or 0)
+        decimals = int((acc.get("extra") or {}).get("decimals") or 6)
+        price = amount_raw / (10 ** decimals) if amount_raw else 0
+        out.append({
+            "resource": item.get("resource"),
+            "price_usdc": round(price, 6),
+            "network": acc.get("network"),
+            "pay_to": acc.get("payTo"),
+            "scheme": acc.get("scheme"),
+            "description": (acc.get("description") or "")[:200],
+            "mime_type": acc.get("mimeType"),
+            "last_updated": item.get("lastUpdated"),
+            "match_score": score,
+        })
+
+    return json.dumps({
+        "source": "CDP x402 Bazaar",
+        "total_indexed": len(items),
+        "query": query,
+        "results": out,
+        "note": "Services callable via x402 payment protocol — pay per request in USDC, no API keys.",
+    })
 
 
 def _lookup_token_api(data_type: str) -> str:
