@@ -146,7 +146,7 @@ async def send_paid_a2a(
         first = await http.post(
             target_url,
             json=payload,
-            headers={"User-Agent": "GraphAdvocate/1.0 (ERC-8004 #734, x402 client)"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; x402-client/1.0)"},
         )
     except Exception as exc:
         # Common failure: 402 payment exceeds max_usdc, or signing error
