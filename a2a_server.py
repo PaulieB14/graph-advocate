@@ -1662,6 +1662,14 @@ async def feedback_endpoint(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+async def claw_scout_endpoint(request: Request):
+    """GET /claw/scout[?refresh=1] — scan Claw Earn for tasks Graph Advocate can solve."""
+    from advocate import _scan_claw_tasks
+    import json as _json
+    force = request.query_params.get("refresh") in ("1", "true", "yes")
+    return JSONResponse(_json.loads(_scan_claw_tasks(force_refresh=force)))
+
+
 async def bazaar_search_endpoint(request: Request):
     """GET /bazaar/search?q=<query>&max_price=<usdc>&network=<caip2> — search x402 Bazaar."""
     q = request.query_params.get("q", "").strip()
@@ -4322,6 +4330,7 @@ def build_app():
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
         Route("/bazaar/search", bazaar_search_endpoint),
+        Route("/claw/scout", claw_scout_endpoint),
         # Discovery surfaces for LLM-driven dev tools and other agents
         Route("/llms.txt", llms_txt_endpoint),
         Route("/agents/index.json", agents_index_endpoint),
@@ -4428,7 +4437,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and scope["path"] in ("/route", "/tip"):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.

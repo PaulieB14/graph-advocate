@@ -2271,6 +2271,89 @@ def _search_x402_bazaar(query: str, max_price_usdc: float | None = None,
     })
 
 
+_claw_scout_cache: dict[str, tuple[float, list]] = {}
+_CLAW_SCOUT_CACHE_TTL = 60  # 60s — Claw tasks move fast
+
+
+# Keywords that signal a task Graph Advocate could actually solve
+_CLAW_MATCH_KEYWORDS = [
+    "subgraph", "the graph", "graphql", "graph protocol", "graph-ts", "indexer",
+    "onchain data", "on-chain data", "onchain query", "on-chain query",
+    "blockchain data", "defi data", "token balance", "wallet balance",
+    "tvl", "liquidity data", "pool data", "swap data", "token holder",
+    "nft holder", "erc20 holder", "indexed data", "subgraph query",
+    "dune", "dex data", "uniswap data", "aave data", "compound data",
+    "token api", "substreams", "firehose", "thegraph",
+    "token holders", "wallet analysis", "onchain analytics", "onchain metrics",
+    "smart contract event", "decoded events", "event logs",
+]
+
+
+def _scan_claw_tasks(force_refresh: bool = False) -> str:
+    """Scan Claw Earn tasks for work Graph Advocate could solve."""
+    import time
+    import urllib.request
+    import logging
+    log = logging.getLogger("graph-advocate")
+
+    cached = _claw_scout_cache.get("tasks")
+    if cached and not force_refresh and time.time() - cached[0] < _CLAW_SCOUT_CACHE_TTL:
+        items = cached[1]
+    else:
+        try:
+            req = urllib.request.Request(
+                "https://aiagentstore.ai/claw/tasks",
+                headers={"User-Agent": "GraphAdvocate/1.0 (ERC-8004 #734, claw-scout)"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as r:
+                d = json.loads(r.read())
+            items = d.get("items") or d.get("tasks") or []
+            _claw_scout_cache["tasks"] = (time.time(), items)
+        except Exception as e:
+            log.error(f"claw-scout: fetch failed — {e}")
+            items = cached[1] if cached else []
+
+    matches = []
+    for item in items:
+        meta = item.get("metadata") or {}
+        desc = (meta.get("description") or "").lower()
+        title = (meta.get("title") or "").lower()
+        category = (meta.get("category") or "").lower()
+        tags = " ".join(meta.get("tags") or []).lower()
+        hay = f"{title} {desc} {category} {tags}"
+
+        hits = [kw for kw in _CLAW_MATCH_KEYWORDS if kw in hay]
+        if not hits:
+            continue
+
+        amount = meta.get("taskAmountUsdc") or meta.get("amount_usdc") or 0
+        matches.append({
+            "task_id": item.get("id"),
+            "amount_usdc": amount,
+            "match_score": len(hits),
+            "matched_keywords": hits[:5],
+            "title": meta.get("title") or (desc[:80] + "..." if len(desc) > 80 else desc),
+            "description_preview": (meta.get("description") or "")[:300],
+            "status": meta.get("status") or item.get("status"),
+            "url": f"https://aiagentstore.ai/claw-earn?taskId={item.get('id')}",
+        })
+
+    matches.sort(key=lambda m: (m["match_score"], m["amount_usdc"]), reverse=True)
+
+    return json.dumps({
+        "source": "Claw Earn (aiagentstore.ai)",
+        "scanned_at": time.time(),
+        "total_open_tasks": len(items),
+        "matched_tasks": len(matches),
+        "match_keywords": _CLAW_MATCH_KEYWORDS,
+        "results": matches[:25],
+        "note": (
+            "Tasks Graph Advocate could solve with subgraph routing + GraphQL generation. "
+            "No stake/claim happens from scout — human review required before claiming."
+        ),
+    })
+
+
 def _lookup_token_api(data_type: str) -> str:
     """Return relevant Token API endpoints for a data type."""
     TOKEN_API_BASE = "https://token-api.thegraph.com"
