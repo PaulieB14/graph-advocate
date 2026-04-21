@@ -1662,6 +1662,22 @@ async def feedback_endpoint(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+async def bazaar_active_endpoint(request: Request):
+    """GET /bazaar/active?q=&hours=24&limit=15 — live x402 services (subgraph-joined)."""
+    from advocate import search_x402_bazaar_active
+    import json as _json
+    q = request.query_params.get("q", "").strip()
+    try:
+        hours = min(int(request.query_params.get("hours", "24")), 168)
+    except ValueError:
+        hours = 24
+    try:
+        limit = min(int(request.query_params.get("limit", "15")), 50)
+    except ValueError:
+        limit = 15
+    return JSONResponse(_json.loads(search_x402_bazaar_active(q, hours=hours, limit=limit)))
+
+
 async def claw_scout_endpoint(request: Request):
     """GET /claw/scout[?refresh=1] — scan Claw Earn for tasks Graph Advocate can solve."""
     from advocate import _scan_claw_tasks
@@ -4330,6 +4346,7 @@ def build_app():
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
         Route("/bazaar/search", bazaar_search_endpoint),
+        Route("/bazaar/active", bazaar_active_endpoint),
         Route("/claw/scout", claw_scout_endpoint),
         # Discovery surfaces for LLM-driven dev tools and other agents
         Route("/llms.txt", llms_txt_endpoint),

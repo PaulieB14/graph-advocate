@@ -2271,6 +2271,142 @@ def _search_x402_bazaar(query: str, max_price_usdc: float | None = None,
     })
 
 
+# Paul's x402-base subgraph — indexes every x402 payment on Base
+X402_BASE_SUBGRAPH_ID = "QmPtuuoU9nu9VJyodiVohf21y8RsR2fx8BpxuVBRHhP29D"
+_x402_active_cache: dict[str, tuple[float, list]] = {}
+_X402_ACTIVE_CACHE_TTL = 300  # 5 min
+
+
+def _fetch_active_recipients(hours: int = 24) -> list:
+    """Query x402 Base subgraph for recipient wallets settled in last N hours.
+
+    Returns list of dicts: [{to, payment_count, total_volume_usdc, last_seen}]
+    """
+    import time
+    import urllib.request
+    import logging
+    log = logging.getLogger("graph-advocate")
+
+    cache_key = f"recent_{hours}"
+    cached = _x402_active_cache.get(cache_key)
+    if cached and time.time() - cached[0] < _X402_ACTIVE_CACHE_TTL:
+        return cached[1]
+
+    cutoff = int(time.time()) - hours * 3600
+    gql = """
+    {
+      x402Payments(
+        first: 1000
+        orderBy: blockTimestamp
+        orderDirection: desc
+        where: { blockTimestamp_gt: %d }
+      ) {
+        to
+        amountDecimal
+        assetSymbol
+        blockTimestamp
+      }
+    }
+    """ % cutoff
+
+    gateway = f"https://gateway.thegraph.com/api/subgraphs/id/{X402_BASE_SUBGRAPH_ID}"
+    api_key = os.environ.get("GRAPH_API_KEY", "").strip()
+    if api_key:
+        gateway = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{X402_BASE_SUBGRAPH_ID}"
+
+    try:
+        req = urllib.request.Request(
+            gateway,
+            data=json.dumps({"query": gql}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.loads(r.read())
+        payments = (d.get("data") or {}).get("x402Payments") or []
+    except Exception as e:
+        log.error(f"x402-active: subgraph query failed — {e}")
+        return cached[1] if cached else []
+
+    # Aggregate by recipient address
+    agg: dict = {}
+    for p in payments:
+        to = (p.get("to") or "").lower()
+        if not to:
+            continue
+        entry = agg.setdefault(to, {
+            "to": to, "payment_count": 0,
+            "total_volume_usdc": 0.0, "last_seen": 0,
+        })
+        entry["payment_count"] += 1
+        try:
+            entry["total_volume_usdc"] += float(p.get("amountDecimal") or 0)
+        except (TypeError, ValueError):
+            pass
+        ts = int(p.get("blockTimestamp") or 0)
+        if ts > entry["last_seen"]:
+            entry["last_seen"] = ts
+
+    out = sorted(agg.values(), key=lambda x: x["payment_count"], reverse=True)
+    _x402_active_cache[cache_key] = (time.time(), out)
+    log.info(f"x402-active: {len(out)} active recipients in last {hours}h")
+    return out
+
+
+def search_x402_bazaar_active(query: str = "", hours: int = 24, limit: int = 15) -> str:
+    """Return CDP Bazaar resources whose payTo wallet actually settled a
+    payment in the last N hours. Live-activity ranked discovery."""
+    active_recipients = _fetch_active_recipients(hours=hours)
+    if not active_recipients:
+        return json.dumps({"results": [], "message": "No active recipients (subgraph query failed or no recent activity)"})
+
+    active_map = {r["to"]: r for r in active_recipients}
+    items = _fetch_x402_bazaar_index()
+    if not items:
+        return json.dumps({"results": [], "message": "Bazaar index unavailable"})
+
+    q_tokens = [t for t in re.findall(r"[a-z0-9]+", query.lower()) if len(t) >= 3] if query else []
+
+    matches = []
+    for item in items:
+        for acc in item.get("accepts", []):
+            pay_to = (acc.get("payTo") or "").lower()
+            if pay_to in active_map:
+                # Keyword filter (optional)
+                if q_tokens:
+                    text = f"{item.get('resource','')} {acc.get('description','')}".lower()
+                    if not any(t in text for t in q_tokens):
+                        continue
+                activity = active_map[pay_to]
+                amount_raw = int(acc.get("maxAmountRequired") or acc.get("amount") or 0)
+                decimals = int((acc.get("extra") or {}).get("decimals") or 6)
+                price = amount_raw / (10 ** decimals) if amount_raw else 0
+                matches.append({
+                    "resource": item.get("resource"),
+                    "price_usdc": round(price, 6),
+                    "network": acc.get("network"),
+                    "pay_to": pay_to,
+                    "description": (acc.get("description") or "")[:200],
+                    "recent_payments": activity["payment_count"],
+                    "recent_volume_usdc": round(activity["total_volume_usdc"], 4),
+                    "last_payment_ts": activity["last_seen"],
+                })
+                break
+
+    matches.sort(key=lambda m: (m["recent_payments"], m["recent_volume_usdc"]), reverse=True)
+
+    return json.dumps({
+        "source": "x402-base subgraph + CDP Bazaar (live-activity join)",
+        "subgraph_id": X402_BASE_SUBGRAPH_ID,
+        "window_hours": hours,
+        "active_recipients_in_window": len(active_recipients),
+        "bazaar_resources_matched": len(matches),
+        "query": query or None,
+        "results": matches[:limit],
+        "note": "Resources whose payTo wallet actually settled an x402 payment on Base within the window. Activity-ranked — not just listed, but working.",
+    })
+
+
 _claw_scout_cache: dict[str, tuple[float, list]] = {}
 _CLAW_SCOUT_CACHE_TTL = 60  # 60s — Claw tasks move fast
 
