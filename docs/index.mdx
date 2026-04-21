@@ -1,28 +1,15 @@
 ---
 title: "Graph Advocate"
-description: "Ask in plain English. Get the right subgraph + a ready-to-run query. Paid per call in USDC."
-mode: "custom"
+description: "Ask any blockchain data question in plain English. Get back the right subgraph, a ready-to-run GraphQL query, and — when possible — the live answer. Paid per call in USDC on Base via x402."
 ---
 
-<div className="relative isolate overflow-hidden">
-  <div className="mx-auto max-w-5xl py-16 sm:py-24 text-center">
-    <div className="inline-flex items-center rounded-full px-4 py-1.5 text-sm bg-primary/10 text-primary ring-1 ring-primary/20">
-      ERC-8004 #734 · graphadvocate.eth · Live on Base
-    </div>
-    <h1 className="mt-6 text-5xl sm:text-6xl font-bold tracking-tight">
-      The routing agent for onchain data.
-    </h1>
-    <p className="mt-6 text-xl text-muted-foreground max-w-2xl mx-auto">
-      Ask any blockchain data question in plain English. Graph Advocate returns the right subgraph, a ready-to-run GraphQL query, and proof-of-answer — paid per call in USDC on Base via x402.
-    </p>
-    <div className="mt-8 flex items-center justify-center gap-4">
-      <a href="/quickstart" className="rounded-lg bg-primary text-white px-5 py-2.5 font-semibold">Quickstart →</a>
-      <a href="/bazaar-active" className="rounded-lg ring-1 ring-white/15 px-5 py-2.5 font-semibold">Live Bazaar</a>
-    </div>
-  </div>
-</div>
+<Info>
+  **ERC-8004 #734** · `graphadvocate.eth` · Live on Base · Free 10/day then $0.01 USDC
+</Info>
 
-## What makes it different
+## What it is
+
+Graph Advocate is the **routing agent for onchain data**. One endpoint that speaks A2A JSON-RPC, MCP SSE, and x402 payments — so any agent, human, or LLM can ask a plain-English question and get the right subgraph + a ready-to-run query.
 
 <CardGroup cols={2}>
   <Card title="Routes 15,500+ subgraphs" icon="compass">
@@ -32,21 +19,25 @@ mode: "custom"
     x402-native. Free 10/day, then $0.01 USDC on Base. No sign-up, no billing page — your agent wallet IS the billing relationship.
   </Card>
   <Card title="Triple-subgraph discovery" icon="network-wired">
-    Joins x402 Base subgraph + agent0 ERC-8004 + 8004scan + CDP Bazaar to surface services that are *actually being paid* right now.
+    Joins x402 Base subgraph + agent0 ERC-8004 + 8004scan + CDP Bazaar to surface services that are *actually paid* right now.
   </Card>
   <Card title="A2A, MCP, ERC-8004" icon="robot">
-    Speaks A2A JSON-RPC, MCP SSE, and is discoverable on the canonical agent identity registry. One endpoint, every agent standard.
+    Speaks every agent standard. One endpoint, every client.
   </Card>
 </CardGroup>
 
-## Live proof
+## See it work
 
 <CodeGroup>
 
 ```bash One free call
 curl -X POST https://graph-advocate-production.up.railway.app/ \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":"1","method":"message/send","params":{"message":{"messageId":"q","role":"user","parts":[{"kind":"text","text":"Uniswap V3 pools on Base"}]}}}'
+  -d '{
+    "jsonrpc":"2.0","id":"1","method":"message/send",
+    "params":{"message":{"messageId":"q","role":"user",
+      "parts":[{"kind":"text","text":"Uniswap V3 pools on Base"}]}}
+  }'
 ```
 
 ```json Response (truncated)
@@ -60,22 +51,22 @@ curl -X POST https://graph-advocate-production.up.railway.app/ \
       "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD) { ... } }"
     }
   },
-  "execution_result": { "data": { "pools": [...] } }
+  "execution_result": { "data": { "pools": [ ... ] } }
 }
 ```
 
 </CodeGroup>
 
-## Where to go next
+## Start here
 
 <CardGroup cols={3}>
   <Card title="Quickstart" icon="rocket" href="/quickstart">
-    Hit the endpoint in 30 seconds.
+    30 seconds from zero to a routing response.
   </Card>
-  <Card title="Endpoints" icon="code" href="/route">
-    Routing, Bazaar discovery, outreach.
+  <Card title="Live Bazaar" icon="wave-pulse" href="/bazaar-active">
+    Which x402 services are actually paid right now?
   </Card>
   <Card title="Agent card" icon="id-card" href="/agent-card">
-    A2A metadata for other agents.
+    A2A discovery metadata for agent-to-agent calls.
   </Card>
 </CardGroup>
