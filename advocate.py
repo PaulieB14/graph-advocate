@@ -2280,6 +2280,61 @@ _x402_active_cache: dict[str, tuple[float, list]] = {}
 _X402_ACTIVE_CACHE_TTL = 300  # 5 min
 
 
+_8004scan_cache: dict[str, tuple[float, dict | None]] = {}
+_8004SCAN_CACHE_TTL = 86400  # 24h — agent registration is stable
+
+
+def _fetch_8004scan_by_wallet(wallet: str) -> dict | None:
+    """Fallback: query 8004scan.io (multi-chain ERC-8004 explorer) for a wallet.
+
+    Covers Arbitrum/BSC/Celo/etc. — chains our Base subgraph doesn't index.
+    Returns None if no agent found or on error. Cached for 24h per wallet
+    (agent registrations are stable — negative results too).
+    """
+    import time
+    import urllib.request
+
+    cached = _8004scan_cache.get(wallet)
+    if cached and time.time() - cached[0] < _8004SCAN_CACHE_TTL:
+        return cached[1]
+
+    try:
+        url = f"https://8004scan.io/api/v1/public/agents/search?q={wallet}&limit=1"
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; GraphAdvocate/1.0)"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as r:
+            d = json.loads(r.read())
+        data = d.get("data") or []
+        if not data:
+            _8004scan_cache[wallet] = (time.time(), None)
+            return None
+        a = data[0]
+        agent_wallet = (a.get("agent_wallet") or "").lower()
+        if agent_wallet != wallet.lower():
+            _8004scan_cache[wallet] = (time.time(), None)
+            return None
+        result = {
+            "agent_id": a.get("token_id"),
+            "chain_id": a.get("chain_id"),
+            "name": a.get("name"),
+            "description": (a.get("description") or "")[:200],
+            "is_verified": a.get("is_verified"),
+            "total_score": a.get("total_score"),
+            "health_score": a.get("health_score"),
+            "x402_support": a.get("x402_supported"),
+            "supported_protocols": a.get("supported_protocols"),
+            "source": "8004scan.io",
+        }
+        _8004scan_cache[wallet] = (time.time(), result)
+        return result
+    except Exception:
+        # Cache negative result briefly (1h) on transient errors
+        _8004scan_cache[wallet] = (time.time() - _8004SCAN_CACHE_TTL + 3600, None)
+        return None
+
+
 def _fetch_8004_agents_by_wallet(wallet_addresses: list) -> dict:
     """Look up ERC-8004 agent metadata for a list of wallet addresses on Base.
 
@@ -2481,8 +2536,21 @@ def search_x402_bazaar_active(query: str = "", hours: int = 24, limit: int = 15)
                 break
 
     # 8004 enrichment over ALL active wallets (small set: ~50).
+    # Primary: agent0-base-mainnet subgraph (fast, structured).
+    # Fallback: 8004scan.io for wallets registered on OTHER chains
+    # (BSC/Celo/Arbitrum) — same wallet, different chain registration.
     all_active_wallets = [r["to"] for r in active_recipients]
     agent_map = _fetch_8004_agents_by_wallet(all_active_wallets)
+
+    unmatched = [w for w in all_active_wallets if w not in agent_map]
+    if unmatched:
+        import concurrent.futures as _cf
+        with _cf.ThreadPoolExecutor(max_workers=20) as ex:
+            scan_results = dict(zip(unmatched, ex.map(_fetch_8004scan_by_wallet, unmatched)))
+        for w, a in scan_results.items():
+            if a:
+                agent_map[w] = a
+
     for m in matches:
         agent = agent_map.get(m["pay_to"])
         if agent:
