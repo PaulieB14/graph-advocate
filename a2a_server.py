@@ -4187,6 +4187,16 @@ def build_app():
         from x402.http import PaymentOption
         from x402.http.types import RouteConfig
         from x402.extensions.bazaar import declare_discovery_extension, OutputConfig
+        # Permit2 + EIP-2612 gas sponsorship lets smart wallets (ERC-4337,
+        # CDP embedded, AgentKit) pay gasless — the facilitator submits the
+        # Permit2 approval on the buyer's behalf via signed permit().
+        try:
+            from x402.extensions.eip2612_gas_sponsoring import (
+                declare_eip2612_gas_sponsoring_extension,
+            )
+            _GAS_SPONSORING_AVAILABLE = True
+        except ImportError:
+            _GAS_SPONSORING_AVAILABLE = False
         from starlette.applications import Starlette as _RouteStarlette
         from starlette.routing import Route as _RouteRoute
         from starlette.responses import JSONResponse as _RouteJSON
@@ -4255,74 +4265,107 @@ def build_app():
                 app=_inner_route_app,
                 routes={
                     "POST /route": RouteConfig(
-                        accepts=[PaymentOption(
-                            scheme="exact",
-                            pay_to=X402_WALLET,
-                            price="$0.01",
-                            network="eip155:8453",
-                            max_timeout_seconds=300,
-                            extra={"name": "USD Coin", "version": "2"},
-                        )],
+                        accepts=[
+                            # EIP-3009 transferWithAuthorization — for EOAs (MetaMask, viem).
+                            PaymentOption(
+                                scheme="exact",
+                                pay_to=X402_WALLET,
+                                price="$0.01",
+                                network="eip155:8453",
+                                max_timeout_seconds=300,
+                                extra={"name": "USD Coin", "version": "2"},
+                            ),
+                            # Permit2 — for smart wallets (ERC-4337, CDP embedded, AgentKit).
+                            # With EIP-2612 gas sponsoring declared below, the Permit2
+                            # approval is gasless; the facilitator submits permit() on the
+                            # buyer's behalf.
+                            PaymentOption(
+                                scheme="exact",
+                                pay_to=X402_WALLET,
+                                price="$0.01",
+                                network="eip155:8453",
+                                max_timeout_seconds=300,
+                                extra={"name": "USD Coin", "version": "2", "assetTransferMethod": "permit2"},
+                            ),
+                        ],
                         description=(
                             "Route an onchain data request through Graph Advocate. "
                             "Returns a ready-to-execute query, subgraph ID, and MCP install hint."
                         ),
                         mime_type="application/json",
-                        extensions=declare_discovery_extension(
-                            input={"request": "wallet balance for vitalik.eth on base"},
-                            input_schema={
-                                "type": "object",
-                                "properties": {
-                                    "request": {"type": "string", "description": "Plain-English onchain data question"},
-                                },
-                                "required": ["request"],
-                            },
-                            output=OutputConfig(
-                                example={
-                                    "recommendation": "token-api",
-                                    "reason": "wallet balance query on an EVM chain",
-                                    "confidence": "high",
-                                    "query_ready": {"tool": "getV1EvmBalances", "args": {"network": "base", "address": "0x..."}},
-                                    "alternatives": [],
-                                },
-                                schema={
+                        extensions={
+                            **declare_discovery_extension(
+                                input={"request": "wallet balance for vitalik.eth on base"},
+                                input_schema={
                                     "type": "object",
                                     "properties": {
-                                        "recommendation": {"type": "string"},
-                                        "reason": {"type": "string"},
-                                        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                                        "query_ready": {"type": "object"},
-                                        "alternatives": {"type": "array"},
+                                        "request": {"type": "string", "description": "Plain-English onchain data question"},
                                     },
-                                    "required": ["recommendation", "reason", "confidence"],
+                                    "required": ["request"],
                                 },
+                                output=OutputConfig(
+                                    example={
+                                        "recommendation": "token-api",
+                                        "reason": "wallet balance query on an EVM chain",
+                                        "confidence": "high",
+                                        "query_ready": {"tool": "getV1EvmBalances", "args": {"network": "base", "address": "0x..."}},
+                                        "alternatives": [],
+                                    },
+                                    schema={
+                                        "type": "object",
+                                        "properties": {
+                                            "recommendation": {"type": "string"},
+                                            "reason": {"type": "string"},
+                                            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                                            "query_ready": {"type": "object"},
+                                            "alternatives": {"type": "array"},
+                                        },
+                                        "required": ["recommendation", "reason", "confidence"],
+                                    },
+                                ),
                             ),
-                        ),
+                            **(declare_eip2612_gas_sponsoring_extension()
+                               if _GAS_SPONSORING_AVAILABLE else {}),
+                        },
                     ),
                     "POST /tip": RouteConfig(
-                        accepts=[PaymentOption(
-                            scheme="exact",
-                            pay_to=X402_WALLET,
-                            price="$0.01",
-                            network="eip155:8453",
-                            max_timeout_seconds=300,
-                            extra={"name": "USD Coin", "version": "2"},
-                        )],
+                        accepts=[
+                            PaymentOption(
+                                scheme="exact",
+                                pay_to=X402_WALLET,
+                                price="$0.01",
+                                network="eip155:8453",
+                                max_timeout_seconds=300,
+                                extra={"name": "USD Coin", "version": "2"},
+                            ),
+                            PaymentOption(
+                                scheme="exact",
+                                pay_to=X402_WALLET,
+                                price="$0.01",
+                                network="eip155:8453",
+                                max_timeout_seconds=300,
+                                extra={"name": "USD Coin", "version": "2", "assetTransferMethod": "permit2"},
+                            ),
+                        ],
                         description=(
                             "Tip jar — keeps the wheels rolling. Any amount appreciated. "
                             "Graph Advocate provides free onchain data routing for The Graph ecosystem."
                         ),
                         mime_type="application/json",
-                        extensions=declare_discovery_extension(
-                            output=OutputConfig(
-                                example={
-                                    "message": "Thanks for the tip!",
-                                    "from": "Graph Advocate (graphadvocate.eth)",
-                                    "agent_id": "ERC-8004 #734",
-                                    "tip": "received",
-                                },
+                        extensions={
+                            **declare_discovery_extension(
+                                output=OutputConfig(
+                                    example={
+                                        "message": "Thanks for the tip!",
+                                        "from": "Graph Advocate (graphadvocate.eth)",
+                                        "agent_id": "ERC-8004 #734",
+                                        "tip": "received",
+                                    },
+                                ),
                             ),
-                        ),
+                            **(declare_eip2612_gas_sponsoring_extension()
+                               if _GAS_SPONSORING_AVAILABLE else {}),
+                        },
                     ),
                 },
                 server=x402_server,
