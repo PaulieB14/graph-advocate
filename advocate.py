@@ -2272,9 +2272,10 @@ def _search_x402_bazaar(query: str, max_price_usdc: float | None = None,
 
 
 # Paul's x402-base subgraph — indexes every x402 payment on Base
-X402_BASE_SUBGRAPH_ID = "QmPtuuoU9nu9VJyodiVohf21y8RsR2fx8BpxuVBRHhP29D"
+# Published subgraph ID (not IPFS hash) — gateway needs /subgraphs/id/<base58>
+X402_BASE_SUBGRAPH_ID = "Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj"
 # Paul's agent0 Base 8004 subgraph — ERC-8004 registry on Base
-AGENT0_BASE_SUBGRAPH_ID = "QmcLwgyKn3RnyhkkSwLYscP9dL1Fc6omvfC9bFRgcK1e7u"
+AGENT0_BASE_SUBGRAPH_ID = "43s9hQRurMGjuYnC1r2ZwS6xSQktbFyXMPMqGKUFJojb"
 _x402_active_cache: dict[str, tuple[float, list]] = {}
 _X402_ACTIVE_CACHE_TTL = 300  # 5 min
 
@@ -2296,7 +2297,7 @@ def _fetch_8004_agents_by_wallet(wallet_addresses: list) -> dict:
     if not api_key:
         log.error("8004 lookup: GRAPH_API_KEY env var not set")
         return {}
-    gateway = f"https://gateway.thegraph.com/api/{api_key}/deployments/id/{AGENT0_BASE_SUBGRAPH_ID}"
+    gateway = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{AGENT0_BASE_SUBGRAPH_ID}"
 
     for start in range(0, len(wallet_addresses), 100):
         batch = wallet_addresses[start:start + 100]
@@ -2325,7 +2326,10 @@ def _fetch_8004_agents_by_wallet(wallet_addresses: list) -> dict:
             req = urllib.request.Request(
                 gateway,
                 data=json.dumps({"query": gql}).encode(),
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (compatible; GraphAdvocate/1.0)",
+                },
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=15) as r:
@@ -2392,13 +2396,16 @@ def _fetch_active_recipients(hours: int = 24) -> list:
     if not api_key:
         log.error("x402-active: GRAPH_API_KEY env var not set — cannot query gateway")
         return []
-    gateway = f"https://gateway.thegraph.com/api/{api_key}/deployments/id/{X402_BASE_SUBGRAPH_ID}"
+    gateway = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{X402_BASE_SUBGRAPH_ID}"
 
     try:
         req = urllib.request.Request(
             gateway,
             data=json.dumps({"query": gql}).encode(),
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (compatible; GraphAdvocate/1.0)",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=15) as r:
