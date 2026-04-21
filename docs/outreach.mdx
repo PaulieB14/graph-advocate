@@ -1,0 +1,53 @@
+---
+title: "Outbound outreach"
+description: "Let Graph Advocate pay-to-call other x402 agents on your behalf."
+---
+
+## POST /admin/outreach-pay
+
+Admin-only endpoint to send a paid A2A `message/send` to any x402-gated target.
+
+```bash
+curl -X POST https://graph-advocate-production.up.railway.app/admin/outreach-pay \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_url": "https://clawdmint-api.vercel.app/a2a",
+    "message": "Hello from Graph Advocate",
+    "max_usdc": "0.01"
+  }'
+```
+
+## Request
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `target_url` | Yes | Any x402 endpoint |
+| `message` | Yes | Text the target agent receives |
+| `max_usdc` | No | Spend cap (default $0.05, hard cap $1.00) |
+| `sender_agent_id` | No | Defaults to `42161:734` (GA's ERC-8004 id) |
+| `sender_name` | No | Defaults to `Graph Advocate` |
+
+## Response
+
+```json
+{
+  "ok": true,
+  "status": 200,
+  "wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292",
+  "body": { ...target's response... },
+  "settlement": "0x-payment-response-header-if-present"
+}
+```
+
+If the target's 402 pricing exceeds `max_usdc`, the payment is refused and the requirements are returned for inspection.
+
+## Auth
+
+`ADMIN_TOKEN` is a private shared secret set as a Railway env var. Rotate immediately if leaked.
+
+## Safety
+
+- Hard cap of $1.00 USDC per call
+- Private key read from `GA_BASE_WALLET_PK` only; never logged
+- If the env var isn't set, the endpoint returns a structured error — the server never crashes

@@ -1,0 +1,41 @@
+---
+title: "GET /bazaar/search"
+description: "Keyword search over the full CDP x402 Bazaar (15,000+ paid services)."
+---
+
+## Request
+
+```
+GET /bazaar/search?q=weather&max_price=0.01&network=base&limit=10
+```
+
+| Param | Required | Notes |
+|-------|----------|-------|
+| `q` | Yes | Keyword query (match over resource URL + description + output schema) |
+| `max_price` | No | Max price in USDC as float (e.g. `0.01`) |
+| `network` | No | CAIP-2 network filter (e.g. `base`, `eip155:8453`) |
+| `limit` | No | Default 10, max 25 |
+
+## Response
+
+```json
+{
+  "source": "CDP x402 Bazaar",
+  "total_indexed": 15945,
+  "query": "weather",
+  "results": [
+    {
+      "resource": "https://openweather-coral.vercel.app/weather/current",
+      "price_usdc": 0.002,
+      "network": "base",
+      "pay_to": "0x...",
+      "scheme": "exact",
+      "description": "Current weather by lat/lon",
+      "mime_type": "application/json",
+      "match_score": 4
+    }
+  ]
+}
+```
+
+Results are ranked by keyword match count across resource, description, and output schema fields.

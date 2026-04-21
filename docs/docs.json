@@ -1,0 +1,40 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Graph Advocate",
+  "colors": {
+    "primary": "#6747ED",
+    "light": "#8B6FFF",
+    "dark": "#4B2FC9"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": ["index", "quickstart", "agent-card"]
+          },
+          {
+            "group": "Routing",
+            "pages": ["route", "examples"]
+          },
+          {
+            "group": "Discovery",
+            "pages": ["bazaar-active", "bazaar-search", "claw-scout"]
+          },
+          {
+            "group": "Payments",
+            "pages": ["x402", "outreach"]
+          }
+        ]
+      }
+    ]
+  },
+  "footerSocials": {
+    "x": "https://x.com/graphadvocate",
+    "github": "https://github.com/PaulieB14/graph-advocate"
+  }
+}

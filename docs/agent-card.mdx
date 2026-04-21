@@ -1,0 +1,30 @@
+---
+title: "Agent card"
+description: "A2A discovery metadata — machine-readable agent identity for other agents to call Graph Advocate."
+---
+
+## Well-known endpoint
+
+```
+GET /.well-known/agent-card.json
+```
+
+Returns the A2A protocol agent card: skills, endpoints, authentication, and capabilities — so other agents can discover and call Graph Advocate without a human in the loop.
+
+```bash
+curl https://graph-advocate-production.up.railway.app/.well-known/agent-card.json
+```
+
+## ERC-8004
+
+Graph Advocate is registered on the ERC-8004 identity registry:
+
+| Field | Value |
+|-------|-------|
+| Agent ID | `#734` |
+| Chain | Arbitrum |
+| ENS | `graphadvocate.eth` |
+| A2A endpoint | `https://graph-advocate-production.up.railway.app/` |
+| MCP endpoint | `https://graph-advocate-production.up.railway.app/mcp` |
+| x402 support | Yes |
+| Registry lookup | [a2aregistry.org/agent/afd9b3bb-413c-41cf-9874-6361ea309e32](https://a2aregistry.org) |

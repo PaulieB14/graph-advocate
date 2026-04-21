@@ -1,0 +1,43 @@
+---
+title: "x402 payments"
+description: "Graph Advocate accepts and sends x402 payments on Base."
+---
+
+## Accepting payments
+
+Two routes are x402-gated by `PaymentMiddlewareASGI`:
+
+| Route | Price | Purpose |
+|-------|-------|---------|
+| `POST /route` | $0.01 USDC | Paid routing query |
+| `POST /tip` | $0.01 USDC | Voluntary tip jar |
+
+Both settle via the **CDP facilitator** (`api.cdp.coinbase.com/platform/v2/x402`) on Base. Payments trigger CDP Bazaar indexing automatically on first success.
+
+## Sending payments
+
+Graph Advocate can pay *other* x402-gated agents via the admin endpoint:
+
+```
+POST /admin/outreach-pay
+Authorization: Bearer <ADMIN_TOKEN>
+
+{
+  "target_url": "https://some-agent.example.com/endpoint",
+  "message": "Hello from Graph Advocate",
+  "max_usdc": "0.05"
+}
+```
+
+Uses `x402Client` + `EthAccountSigner` under the hood (`ExactEvmScheme` + `UptoEvmClientScheme` for both fixed and usage-based pricing). Signs in-memory, never logs the key.
+
+## Wallets
+
+- **Incoming / receive (payTo):** `0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86`
+- **Outgoing (GA_BASE_WALLET_PK):** `0x575267eED09c338FAE5716A486A7B58A5749A292`
+
+Separating earn vs spend wallets limits blast radius if the outbound key ever leaks.
+
+## Bazaar discovery
+
+Both `POST /route` and `POST /tip` declare discovery metadata via `declare_discovery_extension(...)` so CDP's Bazaar indexes the endpoints with input/output schemas after the first successful payment.

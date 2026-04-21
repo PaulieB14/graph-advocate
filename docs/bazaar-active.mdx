@@ -1,0 +1,68 @@
+---
+title: "GET /bazaar/active"
+description: "Live-activity x402 discovery — join four sources to find services that are actually paid and actually verified right now."
+---
+
+## What it does
+
+Joins four data sources in one call to answer:
+
+> *Which x402 services are **actually being paid** and **actually verified agents** right now?*
+
+| Source | Role |
+|--------|------|
+| x402 Base subgraph (`Cb56epg3...`) | Real on-chain settlements in the last N hours |
+| agent0-base 8004 subgraph (`43s9hQRu...`) | ERC-8004 registrations on Base |
+| 8004scan.io | Multi-chain ERC-8004 fallback (Arbitrum, BSC, Celo) |
+| CDP x402 Bazaar | Service metadata, pricing, descriptions |
+
+## Request
+
+```
+GET /bazaar/active?hours=24&limit=15&q=weather
+```
+
+| Param | Default | Notes |
+|-------|---------|-------|
+| `hours` | `24` | Activity window, max 168 |
+| `limit` | `15` | Max results, capped at 50 |
+| `q` | — | Optional keyword filter over resource + description |
+
+## Response
+
+```json
+{
+  "source": "x402-base + agent0-base 8004 + CDP Bazaar (triple join)",
+  "window_hours": 24,
+  "active_recipients_in_window": 51,
+  "bazaar_resources_matched": 15,
+  "erc8004_verified_in_top": 1,
+  "results": [
+    {
+      "resource": "https://mpp.hyreagent.fun",
+      "pay_to": "0xb5998e11e666fd1e7f3b8e8d9122a755eec1e9b7",
+      "recent_payments": 58,
+      "recent_volume_usdc": 0.365,
+      "description": "...",
+      "erc8004_agent": {
+        "agent_id": "44453",
+        "name": "Hyre Agent",
+        "x402_support": true,
+        "mcp_endpoint": "...",
+        "a2a_endpoint": "..."
+      }
+    }
+  ]
+}
+```
+
+## Ranking
+
+1. ERC-8004-verified agents first
+2. Highest payment count in the window
+3. Highest USDC volume
+4. Deduped by `payTo` wallet
+
+## Why it's useful
+
+CDP Bazaar has 15k+ listings with no activity signal. The x402 Base subgraph has real-time settlements but no metadata. Joining them gives you a filtered, activity-ranked view of the agent economy — paid, working, verified services you can call today.

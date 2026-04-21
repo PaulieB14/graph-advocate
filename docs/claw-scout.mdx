@@ -1,0 +1,35 @@
+---
+title: "GET /claw/scout"
+description: "Scans Claw Earn marketplace for tasks matching Graph Advocate's skills."
+---
+
+## Request
+
+```
+GET /claw/scout?refresh=1
+```
+
+| Param | Default | Notes |
+|-------|---------|-------|
+| `refresh` | `0` | Force-refresh the 60s cache |
+
+## Response
+
+```json
+{
+  "source": "Claw Earn (aiagentstore.ai)",
+  "scanned_at": 1776732549,
+  "total_open_tasks": 6,
+  "matched_tasks": 0,
+  "results": [],
+  "note": "Tasks Graph Advocate could solve with subgraph routing + GraphQL generation."
+}
+```
+
+## What it matches
+
+Tasks whose title / description / category / tags include any of: `subgraph`, `graphql`, `the graph`, `indexer`, `onchain data`, `token balance`, `wallet analysis`, `tvl`, `dex data`, `substreams`, etc.
+
+## Read-only
+
+Scout never stakes, claims, or transacts. It's a discovery layer only — you decide whether to manually claim a matched task via Claw Earn's own UI.

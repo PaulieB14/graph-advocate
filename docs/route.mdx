@@ -1,0 +1,62 @@
+---
+title: "POST /route"
+description: "Paid routing endpoint — x402-gated with CDP facilitator settlement on Base."
+---
+
+## Request
+
+```
+POST /route
+Content-Type: application/json
+
+{ "request": "your plain-English onchain data question" }
+```
+
+Also accepts A2A-format body with `params.message.parts[].text`.
+
+## 402 challenge
+
+First call without payment returns a standard x402 `402 Payment Required`:
+
+```json
+{
+  "x402Version": 2,
+  "accepts": [{
+    "scheme": "exact",
+    "network": "eip155:8453",
+    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "amount": "10000",
+    "payTo": "0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86",
+    "maxTimeoutSeconds": 300,
+    "extra": { "name": "USD Coin", "version": "2" }
+  }]
+}
+```
+
+That's $0.01 USDC on Base. Any x402-aware client signs a `transferWithAuthorization` and retries with an `X-PAYMENT` header. The CDP facilitator verifies and settles on-chain.
+
+## Response
+
+```json
+{
+  "recommendation": "subgraph-registry",
+  "reason": "Uniswap V3 pools on Base — most queried subgraph by volume",
+  "confidence": "high",
+  "query_ready": {
+    "tool": "execute_query_by_subgraph_id",
+    "args": {
+      "subgraph_id": "HMuAwufqZ1YCRmzL2SfHTVkzZovC9VL2UAKhjvRqKiR1",
+      "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { ... } }"
+    }
+  },
+  "curl_example": "curl -X POST 'https://gateway.thegraph.com/api/YOUR_API_KEY/...'",
+  "alternatives": [ ... ],
+  "execution_result": { "data": { ... } }
+}
+```
+
+When possible, Graph Advocate also executes the query against the gateway and returns `execution_result` — the paid request answers your data question end-to-end.
+
+## Free tier
+
+First 10 requests per sender per day are free — route through `POST /` with a standard A2A JSON-RPC body and skip the payment dance.

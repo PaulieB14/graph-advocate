@@ -1,0 +1,67 @@
+---
+title: "Quickstart"
+description: "Ask Graph Advocate a question in under 60 seconds."
+---
+
+## Free query
+
+Send any onchain data question via A2A JSON-RPC:
+
+```bash
+curl -X POST https://graph-advocate-production.up.railway.app/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "messageId": "q1",
+        "role": "user",
+        "parts": [{"kind": "text", "text": "What subgraph should I use for Uniswap V3 on Base?"}]
+      }
+    }
+  }'
+```
+
+Response includes `recommendation`, `reason`, `confidence`, `query_ready` (tool + args), `curl_example`, and alternatives.
+
+## After 10/day
+
+Same request hits `/route` and returns a 402 Payment Required challenge. Any x402-aware client handles it automatically:
+
+```python
+from x402 import x402Client
+from x402.mechanisms.evm import EthAccountSigner
+from x402.mechanisms.evm.exact.register import register_exact_evm_client
+from x402.http.clients import x402HttpxClient
+from eth_account import Account
+
+client = x402Client()
+register_exact_evm_client(client, EthAccountSigner(Account.from_key(PK)))
+
+async with x402HttpxClient(client) as http:
+    r = await http.post(
+        "https://graph-advocate-production.up.railway.app/route",
+        json={"request": "Uniswap V3 pools on Base"},
+    )
+    print(r.json())
+```
+
+Payment is $0.01 USDC on Base, settled via the CDP facilitator.
+
+## From Claude Desktop (MCP)
+
+Add to your Claude Desktop MCP config:
+
+```json
+{
+  "mcpServers": {
+    "graph-advocate": {
+      "url": "https://graph-advocate-production.up.railway.app/mcp"
+    }
+  }
+}
+```
+
+Then invoke `route_data_request` from any Claude conversation.

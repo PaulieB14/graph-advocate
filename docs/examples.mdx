@@ -1,0 +1,40 @@
+---
+title: "Examples"
+description: "Realistic Graph Advocate queries and the responses they produce."
+---
+
+## "Uniswap V3 pools on Base"
+
+```bash
+curl -X POST https://graph-advocate-production.up.railway.app/ \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"message/send","params":{"message":{"messageId":"q","role":"user","parts":[{"kind":"text","text":"Uniswap V3 pools on Base"}]}}}'
+```
+
+Returns routing to the `UniV3-Base` subgraph (40.7M queries / 30d, 0.97 reliability), a ready-to-run GraphQL query over `pools`, factory stats, and the curl to execute it against the Graph gateway.
+
+## "Wallet balance for vitalik.eth"
+
+Routes to `token-api` with tool `getV1EvmBalances` and pre-filled `network: mainnet`, `address: 0xd8dA6BF26964aF9D7eeD9e03E53415D37aA96045`.
+
+## "Aave V3 liquidation risk"
+
+Routes to `graph-aave-mcp` (40 tools, cross-chain liquidation risk as a first-class capability), with a suggested tool call like `get_cross_chain_liquidation_risk`.
+
+## "Polymarket open interest"
+
+Routes to `graph-polymarket-mcp` with `get_global_open_interest` or `get_market_open_interest` depending on scope.
+
+## "Raw event logs for contract X"
+
+Routes to `substreams` with a hint about `.spkg` packages and real-time block data.
+
+## Onchain data discovery
+
+### "Find me an x402 service for sentiment analysis"
+
+Auto-triggers `_search_x402_bazaar` against the CDP discovery index. Returns top-N matching paid services with price, network, and payTo.
+
+### "Which x402 services are active on Base right now?"
+
+Calls the triple-join view (x402 subgraph + 8004 + Bazaar) and returns the live activity-ranked list.
