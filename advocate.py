@@ -2480,9 +2480,7 @@ def search_x402_bazaar_active(query: str = "", hours: int = 24, limit: int = 15)
                 })
                 break
 
-    # 8004 enrichment over ALL active wallets (small set: ~50). Do this BEFORE
-    # dedup/sort so verified agents aren't hidden behind a marketplace that
-    # fronts many resources from one wallet.
+    # 8004 enrichment over ALL active wallets (small set: ~50).
     all_active_wallets = [r["to"] for r in active_recipients]
     agent_map = _fetch_8004_agents_by_wallet(all_active_wallets)
     for m in matches:
@@ -2490,8 +2488,7 @@ def search_x402_bazaar_active(query: str = "", hours: int = 24, limit: int = 15)
         if agent:
             m["erc8004_agent"] = agent
 
-    # Dedup by payTo — keep highest-match-score entry per wallet so a single
-    # marketplace wallet with N resources doesn't crowd out every other agent.
+    # Dedup by payTo — keep highest-match-score entry per wallet.
     seen_wallets: set = set()
     deduped = []
     for m in matches:
@@ -2500,6 +2497,25 @@ def search_x402_bazaar_active(query: str = "", hours: int = 24, limit: int = 15)
         seen_wallets.add(m["pay_to"])
         deduped.append(m)
     matches = deduped
+
+    # Add 8004-registered active wallets that aren't in CDP Bazaar.
+    # These have no metadata listing but ARE verified agents.
+    for wallet, agent in agent_map.items():
+        if wallet in seen_wallets:
+            continue
+        activity = active_map.get(wallet, {})
+        matches.append({
+            "resource": agent.get("web_endpoint") or agent.get("a2a_endpoint") or agent.get("mcp_endpoint"),
+            "price_usdc": None,
+            "network": "eip155:8453",
+            "pay_to": wallet,
+            "description": (agent.get("description") or f"ERC-8004 agent #{agent.get('agent_id')}")[:200],
+            "recent_payments": activity.get("payment_count", 0),
+            "recent_volume_usdc": activity.get("total_volume_usdc", 0),
+            "last_payment_ts": activity.get("last_seen"),
+            "erc8004_agent": agent,
+            "cdp_bazaar_listed": False,
+        })
 
     # Sort: ERC-8004 verified first, then by payment count, then volume.
     matches.sort(
