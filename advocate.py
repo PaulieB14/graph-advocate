@@ -2480,18 +2480,36 @@ def search_x402_bazaar_active(query: str = "", hours: int = 24, limit: int = 15)
                 })
                 break
 
-    matches.sort(key=lambda m: (m["recent_payments"], m["recent_volume_usdc"]), reverse=True)
-
-    # 8004 enrichment: look up ERC-8004 registration for each payTo wallet.
-    # This flags which services are "verified agents" on the registry.
-    top_payees = [m["pay_to"] for m in matches[:limit]]
-    agent_map = _fetch_8004_agents_by_wallet(top_payees) if top_payees else {}
-    verified_count = 0
-    for m in matches[:limit]:
+    # 8004 enrichment over ALL active wallets (small set: ~50). Do this BEFORE
+    # dedup/sort so verified agents aren't hidden behind a marketplace that
+    # fronts many resources from one wallet.
+    all_active_wallets = [r["to"] for r in active_recipients]
+    agent_map = _fetch_8004_agents_by_wallet(all_active_wallets)
+    for m in matches:
         agent = agent_map.get(m["pay_to"])
         if agent:
-            verified_count += 1
             m["erc8004_agent"] = agent
+
+    # Dedup by payTo — keep highest-match-score entry per wallet so a single
+    # marketplace wallet with N resources doesn't crowd out every other agent.
+    seen_wallets: set = set()
+    deduped = []
+    for m in matches:
+        if m["pay_to"] in seen_wallets:
+            continue
+        seen_wallets.add(m["pay_to"])
+        deduped.append(m)
+    matches = deduped
+
+    # Sort: ERC-8004 verified first, then by payment count, then volume.
+    matches.sort(
+        key=lambda m: (
+            0 if m.get("erc8004_agent") else 1,
+            -m["recent_payments"],
+            -m["recent_volume_usdc"],
+        )
+    )
+    verified_count = sum(1 for m in matches[:limit] if m.get("erc8004_agent"))
 
     return json.dumps({
         "source": "x402-base + agent0-base 8004 + CDP Bazaar (triple join)",
