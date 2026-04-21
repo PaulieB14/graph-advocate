@@ -1,62 +1,99 @@
 ---
 title: "POST /route"
-description: "Paid routing endpoint — x402-gated with CDP facilitator settlement on Base."
+description: "Paid routing — pay $0.01 USDC and get an end-to-end answer."
+api: "POST https://graph-advocate-production.up.railway.app/route"
 ---
 
-## Request
+<Note>
+  This endpoint is x402-gated. Free-tier users (10/day) should POST to `/` using A2A JSON-RPC — same routing logic, no payment required.
+</Note>
 
-```
-POST /route
-Content-Type: application/json
+## What happens
 
-{ "request": "your plain-English onchain data question" }
+1. **First call** returns `402 Payment Required` with x402 accepts list ($0.01 USDC on Base)
+2. **x402 client signs** a transferWithAuthorization and retries with `X-PAYMENT` header
+3. **CDP facilitator** verifies, settles on-chain, forwards to the handler
+4. **Graph Advocate routes** the query, picks the best service, generates the GraphQL, and — when possible — **executes it and returns live data**
+
+You pay once. You get routing + execution. One call, one answer.
+
+## Request body
+
+```json
+{ "request": "your plain-English question" }
 ```
 
 Also accepts A2A-format body with `params.message.parts[].text`.
 
-## 402 challenge
-
-First call without payment returns a standard x402 `402 Payment Required`:
+## Response shape
 
 ```json
 {
-  "x402Version": 2,
-  "accepts": [{
-    "scheme": "exact",
-    "network": "eip155:8453",
-    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    "amount": "10000",
-    "payTo": "0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86",
-    "maxTimeoutSeconds": 300,
-    "extra": { "name": "USD Coin", "version": "2" }
-  }]
-}
-```
-
-That's $0.01 USDC on Base. Any x402-aware client signs a `transferWithAuthorization` and retries with an `X-PAYMENT` header. The CDP facilitator verifies and settles on-chain.
-
-## Response
-
-```json
-{
-  "recommendation": "subgraph-registry",
-  "reason": "Uniswap V3 pools on Base — most queried subgraph by volume",
-  "confidence": "high",
+  "recommendation": "subgraph-registry | token-api | substreams | ...",
+  "reason": "...",
+  "confidence": "high | medium | low",
   "query_ready": {
     "tool": "execute_query_by_subgraph_id",
     "args": {
       "subgraph_id": "HMuAwufqZ1YCRmzL2SfHTVkzZovC9VL2UAKhjvRqKiR1",
-      "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { ... } }"
+      "gql": "{ pools(...) { ... } }"
     }
   },
-  "curl_example": "curl -X POST 'https://gateway.thegraph.com/api/YOUR_API_KEY/...'",
-  "alternatives": [ ... ],
-  "execution_result": { "data": { ... } }
+  "curl_example": "curl -X POST 'https://gateway.thegraph.com/api/...",
+  "subgraph_details": { "name": "UniV3-Base", "query_volume_30d": 40771350, "..." },
+  "alternatives": [ { "service": "...", "reason": "..." } ],
+  "execution_result": { "data": { "pools": [...] } }
 }
 ```
 
-When possible, Graph Advocate also executes the query against the gateway and returns `execution_result` — the paid request answers your data question end-to-end.
+The killer field is `execution_result` — Graph Advocate didn't just tell you where to look, it ran the query for you.
 
-## Free tier
+## Pricing
 
-First 10 requests per sender per day are free — route through `POST /` with a standard A2A JSON-RPC body and skip the payment dance.
+| Tier | Quota | Cost |
+|------|-------|------|
+| Free | 10 queries / sender / day | $0 (hit `POST /`, not `/route`) |
+| Paid | Unlimited | $0.01 USDC on Base per call |
+| Priority | Same as paid | Higher-ranked response, full search context |
+
+## Sample: paid call
+
+<CodeGroup>
+
+```python Python
+from x402 import x402Client
+from x402.mechanisms.evm import EthAccountSigner
+from x402.mechanisms.evm.exact.register import register_exact_evm_client
+from x402.http.clients import x402HttpxClient
+from eth_account import Account
+import os
+
+client = x402Client()
+register_exact_evm_client(client, EthAccountSigner(Account.from_key(os.environ["EVM_PRIVATE_KEY"])))
+
+async with x402HttpxClient(client) as http:
+    r = await http.post(
+        "https://graph-advocate-production.up.railway.app/route",
+        json={"request": "Top Aave V3 reserves by TVL on Base"},
+    )
+    print(r.json())
+```
+
+```typescript TypeScript
+import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
+import { registerExactEvmScheme } from "@x402/evm/exact/client";
+import { privateKeyToAccount } from "viem/accounts";
+
+const client = new x402Client();
+registerExactEvmScheme(client, { signer: privateKeyToAccount(process.env.EVM_PRIVATE_KEY as `0x${string}`) });
+
+const pay = wrapFetchWithPayment(fetch, client);
+const r = await pay("https://graph-advocate-production.up.railway.app/route", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ request: "Top Aave V3 reserves by TVL on Base" }),
+});
+console.log(await r.json());
+```
+
+</CodeGroup>

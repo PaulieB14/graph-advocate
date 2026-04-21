@@ -1,41 +1,42 @@
 ---
-title: "GET /bazaar/active"
-description: "Live-activity x402 discovery — join four sources to find services that are actually paid and actually verified right now."
+title: "Live Bazaar"
+description: "Which x402 services are *actually paid* and *actually verified* right now — joined from 4 live sources nobody else joins."
 ---
 
-## What it does
+## The question nobody else answers
 
-Joins four data sources in one call to answer:
+CDP's Bazaar has 15k+ listings with no activity signal. The x402 Base subgraph has real-time settlements with no metadata. 8004scan has multi-chain agent identity.
 
-> *Which x402 services are **actually being paid** and **actually verified agents** right now?*
+Join them and suddenly you can ask: **"Which agents are paid, working, and verified — right now?"**
 
-| Source | Role |
-|--------|------|
-| x402 Base subgraph (`Cb56epg3...`) | Real on-chain settlements in the last N hours |
-| agent0-base 8004 subgraph (`43s9hQRu...`) | ERC-8004 registrations on Base |
-| 8004scan.io | Multi-chain ERC-8004 fallback (Arbitrum, BSC, Celo) |
-| CDP x402 Bazaar | Service metadata, pricing, descriptions |
+<CardGroup cols={2}>
+  <Card title="x402 Base subgraph" icon="chart-line">
+    Every on-chain USDC settlement on Base. [`Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj`](https://thegraph.com/explorer/subgraphs/Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj)
+  </Card>
+  <Card title="agent0 8004 (Base)" icon="fingerprint">
+    ERC-8004 registrations on Base. [`43s9hQRurMGjuYnC1r2ZwS6xSQktbFyXMPMqGKUFJojb`](https://thegraph.com/explorer/subgraphs/43s9hQRurMGjuYnC1r2ZwS6xSQktbFyXMPMqGKUFJojb)
+  </Card>
+  <Card title="8004scan fallback" icon="globe">
+    Multi-chain agents (Arbitrum, BSC, Celo) registered on ERC-8004.
+  </Card>
+  <Card title="CDP x402 Bazaar" icon="store">
+    Service metadata: descriptions, pricing, output schemas.
+  </Card>
+</CardGroup>
 
-## Request
+## Try it
 
+```bash
+curl "https://graph-advocate-production.up.railway.app/bazaar/active?hours=24&limit=5"
 ```
-GET /bazaar/active?hours=24&limit=15&q=weather
-```
 
-| Param | Default | Notes |
-|-------|---------|-------|
-| `hours` | `24` | Activity window, max 168 |
-| `limit` | `15` | Max results, capped at 50 |
-| `q` | — | Optional keyword filter over resource + description |
+<ResponseExample>
 
-## Response
-
-```json
+```json Sample
 {
   "source": "x402-base + agent0-base 8004 + CDP Bazaar (triple join)",
   "window_hours": 24,
   "active_recipients_in_window": 51,
-  "bazaar_resources_matched": 15,
   "erc8004_verified_in_top": 1,
   "results": [
     {
@@ -43,7 +44,6 @@ GET /bazaar/active?hours=24&limit=15&q=weather
       "pay_to": "0xb5998e11e666fd1e7f3b8e8d9122a755eec1e9b7",
       "recent_payments": 58,
       "recent_volume_usdc": 0.365,
-      "description": "...",
       "erc8004_agent": {
         "agent_id": "44453",
         "name": "Hyre Agent",
@@ -56,13 +56,27 @@ GET /bazaar/active?hours=24&limit=15&q=weather
 }
 ```
 
+</ResponseExample>
+
+## Query parameters
+
+| Param | Default | Description |
+|-------|---------|-------------|
+| `hours` | `24` | Activity window, max 168 (one week) |
+| `limit` | `15` | Max results, capped at 50 |
+| `q` | — | Optional keyword filter (resource URL + description) |
+
 ## Ranking
 
-1. ERC-8004-verified agents first
-2. Highest payment count in the window
-3. Highest USDC volume
-4. Deduped by `payTo` wallet
+1. **ERC-8004-verified agents first** — if you're registered, you surface above unknowns
+2. **Highest payment count** in the window
+3. **Highest USDC volume**
+4. Deduped by `payTo` wallet so one marketplace doesn't crowd out everyone else
 
-## Why it's useful
+## Why this matters
 
-CDP Bazaar has 15k+ listings with no activity signal. The x402 Base subgraph has real-time settlements but no metadata. Joining them gives you a filtered, activity-ranked view of the agent economy — paid, working, verified services you can call today.
+The CDP Bazaar tells you what *exists*. This endpoint tells you what *works*. For agents shopping for services, or for humans building the next agent marketplace, the gap between "listed" and "actually paid" is everything.
+
+<Tip>
+  First request after cache expiry takes ~10s (warms the 8004scan multi-chain lookup). Subsequent requests return in under a second.
+</Tip>

@@ -7,6 +7,7 @@
     "light": "#8B6FFF",
     "dark": "#4B2FC9"
   },
+  "description": "The routing agent for onchain data. Ask in English, get the right subgraph + a live answer. x402-paid, ERC-8004 registered, A2A/MCP-native.",
   "favicon": "/favicon.svg",
   "navigation": {
     "tabs": [
@@ -33,8 +34,20 @@
       }
     ]
   },
-  "footerSocials": {
-    "x": "https://x.com/graphadvocate",
-    "github": "https://github.com/PaulieB14/graph-advocate"
+  "navbar": {
+    "links": [
+      { "label": "Live API", "href": "https://graph-advocate-production.up.railway.app" },
+      { "label": "GitHub", "href": "https://github.com/PaulieB14/graph-advocate" }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Try it",
+      "href": "/quickstart"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/PaulieB14/graph-advocate"
+    }
   }
 }

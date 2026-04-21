@@ -1,30 +1,81 @@
 ---
 title: "Graph Advocate"
-description: "Claude-powered A2A routing agent for The Graph Protocol and the broader x402 agent economy."
+description: "Ask in plain English. Get the right subgraph + a ready-to-run query. Paid per call in USDC."
+mode: "custom"
 ---
 
-## What it does
+<div className="relative isolate overflow-hidden">
+  <div className="mx-auto max-w-5xl py-16 sm:py-24 text-center">
+    <div className="inline-flex items-center rounded-full px-4 py-1.5 text-sm bg-primary/10 text-primary ring-1 ring-primary/20">
+      ERC-8004 #734 · graphadvocate.eth · Live on Base
+    </div>
+    <h1 className="mt-6 text-5xl sm:text-6xl font-bold tracking-tight">
+      The routing agent for onchain data.
+    </h1>
+    <p className="mt-6 text-xl text-muted-foreground max-w-2xl mx-auto">
+      Ask any blockchain data question in plain English. Graph Advocate returns the right subgraph, a ready-to-run GraphQL query, and proof-of-answer — paid per call in USDC on Base via x402.
+    </p>
+    <div className="mt-8 flex items-center justify-center gap-4">
+      <a href="/quickstart" className="rounded-lg bg-primary text-white px-5 py-2.5 font-semibold">Quickstart →</a>
+      <a href="/bazaar-active" className="rounded-lg ring-1 ring-white/15 px-5 py-2.5 font-semibold">Live Bazaar</a>
+    </div>
+  </div>
+</div>
 
-You ask in plain English. You get back **the right subgraph, a ready-to-run GraphQL query, and an MCP install hint**.
+## What makes it different
 
-Graph Advocate is an **A2A-protocol, ERC-8004-registered, x402-paid** agent that routes onchain data questions to the right Graph service:
+<CardGroup cols={2}>
+  <Card title="Routes 15,500+ subgraphs" icon="compass">
+    Plain-English query → the right subgraph + a GraphQL query ready to fire at the Graph gateway.
+  </Card>
+  <Card title="Pays per call, no API keys" icon="credit-card">
+    x402-native. Free 10/day, then $0.01 USDC on Base. No sign-up, no billing page — your agent wallet IS the billing relationship.
+  </Card>
+  <Card title="Triple-subgraph discovery" icon="network-wired">
+    Joins x402 Base subgraph + agent0 ERC-8004 + 8004scan + CDP Bazaar to surface services that are *actually being paid* right now.
+  </Card>
+  <Card title="A2A, MCP, ERC-8004" icon="robot">
+    Speaks A2A JSON-RPC, MCP SSE, and is discoverable on the canonical agent identity registry. One endpoint, every agent standard.
+  </Card>
+</CardGroup>
 
-- **token-api** — balances, swaps, NFTs, holders (EVM + Solana + TON)
-- **subgraph-registry** — 15,500+ indexed subgraphs
-- **substreams** — raw block data, traces, streaming
-- Protocol-specific MCPs — Aave, Polymarket, Limitless, Predict.fun, and more
+## Live proof
 
-Plus a new layer that nothing else has: **live x402 discovery** — join Paul's x402 Base subgraph, agent0 ERC-8004 registry, 8004scan, and the CDP Bazaar to show which services are actually being paid *right now*.
+<CodeGroup>
 
-## Identity
+```bash One free call
+curl -X POST https://graph-advocate-production.up.railway.app/ \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"message/send","params":{"message":{"messageId":"q","role":"user","parts":[{"kind":"text","text":"Uniswap V3 pools on Base"}]}}}'
+```
 
-- **Live:** `https://graph-advocate-production.up.railway.app`
-- **ERC-8004 agent ID:** `#734`
-- **ENS:** `graphadvocate.eth`
-- **Payment wallet:** `0x575267eED09c338FAE5716A486A7B58A5749A292`
-- **Fetch.ai uAgent:** `agent1q25cquu47m6s0wv0vv07572l3l7w5qhwwaz8wf5wa6at0au7hmpqg8vgy7g`
+```json Response (truncated)
+{
+  "recommendation": "subgraph-registry",
+  "confidence": "high",
+  "query_ready": {
+    "tool": "execute_query_by_subgraph_id",
+    "args": {
+      "subgraph_id": "HMuAwufqZ1YCRmzL2SfHTVkzZovC9VL2UAKhjvRqKiR1",
+      "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD) { ... } }"
+    }
+  },
+  "execution_result": { "data": { "pools": [...] } }
+}
+```
 
-## Pricing
+</CodeGroup>
 
-- **Free:** 10 queries/day per agent
-- **Paid:** $0.01 USDC on Base via x402 (after free tier)
+## Where to go next
+
+<CardGroup cols={3}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Hit the endpoint in 30 seconds.
+  </Card>
+  <Card title="Endpoints" icon="code" href="/route">
+    Routing, Bazaar discovery, outreach.
+  </Card>
+  <Card title="Agent card" icon="id-card" href="/agent-card">
+    A2A metadata for other agents.
+  </Card>
+</CardGroup>

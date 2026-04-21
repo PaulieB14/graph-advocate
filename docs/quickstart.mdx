@@ -1,44 +1,82 @@
 ---
 title: "Quickstart"
-description: "Ask Graph Advocate a question in under 60 seconds."
+description: "30 seconds from zero to first routing response."
 ---
 
-## Free query
+## 1. Ask anything
 
-Send any onchain data question via A2A JSON-RPC:
+No auth, no keys, nothing to install. POST a plain-English question:
 
-```bash
+<CodeGroup>
+
+```bash curl
 curl -X POST https://graph-advocate-production.up.railway.app/ \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
-    "id": "1",
+    "id": "q1",
     "method": "message/send",
     "params": {
       "message": {
         "messageId": "q1",
         "role": "user",
-        "parts": [{"kind": "text", "text": "What subgraph should I use for Uniswap V3 on Base?"}]
+        "parts": [{"kind": "text", "text": "Wallet balance for vitalik.eth"}]
       }
     }
   }'
 ```
 
-Response includes `recommendation`, `reason`, `confidence`, `query_ready` (tool + args), `curl_example`, and alternatives.
+```python python
+import httpx, json
 
-## After 10/day
+r = httpx.post(
+    "https://graph-advocate-production.up.railway.app/",
+    json={
+        "jsonrpc": "2.0", "id": "q1", "method": "message/send",
+        "params": {"message": {
+            "messageId": "q1", "role": "user",
+            "parts": [{"kind": "text", "text": "Wallet balance for vitalik.eth"}],
+        }},
+    },
+)
+print(json.dumps(r.json(), indent=2))
+```
 
-Same request hits `/route` and returns a 402 Payment Required challenge. Any x402-aware client handles it automatically:
+```typescript TypeScript
+const res = await fetch("https://graph-advocate-production.up.railway.app/", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    jsonrpc: "2.0", id: "q1", method: "message/send",
+    params: { message: {
+      messageId: "q1", role: "user",
+      parts: [{ kind: "text", text: "Wallet balance for vitalik.eth" }],
+    }},
+  }),
+});
+console.log(await res.json());
+```
 
-```python
+</CodeGroup>
+
+<Note>
+  Free tier: 10 queries/day per sender. After that, `POST /route` returns 402 and any x402-aware client pays $0.01 USDC on Base to continue.
+</Note>
+
+## 2. Keep going once you hit the cap
+
+<CodeGroup>
+
+```python x402 client
 from x402 import x402Client
 from x402.mechanisms.evm import EthAccountSigner
 from x402.mechanisms.evm.exact.register import register_exact_evm_client
 from x402.http.clients import x402HttpxClient
 from eth_account import Account
+import os
 
 client = x402Client()
-register_exact_evm_client(client, EthAccountSigner(Account.from_key(PK)))
+register_exact_evm_client(client, EthAccountSigner(Account.from_key(os.environ["EVM_PRIVATE_KEY"])))
 
 async with x402HttpxClient(client) as http:
     r = await http.post(
@@ -48,11 +86,29 @@ async with x402HttpxClient(client) as http:
     print(r.json())
 ```
 
-Payment is $0.01 USDC on Base, settled via the CDP facilitator.
+```typescript fetch wrapper
+import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
+import { registerExactEvmScheme } from "@x402/evm/exact/client";
+import { privateKeyToAccount } from "viem/accounts";
 
-## From Claude Desktop (MCP)
+const client = new x402Client();
+registerExactEvmScheme(client, { signer: privateKeyToAccount(process.env.EVM_PRIVATE_KEY as `0x${string}`) });
 
-Add to your Claude Desktop MCP config:
+const pay = wrapFetchWithPayment(fetch, client);
+
+const r = await pay("https://graph-advocate-production.up.railway.app/route", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ request: "Uniswap V3 pools on Base" }),
+});
+console.log(await r.json());
+```
+
+</CodeGroup>
+
+## 3. Use it from Claude Desktop (MCP)
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -64,4 +120,4 @@ Add to your Claude Desktop MCP config:
 }
 ```
 
-Then invoke `route_data_request` from any Claude conversation.
+Restart Claude Desktop. Ask "use graph-advocate to find me the right subgraph for X" and the routing happens inline.
