@@ -2292,10 +2292,11 @@ def _fetch_8004_agents_by_wallet(wallet_addresses: list) -> dict:
         return {}
     # Query in batches of 100 to keep queries small
     out: dict = {}
-    gateway = f"https://gateway.thegraph.com/api/subgraphs/id/{AGENT0_BASE_SUBGRAPH_ID}"
     api_key = os.environ.get("GRAPH_API_KEY", "").strip()
-    if api_key:
-        gateway = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{AGENT0_BASE_SUBGRAPH_ID}"
+    if not api_key:
+        log.error("8004 lookup: GRAPH_API_KEY env var not set")
+        return {}
+    gateway = f"https://gateway.thegraph.com/api/{api_key}/deployments/id/{AGENT0_BASE_SUBGRAPH_ID}"
 
     for start in range(0, len(wallet_addresses), 100):
         batch = wallet_addresses[start:start + 100]
@@ -2387,10 +2388,11 @@ def _fetch_active_recipients(hours: int = 24) -> list:
     }
     """ % cutoff
 
-    gateway = f"https://gateway.thegraph.com/api/subgraphs/id/{X402_BASE_SUBGRAPH_ID}"
     api_key = os.environ.get("GRAPH_API_KEY", "").strip()
-    if api_key:
-        gateway = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{X402_BASE_SUBGRAPH_ID}"
+    if not api_key:
+        log.error("x402-active: GRAPH_API_KEY env var not set — cannot query gateway")
+        return []
+    gateway = f"https://gateway.thegraph.com/api/{api_key}/deployments/id/{X402_BASE_SUBGRAPH_ID}"
 
     try:
         req = urllib.request.Request(
