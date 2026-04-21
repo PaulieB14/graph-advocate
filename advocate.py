@@ -2273,8 +2273,86 @@ def _search_x402_bazaar(query: str, max_price_usdc: float | None = None,
 
 # Paul's x402-base subgraph — indexes every x402 payment on Base
 X402_BASE_SUBGRAPH_ID = "QmPtuuoU9nu9VJyodiVohf21y8RsR2fx8BpxuVBRHhP29D"
+# Paul's agent0 Base 8004 subgraph — ERC-8004 registry on Base
+AGENT0_BASE_SUBGRAPH_ID = "QmcLwgyKn3RnyhkkSwLYscP9dL1Fc6omvfC9bFRgcK1e7u"
 _x402_active_cache: dict[str, tuple[float, list]] = {}
 _X402_ACTIVE_CACHE_TTL = 300  # 5 min
+
+
+def _fetch_8004_agents_by_wallet(wallet_addresses: list) -> dict:
+    """Look up ERC-8004 agent metadata for a list of wallet addresses on Base.
+
+    Returns {wallet_lowercase: {agent_id, name, description, endpoints, ens, x402_support}}.
+    """
+    import urllib.request
+    import logging
+    log = logging.getLogger("graph-advocate")
+
+    if not wallet_addresses:
+        return {}
+    # Query in batches of 100 to keep queries small
+    out: dict = {}
+    gateway = f"https://gateway.thegraph.com/api/subgraphs/id/{AGENT0_BASE_SUBGRAPH_ID}"
+    api_key = os.environ.get("GRAPH_API_KEY", "").strip()
+    if api_key:
+        gateway = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{AGENT0_BASE_SUBGRAPH_ID}"
+
+    for start in range(0, len(wallet_addresses), 100):
+        batch = wallet_addresses[start:start + 100]
+        addrs = json.dumps(batch)
+        gql = """
+        {
+          agents(first: 200, where: { agentWallet_in: %s, chainId: 8453 }) {
+            agentId
+            agentWallet
+            owner
+            totalFeedback
+            lastActivity
+            registrationFile {
+              name
+              description
+              ens
+              x402Support
+              mcpEndpoint
+              a2aEndpoint
+              webEndpoint
+            }
+          }
+        }
+        """ % addrs
+        try:
+            req = urllib.request.Request(
+                gateway,
+                data=json.dumps({"query": gql}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=15) as r:
+                d = json.loads(r.read())
+            agents = (d.get("data") or {}).get("agents") or []
+        except Exception as e:
+            log.error(f"8004 lookup failed: {e}")
+            continue
+
+        for a in agents:
+            wallet = (a.get("agentWallet") or "").lower()
+            if not wallet:
+                continue
+            rf = a.get("registrationFile") or {}
+            out[wallet] = {
+                "agent_id": a.get("agentId"),
+                "owner": a.get("owner"),
+                "total_feedback": a.get("totalFeedback"),
+                "last_activity": a.get("lastActivity"),
+                "name": rf.get("name"),
+                "description": (rf.get("description") or "")[:200],
+                "ens": rf.get("ens"),
+                "x402_support": rf.get("x402Support"),
+                "mcp_endpoint": rf.get("mcpEndpoint"),
+                "a2a_endpoint": rf.get("a2aEndpoint"),
+                "web_endpoint": rf.get("webEndpoint"),
+            }
+    return out
 
 
 def _fetch_active_recipients(hours: int = 24) -> list:
@@ -2395,15 +2473,32 @@ def search_x402_bazaar_active(query: str = "", hours: int = 24, limit: int = 15)
 
     matches.sort(key=lambda m: (m["recent_payments"], m["recent_volume_usdc"]), reverse=True)
 
+    # 8004 enrichment: look up ERC-8004 registration for each payTo wallet.
+    # This flags which services are "verified agents" on the registry.
+    top_payees = [m["pay_to"] for m in matches[:limit]]
+    agent_map = _fetch_8004_agents_by_wallet(top_payees) if top_payees else {}
+    verified_count = 0
+    for m in matches[:limit]:
+        agent = agent_map.get(m["pay_to"])
+        if agent:
+            verified_count += 1
+            m["erc8004_agent"] = agent
+
     return json.dumps({
-        "source": "x402-base subgraph + CDP Bazaar (live-activity join)",
-        "subgraph_id": X402_BASE_SUBGRAPH_ID,
+        "source": "x402-base + agent0-base 8004 + CDP Bazaar (triple join)",
+        "x402_subgraph": X402_BASE_SUBGRAPH_ID,
+        "agent0_subgraph": AGENT0_BASE_SUBGRAPH_ID,
         "window_hours": hours,
         "active_recipients_in_window": len(active_recipients),
         "bazaar_resources_matched": len(matches),
+        "erc8004_verified_in_top": verified_count,
         "query": query or None,
         "results": matches[:limit],
-        "note": "Resources whose payTo wallet actually settled an x402 payment on Base within the window. Activity-ranked — not just listed, but working.",
+        "note": (
+            "Resources whose payTo wallet actually settled an x402 payment on Base within the window. "
+            "Activity-ranked. Top N enriched with ERC-8004 registration metadata (agent_id, name, endpoints) "
+            "when the wallet is a registered agent."
+        ),
     })
 
 
