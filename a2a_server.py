@@ -4537,5 +4537,15 @@ if __name__ == "__main__":
     log.info(f"Agent card: {PUBLIC_URL}/.well-known/agent-card.json")
     log.info(f"Dashboard: {PUBLIC_URL}/dashboard")
     log.info(f"Chat UI:   {PUBLIC_URL}/chat")
-    uvicorn.run(build_app(), host="0.0.0.0", port=PORT, log_level="warning")
+    # Trust Railway's edge proxy for X-Forwarded-Proto so the x402 challenge
+    # advertises https:// (not http://) in the resource.url field — CDP Bazaar
+    # filters out http:// resources as insecure and won't index them.
+    uvicorn.run(
+        build_app(),
+        host="0.0.0.0",
+        port=PORT,
+        log_level="warning",
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
 
