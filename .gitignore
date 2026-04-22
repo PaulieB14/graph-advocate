@@ -6,3 +6,13 @@ recommendations.db
 private_keys.json
 *.db-wal
 *.db-shm
+.claude/
+
+# system clutter
+.DS_Store
+
+# generated artifacts
+dashboard.html
+
+# moltbridge key (service deprecated, key retained locally if still valuable)
+.moltbridge_key
