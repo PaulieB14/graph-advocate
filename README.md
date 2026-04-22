@@ -8,12 +8,13 @@
 
 Ask a question about blockchain data. Get back the right subgraph, a ready-to-execute query, and an MCP install hint.
 
+[![CDP Bazaar](https://img.shields.io/badge/CDP%20Bazaar-indexed-00D4AA)](https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant?payTo=0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86)
 [![x402scan](https://img.shields.io/badge/x402scan-listed-blue)](https://www.x402scan.com)
 [![ERC-8004](https://img.shields.io/badge/ERC--8004-%23734-purple)](https://www.8004scan.io/agents/arbitrum/734)
 
 **[📚 Docs](https://graphadvocate-31.mintlify.app)** · [Live Dashboard](https://graph-advocate-production.up.railway.app/dashboard) · [Chat](https://graph-advocate-production.up.railway.app/chat) · [Agent Card](https://graph-advocate-production.up.railway.app/.well-known/agent-card.json) · [llms.txt](https://graph-advocate-production.up.railway.app/llms.txt) · [capabilities.json](https://graph-advocate-production.up.railway.app/agents/capabilities.json)
 
-**Discoverable on:** [Ampersend](https://app.ampersend.ai/discover/agent/8453:41034) · [Agentverse](https://agentverse.ai) · [x402scan](https://www.x402scan.com) · [ClawHub](https://clawhub.ai/paulieb14/graph-advocate) · [Moltbook](https://www.moltbook.com/u/graphadvocate) · [8004scan](https://www.8004scan.io/agents/base/41034)
+**Discoverable on:** [CDP Bazaar](https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant?payTo=0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86) · [Ampersend](https://app.ampersend.ai/discover/agent/8453:41034) · [Agentverse](https://agentverse.ai) · [x402scan](https://www.x402scan.com) · [ClawHub](https://clawhub.ai/paulieb14/graph-advocate) · [Moltbook](https://www.moltbook.com/u/graphadvocate) · [8004scan](https://www.8004scan.io/agents/base/41034)
 
 > **For LLM tools (Cursor, Claude Code, etc.):** point at `https://graph-advocate-production.up.railway.app/llms.txt` for auto-discovery of routing services and capabilities.
 
