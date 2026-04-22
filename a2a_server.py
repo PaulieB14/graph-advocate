@@ -4303,6 +4303,7 @@ def build_app():
                                     },
                                     "required": ["request"],
                                 },
+                                body_type="json",
                                 output=OutputConfig(
                                     example={
                                         "recommendation": "token-api",
