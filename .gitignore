@@ -16,3 +16,6 @@ dashboard.html
 
 # moltbridge key (service deprecated, key retained locally if still valuable)
 .moltbridge_key
+
+# 24MB subgraph registry, downloaded by advocate.py on demand
+data/
