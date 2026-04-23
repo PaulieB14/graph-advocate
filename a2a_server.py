@@ -1015,6 +1015,34 @@ SKILLS = [
         input_modes=["text"],
         output_modes=["text"],
     ),
+    AgentSkill(
+        id="polymarket_data",
+        name="Polymarket prediction markets — prices, OHLCV, positions, P&L, activity",
+        description=(
+            "Routes Polymarket queries to the Pinax Prediction Markets API "
+            "(Token API `/v1/polymarket/*`). Covers markets discovery, OHLCV per "
+            "outcome token, open interest, activity feeds (trades, splits, merges, "
+            "redemptions), user positions with realized/unrealized PnL, and "
+            "platform-wide aggregates. Preferred over the graph-polymarket-mcp "
+            "package for common queries — cleaner REST surface, no npm install, "
+            "AI-ready structured responses."
+        ),
+        tags=[
+            "polymarket", "prediction-markets", "probability", "signal-layer",
+            "ohlcv", "backtest", "trading", "copy-trading", "portfolio", "pnl",
+            "liquidity", "open-interest", "pinax", "token-api",
+        ],
+        examples=[
+            "How has the probability of 'Trump acquires Greenland before 2027' changed in the last 10 days?",
+            "Give me OHLCV for Polymarket condition 0xabc... over the last 30 days for backtesting",
+            "What are the top 10 Polymarket markets by 24h trading volume right now?",
+            "Show the positions and realized P&L for Polymarket user 0x42eB... — I want to copy their plays",
+            "Get platform aggregates for Polymarket — total volume, open interest, active market count",
+            "Find markets where implied probability dropped more than 10% in the last week",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
 ]
 
 
