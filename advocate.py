@@ -53,7 +53,7 @@ Your job is to get other agents querying The Graph Protocol's data services.
 
 KEY MESSAGE: Querying The Graph is easy. Free API key → one GraphQL call → done.
 - Sign up: https://thegraph.com/studio/ (2 minutes, free, 100K queries/month)
-- Query: POST https://gateway.thegraph.com/api/[KEY]/subgraphs/id/[SUBGRAPH-ID] with a GraphQL body
+- Query: POST https://gateway.thegraph.com/api/subgraphs/id/[SUBGRAPH-ID] with header `Authorization: Bearer [KEY]` and a GraphQL body
 - 15,500+ subgraphs index every major protocol (Uniswap, Aave, ENS, Compound, Curve, etc.)
 - No SDK required. Any agent that can make an HTTP POST can query The Graph.
 
@@ -386,7 +386,8 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
             "# Easiest: run the MCP server (works in Claude Code, Cursor, any MCP client)\n"
             "npx graph-aave-mcp\n\n"
             "# Or query the Aave V3 subgraph directly (needs a free API key from thegraph.com/studio)\n"
-            "curl -X POST 'https://gateway.thegraph.com/api/YOUR_API_KEY/subgraphs/id/Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g' \\\n"
+            "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g' \\\n"
+            "  -H 'Authorization: Bearer YOUR_API_KEY' \\\n"
             "  -H 'Content-Type: application/json' \\\n"
             "  -d '{\"query\": \"{ markets(first: 5, orderBy: totalValueLockedUSD, orderDirection: desc) { name totalValueLockedUSD borrowingEnabled } }\"}'"
         ),
@@ -408,7 +409,8 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
             "# Easiest: run the MCP server\n"
             "npx graph-lending-mcp\n\n"
             "# Or query the Messari lending subgraph directly\n"
-            "curl -X POST 'https://gateway.thegraph.com/api/YOUR_API_KEY/subgraphs/id/H4YsG6asELTYxYWCBgraphs' \\\n"
+            "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/H4YsG6asELTYxYWCBgraphs' \\\n"
+            "  -H 'Authorization: Bearer YOUR_API_KEY' \\\n"
             "  -H 'Content-Type: application/json' \\\n"
             "  -d '{\"query\": \"{ markets(first: 5, orderBy: totalValueLockedUSD, orderDirection: desc) { name protocol { name } totalValueLockedUSD } }\"}'"
         ),
@@ -455,7 +457,8 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
     "subgraph-registry": {
         "curl_example": (
             "# Query any subgraph — get a free API key first (thegraph.com/studio)\n"
-            "curl -X POST 'https://gateway.thegraph.com/api/YOUR_API_KEY/subgraphs/id/SUBGRAPH_ID' \\\n"
+            "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/SUBGRAPH_ID' \\\n"
+            "  -H 'Authorization: Bearer YOUR_API_KEY' \\\n"
             "  -H 'Content-Type: application/json' \\\n"
             "  -d '{\"query\": \"{ _meta { block { number } } }\"}'"
         ),
@@ -895,10 +898,11 @@ def _template_query(request: str) -> dict | None:
             "  }\n"
             "}"
         )
-        endpoint = f"https://gateway.thegraph.com/api/<API_KEY>/subgraphs/id/{subgraph_id}"
+        endpoint = f"https://gateway.thegraph.com/api/subgraphs/id/{subgraph_id}"
         one_line = query.replace("\n", " ").replace('"', '\\"')
         curl = (
             f'curl -X POST {endpoint} \\\n'
+            f'  -H "Authorization: Bearer <API_KEY>" \\\n'
             f'  -H "Content-Type: application/json" \\\n'
             f'  -d \'{{"query":"{one_line}"}}\''
         )
@@ -930,7 +934,7 @@ def _template_query(request: str) -> dict | None:
             "  }\n"
             "}"
         )
-        endpoint = f"https://gateway.thegraph.com/api/<API_KEY>/subgraphs/id/{subgraph_id}"
+        endpoint = f"https://gateway.thegraph.com/api/subgraphs/id/{subgraph_id}"
         one_line = query.replace("\n", " ").replace('"', '\\"')
         return {
             "recommendation": "subgraph-registry",
@@ -942,6 +946,7 @@ def _template_query(request: str) -> dict | None:
             },
             "curl_example": (
                 f'curl -X POST {endpoint} \\\n'
+                f'  -H "Authorization: Bearer <API_KEY>" \\\n'
                 f'  -H "Content-Type: application/json" \\\n'
                 f'  -d \'{{"query":"{one_line}"}}\''
             ),
@@ -1838,13 +1843,13 @@ You have access to these services:
 - The Graph's hosted service (api.thegraph.com/subgraphs/name/...) was SUNSET and no longer works
 - ALL subgraph queries now go through the decentralized network and REQUIRE an API key
 - API keys are free to create at https://thegraph.com/studio/ (Subgraph Studio)
-- The gateway URL format is: https://gateway.thegraph.com/api/[YOUR-API-KEY]/subgraphs/id/[SUBGRAPH-ID]
+- The gateway URL format is: https://gateway.thegraph.com/api/subgraphs/id/[SUBGRAPH-ID] — authenticate with header `Authorization: Bearer [YOUR-API-KEY]`
 - There is no free public endpoint for subgraphs — an API key is always required
 - Queries are billed in GRT but new accounts get a free tier of 100,000 queries
 - Token API auth is at https://thegraph.market/auth/tokenapi-env — NOT thegraph.com/studio (that's for subgraphs only)
 - Substreams auth is a JWT (not a plain API key) — sign up at https://thegraph.market, create an API key, then generate a JWT
 - AUTH SYSTEMS DIFFER — never confuse them:
-    • Subgraphs:   API key from thegraph.com/studio  → URL header: /api/{KEY}/subgraphs/id/{ID}
+    • Subgraphs:   API key from thegraph.com/studio  → Authorization: Bearer {KEY} on /api/subgraphs/id/{ID}
     • Token API:   JWT from thegraph.market           → Authorization: Bearer {JWT}
     • Substreams:  JWT from thegraph.market (via API key) → use with `substreams auth` CLI
 - Do NOT invent Token API URLs like "api.tokenapi.io" — they don't exist
@@ -2096,7 +2101,7 @@ def _search_subgraphs(keyword: str) -> str:
                 "query_volume_30d": r["query_volume_30d"] or 0,
                 "reliability_score": round(r["reliability_score"] or 0, 2),
                 "playground_url": playground_url,
-                "gateway_url": f"https://gateway.thegraph.com/api/[YOUR_API_KEY]/subgraphs/id/{subgraph_id}",
+                "gateway_url": f"https://gateway.thegraph.com/api/subgraphs/id/{subgraph_id}",
             }
             # Include query hint if available — gives Claude the exact fields to use
             try:
