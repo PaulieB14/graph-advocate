@@ -2042,6 +2042,82 @@ async def quality_stats_endpoint(request: Request):
 
 # ── /logs and /dashboard endpoints ───────────────────────────────────────────
 
+# Onchain balance snapshot for the dashboard. Cached 60s to avoid hammering RPCs
+# every 15s poll. Read-only — queries Base and Arbitrum for wallet balances +
+# compares to x402-paid/x402-tip log count so settlement anomalies surface.
+_ONCHAIN_CACHE: dict = {"data": None, "ts": 0.0}
+_ONCHAIN_CACHE_TTL_SEC = 60
+_BASE_RPC_URL = os.environ.get("BASE_RPC_URL", "https://mainnet.base.org")
+_ARB_RPC_URL = os.environ.get("ARB_RPC_URL", "https://arb1.arbitrum.io/rpc")
+_USDC_BASE_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+_OUTBOUND_WALLET = "0x575267eED09c338FAE5716A486A7B58A5749A292"  # graphadvocate.eth
+
+
+def _rpc_call(url: str, method: str, params: list, timeout: float = 5.0):
+    import httpx
+    r = httpx.post(url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params}, timeout=timeout)
+    r.raise_for_status()
+    j = r.json()
+    if "error" in j:
+        raise RuntimeError(str(j["error"])[:200])
+    return j["result"]
+
+
+def _get_onchain_stats() -> dict:
+    import time as _t, sqlite3 as _sq
+    now = _t.time()
+    cached = _ONCHAIN_CACHE["data"]
+    if cached and now - _ONCHAIN_CACHE["ts"] < _ONCHAIN_CACHE_TTL_SEC:
+        return cached
+
+    out = {
+        "x402_wallet": X402_WALLET,
+        "outbound_wallet": _OUTBOUND_WALLET,
+        "usdc_balance": None,
+        "base_gas_eth": None,
+        "arb_gas_eth": None,
+        "x402_log_count": None,
+        "pending_settlements": None,
+        "error": None,
+    }
+    try:
+        addr_hex = X402_WALLET.lower().replace("0x", "")
+        call_data = "0x70a08231" + "0" * 24 + addr_hex  # balanceOf(address)
+        raw = _rpc_call(_BASE_RPC_URL, "eth_call",
+                        [{"to": _USDC_BASE_CONTRACT, "data": call_data}, "latest"])
+        out["usdc_balance"] = int(raw, 16) / 1e6
+        eth_base = _rpc_call(_BASE_RPC_URL, "eth_getBalance", [X402_WALLET, "latest"])
+        out["base_gas_eth"] = int(eth_base, 16) / 1e18
+        eth_arb = _rpc_call(_ARB_RPC_URL, "eth_getBalance", [_OUTBOUND_WALLET, "latest"])
+        out["arb_gas_eth"] = int(eth_arb, 16) / 1e18
+    except Exception as e:
+        out["error"] = str(e)[:120]
+
+    # Compare x402 log count against settled payments. Each x402-tip / x402-paid
+    # log entry should correspond to one USDC transfer. If logs > transfers,
+    # something verified but didn't settle (today's bug).
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        row = conn.execute(
+            "SELECT COUNT(*) FROM activity WHERE service IN ('x402-tip', 'x402-paid')"
+        ).fetchone()
+        out["x402_log_count"] = row[0] if row else 0
+        conn.close()
+    except Exception:
+        pass
+
+    # Rough "pending" count: x402 log entries minus the USDC-balance-in-pennies
+    # (assuming $0.01/payment). Negative means we earned more than logged (weird).
+    # Positive means some payments verified but never settled.
+    if out["usdc_balance"] is not None and out["x402_log_count"] is not None:
+        implied_settled = round(out["usdc_balance"] / 0.01)
+        out["pending_settlements"] = max(0, out["x402_log_count"] - implied_settled)
+
+    _ONCHAIN_CACHE["data"] = out
+    _ONCHAIN_CACHE["ts"] = now
+    return out
+
+
 async def logs_endpoint(request: Request):
     if not _check_admin(request):
         return _unauthorized()
@@ -2386,6 +2462,7 @@ def _build_dashboard_data() -> dict:
         "service_health": service_health,
         "hero_24h": hero_24h,
         "quality_summary": quality_summary,
+        "onchain": _get_onchain_stats(),
     }
 
 
@@ -2848,6 +2925,26 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Wallet & revenue hero card ──────────────────────────────────────────
+function renderWalletCard(o) {
+  if (!o || o.usdc_balance === undefined) return '';
+  const bal = (o.usdc_balance !== null && o.usdc_balance !== undefined) ? o.usdc_balance.toFixed(3) : '—';
+  const baseGas = (o.base_gas_eth !== null && o.base_gas_eth !== undefined) ? o.base_gas_eth.toFixed(5) : '—';
+  const arbGas = (o.arb_gas_eth !== null && o.arb_gas_eth !== undefined) ? o.arb_gas_eth.toFixed(5) : '—';
+  const pending = o.pending_settlements || 0;
+  const pendingBadge = pending > 0
+    ? `<span class="badge amber" title="x402 entries in logs without matching settled USDC — verify vs settle gap">⚠ ${pending} unsettled</span>`
+    : (o.x402_log_count > 0 ? `<span class="badge green">${o.x402_log_count} paid</span>` : '');
+  const err = o.error ? `<span class="badge dim" title="${escapeHtml(o.error)}">rpc err</span>` : '';
+  return `
+    <div class="hero-card">
+      <div class="label"><span class="icon">💰</span>Wallet · Base${pendingBadge}${err}</div>
+      <div class="value">$${bal} <span style="font-size:1rem;color:var(--text-muted);font-weight:600">USDC</span></div>
+      <div class="sub">Base gas ${baseGas} ETH · Arb gas ${arbGas} ETH · refreshes ~60s</div>
+    </div>
+  `;
+}
+
 // ── Hero metrics (top row) ──────────────────────────────────────────────
 function renderHero(d) {
   const h24 = d.hero_24h || {requests:0,unique_senders:0,last_5min:0};
@@ -2878,6 +2975,7 @@ function renderHero(d) {
       <div class="value">${qScore} <span style="font-size:1rem;color:var(--text-muted);font-weight:600">/ 5</span> <span class="badge ${qBadge}">${q.total_scored} scored</span></div>
       <div class="sub">Auto-scored on parse, query-ready, install, curl</div>
     </div>
+    ${renderWalletCard(d.onchain || {})}
     <div class="hero-card">
       <div class="label"><span class="icon">🔍</span>Discovery</div>
       <div class="value">${d.discovery_count}</div>
