@@ -10,6 +10,7 @@ Dashboard: GET  /dashboard  (live HTML view)
 
 import os
 import logging
+import re
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -478,6 +479,38 @@ class _SuppressA2AValidationTraceback(logging.Filter):
 logging.getLogger("a2a.server.apps.jsonrpc.jsonrpc_app").addFilter(
     _SuppressA2AValidationTraceback()
 )
+
+
+# Redact URL-embedded Graph API keys (pattern `/api/<32-hex>/`) from log output.
+# Internal query paths still use the URL-embedded format so httpx's INFO-level
+# request logs would otherwise expose the key in Railway logs. Defense in depth
+# on top of auth-header rollout.
+class _RedactAPIKeys(logging.Filter):
+    _PAT = re.compile(r"(/api/)[0-9a-f]{32}(/)")
+    _REPLACE = r"\1<redacted>\2"
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str) and "/api/" in record.msg:
+            record.msg = self._PAT.sub(self._REPLACE, record.msg)
+        args = record.args
+        if args:
+            if isinstance(args, dict):
+                record.args = {
+                    k: self._PAT.sub(self._REPLACE, v) if isinstance(v, str) else v
+                    for k, v in args.items()
+                }
+            else:
+                record.args = tuple(
+                    self._PAT.sub(self._REPLACE, a) if isinstance(a, str) else a
+                    for a in args
+                )
+        return True
+
+
+_api_key_redactor = _RedactAPIKeys()
+for _h in logging.getLogger().handlers:
+    _h.addFilter(_api_key_redactor)
+
 
 PORT = int(os.environ.get("PORT", 8765))
 PUBLIC_URL = os.environ.get("ADVOCATE_PUBLIC_URL", f"http://localhost:{PORT}")
