@@ -9,6 +9,7 @@ Dashboard: GET  /dashboard  (live HTML view)
 """
 
 import os
+import asyncio
 import logging
 import re
 from collections import deque
@@ -2166,6 +2167,39 @@ def _get_onchain_stats() -> dict:
     _ONCHAIN_CACHE["data"] = out
     _ONCHAIN_CACHE["ts"] = now
     return out
+
+
+async def _log_settlement_outcome(pre_balance: float | None, wait_seconds: int = 90) -> None:
+    """Background task: 90s after a tip handler runs, check if USDC balance
+    actually increased. If not, log a WARNING — settle failed silently.
+
+    Why 90s: PaymentMiddlewareASGI calls settle() AFTER the inner handler
+    returns. The settle path goes through the CDP facilitator → onchain
+    transferWithAuthorization → eventual block confirmation. We give that
+    pipeline a generous window before declaring settle failed. The
+    onchain-stats helper has a 60s cache, so we bust it explicitly here.
+    """
+    import asyncio as _asyncio
+    try:
+        await _asyncio.sleep(wait_seconds)
+        # Bust the cache so we read fresh balance, not the pre-tip snapshot
+        _ONCHAIN_CACHE["data"] = None
+        _ONCHAIN_CACHE["ts"] = 0.0
+        post = _get_onchain_stats().get("usdc_balance")
+        if post is None or pre_balance is None:
+            log.warning(f"settle-check: balance read failed (pre={pre_balance}, post={post})")
+            return
+        delta = post - pre_balance
+        if delta > 0.0001:  # accept >$0.0001 delta as "settled"
+            log.info(f"settle-check ✓ USDC delta=+{delta:.4f} (pre={pre_balance:.4f}, post={post:.4f})")
+        else:
+            log.warning(
+                f"settle-check ✗ NO SETTLEMENT after {wait_seconds}s — "
+                f"pre={pre_balance:.4f}, post={post:.4f}, delta={delta:.4f}. "
+                f"Tip handler ran but USDC didn't move — likely middleware silent settle failure."
+            )
+    except Exception as e:
+        log.error(f"settle-check raised: {e}")
 
 
 async def logs_endpoint(request: Request):
@@ -4447,7 +4481,15 @@ def build_app():
             return _RouteJSON(rec)
 
         async def _tip_handler(request):
-            """Runs after payment is verified — return a thank-you."""
+            """Runs after payment is verified — return a thank-you.
+
+            INSTRUMENTATION: kicks off a background balance check 60s after the
+            tip is received. The middleware library (PaymentMiddlewareASGI) calls
+            settle AFTER this handler returns. If settle silently fails (caught
+            and converted to empty 402 in the lib), we'd never know without
+            checking the wallet directly. The background check logs a WARNING
+            if balance didn't increase, surfacing settlement failures.
+            """
             import random
             messages = [
                 "Thanks for the tip! Keeps the wheels rolling. 🛞",
@@ -4457,7 +4499,15 @@ def build_app():
                 "Tipped and appreciated. Graph Advocate stays online because of supporters like you. 🚀",
             ]
             _log_request("x402-tip", "tip", "tip", "high", "x402-tip")
-            log.info("X402-TIP received!")
+            log.info("X402-TIP handler ran (verify ok); awaiting middleware settle…")
+
+            # Snapshot balance now so the background task can detect a delta.
+            try:
+                pre_balance = _get_onchain_stats().get("usdc_balance")
+            except Exception:
+                pre_balance = None
+            asyncio.create_task(_log_settlement_outcome(pre_balance))
+
             return _RouteJSON({
                 "message": random.choice(messages),
                 "from": "Graph Advocate (graphadvocate.eth)",
