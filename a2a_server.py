@@ -2145,12 +2145,13 @@ def _get_onchain_stats() -> dict:
         out["error"] = str(e)[:120]
 
     # Compare x402 log count against settled payments. Each x402-tip / x402-paid
-    # log entry should correspond to one USDC transfer. If logs > transfers,
-    # something verified but didn't settle (today's bug).
+    # entry should correspond to one USDC transfer. If logs > transfers,
+    # something verified but didn't settle. The tip handler logs `service='tip'`
+    # while paid queries log `service='x402-paid'`, so we need both labels.
     try:
         conn = _sq.connect(str(DB_PATH))
         row = conn.execute(
-            "SELECT COUNT(*) FROM activity WHERE service IN ('x402-tip', 'x402-paid')"
+            "SELECT COUNT(*) FROM activity WHERE service IN ('x402-tip', 'x402-paid', 'tip')"
         ).fetchone()
         out["x402_log_count"] = row[0] if row else 0
         conn.close()
