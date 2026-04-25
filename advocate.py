@@ -1183,6 +1183,159 @@ def _normalize_service_name(svc: str) -> str:
     return s
 
 
+# ── Query validation: schema-aware checks before returning recommendations ───
+# Three pieces working together:
+#   1. _introspect_subgraph: cached schema fetch (24h TTL) per subgraph
+#   2. _inject_meta_into_query: every query gets `_meta { block { ... } }` so
+#      callers can detect a stale subgraph
+#   3. _validate_and_fix_query: dry-runs the generated query; flags failures
+#      in `query_validation` so the user gets honest feedback
+# Schema injection into the prompt happens in _auto_search for the top result.
+
+import re as _re_qv
+
+_SCHEMA_CACHE: dict = {}
+_SCHEMA_CACHE_TTL_SEC = 86400  # 24h
+_META_BLOCK_RE = _re_qv.compile(r"_meta\s*[\{\(]")
+
+
+def _introspect_subgraph(subgraph_id: str, api_key: str) -> dict | None:
+    """Pull a compact schema map of the subgraph with 24h TTL cache.
+
+    Returns {entity_name: ["field: Type", ...]} or None on failure.
+    """
+    import time as _t
+    import httpx as _httpx
+    now = _t.time()
+    cached = _SCHEMA_CACHE.get(subgraph_id)
+    if cached and now - cached["ts"] < _SCHEMA_CACHE_TTL_SEC:
+        return cached["schema"]
+
+    url = f"https://gateway.thegraph.com/api/subgraphs/id/{subgraph_id}"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    q = "{ __schema { types { name kind fields { name type { name kind ofType { name } } } } } }"
+    try:
+        r = _httpx.post(url, json={"query": q}, headers=headers, timeout=8)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if data.get("errors"):
+            return None
+        types = (data.get("data") or {}).get("__schema", {}).get("types") or []
+        compact: dict = {}
+        for t in types:
+            if t.get("kind") != "OBJECT":
+                continue
+            name = t.get("name", "")
+            if name.startswith("_") or name in {"Query", "Subscription", "Mutation"}:
+                continue
+            fields = []
+            for f in (t.get("fields") or []):
+                ftype = (
+                    f["type"].get("name")
+                    or (f["type"].get("ofType") or {}).get("name")
+                    or f["type"].get("kind", "?")
+                )
+                fields.append(f"{f['name']}: {ftype}")
+            compact[name] = fields
+        _SCHEMA_CACHE[subgraph_id] = {"ts": now, "schema": compact}
+        return compact
+    except Exception:
+        return None
+
+
+def _format_schema_for_prompt(schema: dict, max_entities: int = 10, max_fields: int = 12) -> str:
+    """Compact schema rendering for LLM context. Bounded so token cost stays sane."""
+    if not schema:
+        return ""
+    lines = ["entities (use ONLY these — do not invent fields):"]
+    items = list(schema.items())[:max_entities]
+    for name, fields in items:
+        f_show = ", ".join(fields[:max_fields])
+        if len(fields) > max_fields:
+            f_show += f", ...(+{len(fields) - max_fields} more)"
+        lines.append(f"  {name} {{ {f_show} }}")
+    if len(schema) > max_entities:
+        lines.append(f"  ...(+{len(schema) - max_entities} more entities)")
+    return "\n".join(lines)
+
+
+def _inject_meta_into_query(gql: str) -> str:
+    """Add `_meta { block { number timestamp } }` as first selection if absent.
+
+    Surfaces subgraph staleness on every result.
+    """
+    if not gql or _META_BLOCK_RE.search(gql):
+        return gql
+    s = gql.lstrip()
+    idx = s.find("{")
+    if idx == -1:
+        return gql
+    return s[: idx + 1] + "\n  _meta { block { number timestamp } }" + s[idx + 1 :]
+
+
+def _dry_run_query(subgraph_id: str, gql: str, api_key: str) -> dict:
+    """Execute the query against the gateway with a short timeout. Returns ok/errors."""
+    import httpx as _httpx
+    url = f"https://gateway.thegraph.com/api/subgraphs/id/{subgraph_id}"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        r = _httpx.post(url, json={"query": gql}, headers=headers, timeout=6)
+        if r.status_code != 200:
+            return {"ok": False, "errors": [f"HTTP {r.status_code}"]}
+        data = r.json()
+        if data.get("errors"):
+            return {"ok": False, "errors": [(e.get("message") or "?")[:200] for e in data["errors"][:3]]}
+        return {"ok": True, "errors": []}
+    except Exception as e:
+        # Network failure ≠ query failure — don't false-flag.
+        return {"ok": None, "errors": [f"network: {str(e)[:80]}"]}
+
+
+def _validate_and_fix_query(rec: dict) -> dict:
+    """Inject `_meta` and dry-run any subgraph query in the recommendation.
+
+    Adds `query_validation: {ok, errors, subgraph_id}` so callers know whether
+    the query is verified. Disable globally with env GA_VALIDATE_QUERIES=0.
+    """
+    if os.environ.get("GA_VALIDATE_QUERIES", "1") == "0":
+        return rec
+
+    qr = rec.get("query_ready") or {}
+    if not isinstance(qr, dict):
+        return rec
+    args = qr.get("args") or {}
+    subgraph_id = args.get("subgraph_id") or qr.get("subgraph_id")
+    gql = args.get("gql") or args.get("query") or qr.get("gql") or qr.get("query")
+    if not subgraph_id or not gql:
+        return rec
+
+    api_key = (
+        os.environ.get("GRAPH_API_KEY", "")
+        or os.environ.get("GATEWAY_API_KEY", "")
+        or "4c62716b2e5808ac83da1938db78296e"
+    )
+
+    new_gql = _inject_meta_into_query(gql)
+    if new_gql != gql:
+        if isinstance(qr.get("args"), dict) and "gql" in qr["args"]:
+            qr["args"]["gql"] = new_gql
+        elif isinstance(qr.get("args"), dict) and "query" in qr["args"]:
+            qr["args"]["query"] = new_gql
+        else:
+            qr["gql"] = new_gql
+        gql = new_gql
+    rec["query_ready"] = qr
+
+    result = _dry_run_query(subgraph_id, gql, api_key)
+    rec["query_validation"] = {
+        "ok": result["ok"],
+        "errors": result.get("errors", []),
+        "subgraph_id": subgraph_id,
+    }
+    return rec
+
+
 def _inject_missing_fields(rec: dict, request: str) -> dict:
     """Ensure every recommendation has a curl_example and get_started URL.
 
@@ -1319,6 +1472,23 @@ def _auto_search(request: str) -> str:
             sg_data = json.loads(sg_results)
             if sg_data.get("results"):
                 results.append(f"[LIVE SUBGRAPH SEARCH for '{search_term}']\n{sg_results}")
+                # Inject schema of the top result so Claude generates queries
+                # against real fields instead of hallucinating from convention.
+                # Disable with env GA_INJECT_SCHEMA=0.
+                if os.environ.get("GA_INJECT_SCHEMA", "1") != "0":
+                    top = sg_data["results"][0]
+                    sgid = top.get("subgraph_id")
+                    if sgid:
+                        api_key = (
+                            os.environ.get("GRAPH_API_KEY", "")
+                            or os.environ.get("GATEWAY_API_KEY", "")
+                            or "4c62716b2e5808ac83da1938db78296e"
+                        )
+                        schema = _introspect_subgraph(sgid, api_key)
+                        compact = _format_schema_for_prompt(schema) if schema else ""
+                        if compact:
+                            label = top.get("name", sgid[:16])
+                            results.append(f"[SCHEMA for {label} — {sgid[:16]}…]\n{compact}")
 
         if run_substreams:
             ss_results = _search_substreams(search_term)
@@ -1514,6 +1684,9 @@ def ask_graph_advocate(
     # Inject working curl/npx example when query_ready is absent
     if not rec.get("parse_error"):
         rec = _inject_missing_fields(rec, request)
+        # Inject _meta and dry-run the generated query so we don't hand back
+        # broken GraphQL. Adds rec["query_validation"] = {ok, errors, ...}.
+        rec = _validate_and_fix_query(rec)
 
     _log(requesting_agent, request, rec)
 
