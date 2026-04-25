@@ -1713,6 +1713,25 @@ def ask_graph_advocate(
             log.error(f"Execution error: {e}")
             rec["execution_error"] = str(e)
 
+    # Always include a feedback handle so callers can report whether the
+    # recommendation actually worked. The /feedback endpoint had zero entries
+    # at audit time; without exposing it in every response the loop is dormant.
+    public_url = os.environ.get("ADVOCATE_PUBLIC_URL", "https://graph-advocate-production.up.railway.app")
+    rec["feedback"] = {
+        "url": f"{public_url}/feedback",
+        "method": "POST",
+        "instructions": "After trying the recommendation, POST a thumbs-up/down so Graph Advocate learns.",
+        "example": {
+            "agent_id": "<your wallet or agent name>",
+            "request": request[:200],
+            "service_recommended": rec.get("recommendation", ""),
+            "was_useful": True,
+            "tool_executed": (rec.get("query_ready") or {}).get("tool", ""),
+            "actual_result": "success or error message",
+            "comment": "(optional) any notes",
+        },
+    }
+
     return rec, messages
 
 

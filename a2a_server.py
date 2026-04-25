@@ -1723,10 +1723,19 @@ async def feedback_endpoint(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+_BAZAAR_ACTIVE_CACHE: dict = {}
+_BAZAAR_ACTIVE_TTL_SEC = 300  # 5 min — CDP doesn't change minute-to-minute
+
+
 async def bazaar_active_endpoint(request: Request):
-    """GET /bazaar/active?q=&hours=24&limit=15 — live x402 services (subgraph-joined)."""
+    """GET /bazaar/active?q=&hours=24&limit=15 — live x402 services (subgraph-joined).
+
+    Cached 5 min per (q, hours, limit) tuple. Without the cache, slow CDP fetches
+    were causing this endpoint to hang for ~10s and time out callers.
+    """
     from advocate import search_x402_bazaar_active
     import json as _json
+    import time as _t
     q = request.query_params.get("q", "").strip()
     try:
         hours = min(int(request.query_params.get("hours", "24")), 168)
@@ -1736,7 +1745,20 @@ async def bazaar_active_endpoint(request: Request):
         limit = min(int(request.query_params.get("limit", "15")), 50)
     except ValueError:
         limit = 15
-    return JSONResponse(_json.loads(search_x402_bazaar_active(q, hours=hours, limit=limit)))
+    key = (q, hours, limit)
+    now = _t.time()
+    cached = _BAZAAR_ACTIVE_CACHE.get(key)
+    if cached and now - cached["ts"] < _BAZAAR_ACTIVE_TTL_SEC:
+        return JSONResponse(cached["data"])
+    try:
+        data = _json.loads(search_x402_bazaar_active(q, hours=hours, limit=limit))
+        _BAZAAR_ACTIVE_CACHE[key] = {"ts": now, "data": data}
+        return JSONResponse(data)
+    except Exception as e:
+        # On error, serve stale cache if we have one
+        if cached:
+            return JSONResponse(cached["data"])
+        return JSONResponse({"error": str(e)[:200], "results": []}, status_code=503)
 
 
 async def claw_scout_endpoint(request: Request):
@@ -2459,6 +2481,36 @@ def _build_dashboard_data() -> dict:
                 "avg_score": round(r[0], 2),
                 "total_scored": r[1],
             }
+        # Rolling windows so we can see if recent prompt/validation changes
+        # are actually moving the score (the lifetime avg masks short-term moves).
+        cutoff_24h_q = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        cutoff_7d_q  = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        r24 = conn.execute(
+            "SELECT AVG(score), COUNT(*) FROM quality_scores WHERE timestamp >= ?",
+            (cutoff_24h_q,),
+        ).fetchone()
+        r7d = conn.execute(
+            "SELECT AVG(score), COUNT(*) FROM quality_scores WHERE timestamp >= ?",
+            (cutoff_7d_q,),
+        ).fetchone()
+        if r24 and r24[0] is not None:
+            quality_summary["last_24h_avg"] = round(r24[0], 2)
+            quality_summary["last_24h_count"] = r24[1]
+        if r7d and r7d[0] is not None:
+            quality_summary["last_7d_avg"] = round(r7d[0], 2)
+            quality_summary["last_7d_count"] = r7d[1]
+        # Per-day series for the last 14 days (chart-able)
+        daily = conn.execute(
+            "SELECT substr(timestamp, 1, 10) AS d, AVG(score), COUNT(*) "
+            "FROM quality_scores "
+            "WHERE timestamp >= ? "
+            "GROUP BY d ORDER BY d ASC",
+            ((datetime.now(timezone.utc) - timedelta(days=14)).isoformat(),),
+        ).fetchall()
+        quality_summary["daily_trend"] = [
+            {"date": row[0], "avg": round(row[1], 2), "count": row[2]}
+            for row in daily if row[1] is not None
+        ]
         conn.close()
     except Exception:
         pass
@@ -4413,9 +4465,13 @@ def build_app():
                 "tip": "received",
             })
 
+        # POST-only — GETs were hanging for ~10s on `await request.body()` because
+        # the payment middleware only registers POST routes (per RouteConfig keys),
+        # so GETs bypass payment and fall through to the inner handler which blocks
+        # waiting for a body that never arrives. Starlette returns 405 fast instead.
         _inner_route_app = _RouteStarlette(routes=[
-            _RouteRoute("/route", _route_handler, methods=["POST", "GET"]),
-            _RouteRoute("/tip", _tip_handler, methods=["POST", "GET"]),
+            _RouteRoute("/route", _route_handler, methods=["POST"]),
+            _RouteRoute("/tip", _tip_handler, methods=["POST"]),
         ])
 
         x402_server = _get_x402_server()
