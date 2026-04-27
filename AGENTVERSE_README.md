@@ -34,9 +34,11 @@ No SDK required. Any agent that can make an HTTP POST can query The Graph — fr
 - **Subgraph Discovery** — Search 15,500+ classified subgraphs by protocol, chain, or keyword. Returns subgraph ID, query volume (reliability signal), and playground link.
 - **Query Building** — Returns ready-to-execute GraphQL queries with correct entity names and field selections for any protocol (Uniswap, Aave, ENS, Compound, Curve, Lido, and more).
 - **Live Token Data** — Wallet balances, DEX swaps, NFT sales, holder rankings via Token API across EVM (Ethereum, Base, Polygon, Arbitrum), Solana, and TON.
+- **Live Bazaar Discovery** — `GET /bazaar/active` joins x402 Base subgraph + agent0 ERC-8004 + 8004scan + CDP Bazaar to surface services *actually being paid* right now (not just listed).
 - **Protocol-Specific MCP Packages** — Pre-built tools for Aave (32 tools, V2/V3/V4), Polymarket (31 tools), Limitless, and cross-protocol lending.
 - **Agent Authentication** — Integrates mcp8004 for ERC-8004 identity-verified MCP tool access.
-- **x402 Payments** — 10 free queries/day, then $0.01 USDC on Base per query for autonomous agent payments.
+- **x402 Payments** — 10 free queries/day, then $0.01 USDC on Base per query. **Indexed on the CDP x402 Bazaar** so any x402-aware agent (incl. Fetch.ai uAgents now) can discover and pay automatically.
+- **Dispatch RPC Provider** — Same agent identity (graphadvocate.eth) is also a registered provider on Lodestar Dispatch (Arbitrum One JSON-RPC, GRT-paid, on-chain settled via TAP receipts). 10k GRT staked on Horizon.
 
 ## Usage Instructions
 
@@ -106,11 +108,21 @@ Returns structured JSON with:
 - Free tier: 10 queries/day per sender, then x402 payment required
 - Best for structured onchain data — not suited for off-chain data, social media, or general knowledge questions
 
+## Discoverable on
+
+- **CDP x402 Bazaar:** [discovery/merchant?payTo=0x0FF5A6e...](https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant?payTo=0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86)
+- **Agentic Market:** [agentic.market/?service=graph-advocate-production-up-railway-app](https://agentic.market/?service=graph-advocate-production-up-railway-app)
+- **8004scan (Base):** [agents/base/41034](https://www.8004scan.io/agents/base/41034)
+- **8004scan (Arbitrum):** [agents/arbitrum/734](https://www.8004scan.io/agents/arbitrum/734)
+- **x402scan:** [www.x402scan.com](https://www.x402scan.com)
+- **Lodestar Dispatch (RPC provider):** Active on Arbitrum One, score 1.0 in `/providers/42161`
+- **Mintlify Docs:** [graphadvocate-31.mintlify.app](https://graphadvocate-31.mintlify.app)
+
 ## Metadata
 
 - **Author:** PaulieB14
-- **Version:** 2.0
-- **ERC-8004:** Agent #734 on Arbitrum
+- **Version:** 2.1
+- **ERC-8004:** Agent #734 on Arbitrum (Base #41034)
 - **ENS:** graphadvocate.eth
 - **License:** MIT
 - **Source:** https://github.com/PaulieB14/graph-advocate
