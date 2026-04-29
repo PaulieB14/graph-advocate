@@ -1418,8 +1418,34 @@ class GraphAdvocateExecutor(AgentExecutor):
             return
 
         # ── Repeat-intro throttle (no extra Claude call) ─────────────────────
+        # Most of these come from automated A2A directory crawlers that probe
+        # every agent with the same canonical "what does an A2A registry do"
+        # query every few seconds. They're cheap (no LLM call) but spammy in
+        # the log. We log the FIRST hit per sender at INFO and silently drop
+        # subsequent hits at DEBUG, so the dashboard stays readable.
         if _is_repeat_intro(user_text):
-            log.info(f"REPEAT   task={task_id} | throttled intro")
+            global _intro_spam_seen
+            try:
+                _intro_spam_seen
+            except NameError:
+                _intro_spam_seen = {}  # task_id-prefix → last_logged_at
+
+            import time as _t
+            now = _t.time()
+            # Group by the first 8 chars of task_id since each request gets a
+            # fresh UUID; this clusters bursts from the same client run.
+            spam_key = (task_id or "anon")[:8]
+            last = _intro_spam_seen.get(spam_key, 0)
+            if now - last > 300:  # log at most once every 5 min per cluster
+                log.info(f"REPEAT   task={task_id} | throttled intro (suppressing follow-ups for 5min)")
+                _intro_spam_seen[spam_key] = now
+                # Bound dict growth
+                if len(_intro_spam_seen) > 500:
+                    cutoff = now - 600
+                    for k in [k for k, v in _intro_spam_seen.items() if v < cutoff]:
+                        del _intro_spam_seen[k]
+            else:
+                log.debug(f"REPEAT   task={task_id} | throttled intro (suppressed)")
             _log_request(task_id, user_text, "introduction", "high", "throttled")
             await event_queue.enqueue_event(
                 new_agent_text_message(json.dumps({
