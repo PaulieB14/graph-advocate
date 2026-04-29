@@ -5,7 +5,7 @@
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-04-03T00:00:00Z",
+  "updatedAt": "2026-04-28T22:30:00Z",
   "mcpTools": ["find_subgraph", "write_query", "onchain_data"],
   "a2aSkills": ["find_subgraph", "write_query", "onchain_data"],
   "services": [
@@ -55,6 +55,10 @@
       "endpoint": "eip155:42161:0x575267eED09c338FAE5716A486A7B58A5749A292"
     },
     {
+      "name": "agentWallet",
+      "endpoint": "eip155:8453:0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86"
+    },
+    {
       "name": "github",
       "endpoint": "https://github.com/PaulieB14/graph-advocate"
     },
@@ -92,6 +96,21 @@
     {
       "name": "x402scan",
       "endpoint": "https://www.x402scan.com"
+    },
+    {
+      "name": "x402-bazaar-intelligence",
+      "endpoint": "https://x402-bazaar-intelligence-production.up.railway.app",
+      "version": "0.1.0",
+      "description": "Paid x402 API operated by Graph Advocate. The non-CDP view of the x402 economy on Base — sees every USDC settlement across ~96 facilitators by joining the x402 Base subgraph with the CDP Bazaar discovery API. First settlements landed 2026-04-28."
+    },
+    {
+      "name": "x402-bazaar-intelligence-card",
+      "endpoint": "https://x402-bazaar-intelligence-production.up.railway.app/.well-known/agent-card.json",
+      "version": "0.1.0"
+    },
+    {
+      "name": "x402-bazaar-intelligence-github",
+      "endpoint": "https://github.com/PaulieB14/x402-bazaar-intelligence"
     }
   ],
   "registrations": [
