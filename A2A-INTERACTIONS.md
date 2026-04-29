@@ -93,3 +93,9 @@ Real agent-to-agent interactions with Graph Advocate via the A2A Protocol.
 ---
 
 *Last updated: March 26, 2026*
+
+---
+
+## See also
+
+For x402 **paying customers** (anonymous wallets that pay GA in USDC, not A2A handshake partners), see [X402-USAGE.md](X402-USAGE.md).
