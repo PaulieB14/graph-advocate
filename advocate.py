@@ -1203,6 +1203,12 @@ def _introspect_subgraph(subgraph_id: str, api_key: str) -> dict | None:
     """Pull a compact schema map of the subgraph with 24h TTL cache.
 
     Returns {entity_name: ["field: Type", ...]} or None on failure.
+    Filters to entities REACHABLE from the Query root — this avoids
+    bloating the prompt with internal helper types that callers can't
+    actually query directly. Also stores the Query root field signatures
+    under a synthetic `__queryable__` key so the prompt formatter can
+    surface the actual top-level entry points (e.g. `accounts(...)`,
+    `positions(...)`) rather than letting the model guess.
     """
     import time as _t
     import httpx as _httpx
@@ -1213,7 +1219,13 @@ def _introspect_subgraph(subgraph_id: str, api_key: str) -> dict | None:
 
     url = f"https://gateway.thegraph.com/api/subgraphs/id/{subgraph_id}"
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    q = "{ __schema { types { name kind fields { name type { name kind ofType { name } } } } } }"
+    q = (
+        "{ __schema { "
+        "queryType { fields { name args { name } "
+        "type { kind name ofType { kind name ofType { kind name } } } } } "
+        "types { name kind fields { name type { kind name ofType { kind name ofType { kind name } } } } } "
+        "} }"
+    )
     try:
         r = _httpx.post(url, json={"query": q}, headers=headers, timeout=8)
         if r.status_code != 200:
@@ -1221,7 +1233,29 @@ def _introspect_subgraph(subgraph_id: str, api_key: str) -> dict | None:
         data = r.json()
         if data.get("errors"):
             return None
-        types = (data.get("data") or {}).get("__schema", {}).get("types") or []
+        sch = (data.get("data") or {}).get("__schema") or {}
+
+        def _unwrap(t):
+            while t and isinstance(t, dict) and t.get("ofType"):
+                t = t["ofType"]
+            return (t or {}).get("name") or "?"
+
+        # Top-level Query fields tell the model exactly which entry points
+        # are queryable — `users` vs `accounts` vs `userPortfolios` etc.
+        query_fields = (sch.get("queryType") or {}).get("fields") or []
+        queryable_signatures: list = []
+        reachable_types: set = set()
+        for f in query_fields:
+            name = f.get("name") or ""
+            if name.startswith("_"):
+                continue
+            entity = _unwrap(f.get("type"))
+            args = [a.get("name") for a in (f.get("args") or []) if a.get("name")]
+            queryable_signatures.append(f"{name}({', '.join(args)}) -> {entity}")
+            reachable_types.add(entity)
+
+        # Keep only OBJECT types reachable from Query root (saves ~70% prompt tokens).
+        types = sch.get("types") or []
         compact: dict = {}
         for t in types:
             if t.get("kind") != "OBJECT":
@@ -1229,15 +1263,17 @@ def _introspect_subgraph(subgraph_id: str, api_key: str) -> dict | None:
             name = t.get("name", "")
             if name.startswith("_") or name in {"Query", "Subscription", "Mutation"}:
                 continue
+            if reachable_types and name not in reachable_types:
+                continue
             fields = []
             for f in (t.get("fields") or []):
-                ftype = (
-                    f["type"].get("name")
-                    or (f["type"].get("ofType") or {}).get("name")
-                    or f["type"].get("kind", "?")
-                )
+                ftype = _unwrap(f.get("type"))
                 fields.append(f"{f['name']}: {ftype}")
             compact[name] = fields
+
+        # Stash the Query root signatures under a sentinel key for the prompt formatter.
+        compact["__queryable__"] = queryable_signatures
+
         _SCHEMA_CACHE[subgraph_id] = {"ts": now, "schema": compact}
         return compact
     except Exception:
@@ -1248,15 +1284,29 @@ def _format_schema_for_prompt(schema: dict, max_entities: int = 10, max_fields: 
     """Compact schema rendering for LLM context. Bounded so token cost stays sane."""
     if not schema:
         return ""
-    lines = ["entities (use ONLY these — do not invent fields):"]
-    items = list(schema.items())[:max_entities]
+    # Pull and remove the synthetic queryable-signatures block so it doesn't
+    # show up as a regular entity. The signatures tell the model EXACTLY which
+    # top-level fields exist (`accounts(...)`, not the guess `users(...)`).
+    queryable = schema.get("__queryable__") or []
+    entities = {k: v for k, v in schema.items() if k != "__queryable__"}
+
+    lines = []
+    if queryable:
+        lines.append("Query root entry points (use exactly these names — never invent):")
+        for sig in queryable[:30]:
+            lines.append(f"  {sig}")
+        if len(queryable) > 30:
+            lines.append(f"  ...(+{len(queryable) - 30} more entry points)")
+        lines.append("")
+    lines.append("Entities (use ONLY these field names — do not invent):")
+    items = list(entities.items())[:max_entities]
     for name, fields in items:
         f_show = ", ".join(fields[:max_fields])
         if len(fields) > max_fields:
             f_show += f", ...(+{len(fields) - max_fields} more)"
         lines.append(f"  {name} {{ {f_show} }}")
-    if len(schema) > max_entities:
-        lines.append(f"  ...(+{len(schema) - max_entities} more entities)")
+    if len(entities) > max_entities:
+        lines.append(f"  ...(+{len(entities) - max_entities} more entities)")
     return "\n".join(lines)
 
 
@@ -1472,23 +1522,34 @@ def _auto_search(request: str) -> str:
             sg_data = json.loads(sg_results)
             if sg_data.get("results"):
                 results.append(f"[LIVE SUBGRAPH SEARCH for '{search_term}']\n{sg_results}")
-                # Inject schema of the top result so Claude generates queries
+                # Inject schemas for the top results so Claude generates queries
                 # against real fields instead of hallucinating from convention.
+                # Multi-chain protocols (Aave on ETH/ARB/BASE, Uniswap V3 on
+                # multiple deployments) each have separate subgraphs that may
+                # expose different schemas — top-1 wasn't enough. Cap at 3 to
+                # keep the prompt token budget bounded.
                 # Disable with env GA_INJECT_SCHEMA=0.
                 if os.environ.get("GA_INJECT_SCHEMA", "1") != "0":
-                    top = sg_data["results"][0]
-                    sgid = top.get("subgraph_id")
-                    if sgid:
-                        api_key = (
-                            os.environ.get("GRAPH_API_KEY", "")
-                            or os.environ.get("GATEWAY_API_KEY", "")
-                            or "4c62716b2e5808ac83da1938db78296e"
-                        )
+                    api_key = (
+                        os.environ.get("GRAPH_API_KEY", "")
+                        or os.environ.get("GATEWAY_API_KEY", "")
+                        or "4c62716b2e5808ac83da1938db78296e"
+                    )
+                    n_inject = int(os.environ.get("GA_SCHEMA_INJECT_TOP_N", "3"))
+                    seen_sgids: set = set()
+                    for top in sg_data["results"][:n_inject]:
+                        sgid = top.get("subgraph_id")
+                        if not sgid or sgid in seen_sgids:
+                            continue
+                        seen_sgids.add(sgid)
                         schema = _introspect_subgraph(sgid, api_key)
                         compact = _format_schema_for_prompt(schema) if schema else ""
                         if compact:
                             label = top.get("name", sgid[:16])
-                            results.append(f"[SCHEMA for {label} — {sgid[:16]}…]\n{compact}")
+                            net = top.get("network") or "?"
+                            results.append(
+                                f"[SCHEMA for {label} ({net}) — {sgid[:16]}…]\n{compact}"
+                            )
 
         if run_substreams:
             ss_results = _search_substreams(search_term)
