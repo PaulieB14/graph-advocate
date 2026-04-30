@@ -1280,7 +1280,7 @@ def _introspect_subgraph(subgraph_id: str, api_key: str) -> dict | None:
         return None
 
 
-def _format_schema_for_prompt(schema: dict, max_entities: int = 10, max_fields: int = 12) -> str:
+def _format_schema_for_prompt(schema: dict, max_entities: int = 30, max_fields: int = 35) -> str:
     """Compact schema rendering for LLM context. Bounded so token cost stays sane."""
     if not schema:
         return ""
@@ -1298,7 +1298,7 @@ def _format_schema_for_prompt(schema: dict, max_entities: int = 10, max_fields: 
         if len(queryable) > 30:
             lines.append(f"  ...(+{len(queryable) - 30} more entry points)")
         lines.append("")
-    lines.append("Entities (use ONLY these field names — do not invent):")
+    lines.append("Entities (each entity has EXACTLY the fields listed — no others exist):")
     items = list(entities.items())[:max_entities]
     for name, fields in items:
         f_show = ", ".join(fields[:max_fields])
@@ -1352,6 +1352,23 @@ def _validate_and_fix_query(rec: dict) -> dict:
         return rec
 
     qr = rec.get("query_ready") or {}
+    # Multi-chain responses come back as a list (one entry per chain). The
+    # list-to-dict flatten happens AFTER us in ask_graph_advocate — so when we
+    # see a list here, validate the first element in-place and let the caller
+    # flatten as before. Without this, multi-chain queries silently skipped
+    # the dry-run check and shipped without query_validation.
+    if isinstance(qr, list):
+        if not qr:
+            return rec
+        first = qr[0]
+        if isinstance(first, dict):
+            wrapped = {"query_ready": first}
+            wrapped = _validate_and_fix_query(wrapped)
+            qr[0] = wrapped["query_ready"]
+            rec["query_ready"] = qr
+            if "query_validation" in wrapped:
+                rec["query_validation"] = wrapped["query_validation"]
+        return rec
     if not isinstance(qr, dict):
         return rec
     args = qr.get("args") or {}
