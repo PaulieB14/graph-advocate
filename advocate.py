@@ -1545,6 +1545,8 @@ def _auto_search(request: str) -> str:
                 # multiple deployments) each have separate subgraphs that may
                 # expose different schemas — top-1 wasn't enough. Cap at 3 to
                 # keep the prompt token budget bounded.
+                # Introspection HTTP calls run in parallel because each takes
+                # 1-3s on cold cache; serial multiplied that by N.
                 # Disable with env GA_INJECT_SCHEMA=0.
                 if os.environ.get("GA_INJECT_SCHEMA", "1") != "0":
                     api_key = (
@@ -1553,20 +1555,31 @@ def _auto_search(request: str) -> str:
                         or "4c62716b2e5808ac83da1938db78296e"
                     )
                     n_inject = int(os.environ.get("GA_SCHEMA_INJECT_TOP_N", "3"))
+                    # Dedup by subgraph_id while preserving rank order
+                    targets: list[dict] = []
                     seen_sgids: set = set()
                     for top in sg_data["results"][:n_inject]:
                         sgid = top.get("subgraph_id")
-                        if not sgid or sgid in seen_sgids:
-                            continue
-                        seen_sgids.add(sgid)
-                        schema = _introspect_subgraph(sgid, api_key)
-                        compact = _format_schema_for_prompt(schema) if schema else ""
-                        if compact:
-                            label = top.get("name", sgid[:16])
-                            net = top.get("network") or "?"
-                            results.append(
-                                f"[SCHEMA for {label} ({net}) — {sgid[:16]}…]\n{compact}"
-                            )
+                        if sgid and sgid not in seen_sgids:
+                            seen_sgids.add(sgid)
+                            targets.append(top)
+
+                    if targets:
+                        from concurrent.futures import ThreadPoolExecutor
+                        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+                            schemas = list(pool.map(
+                                lambda t: _introspect_subgraph(t["subgraph_id"], api_key),
+                                targets,
+                            ))
+                        for top, schema in zip(targets, schemas):
+                            compact = _format_schema_for_prompt(schema) if schema else ""
+                            if compact:
+                                sgid = top["subgraph_id"]
+                                label = top.get("name", sgid[:16])
+                                net = top.get("network") or "?"
+                                results.append(
+                                    f"[SCHEMA for {label} ({net}) — {sgid[:16]}…]\n{compact}"
+                                )
 
         if run_substreams:
             ss_results = _search_substreams(search_term)
