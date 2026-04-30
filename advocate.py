@@ -2056,6 +2056,12 @@ Rules:
   Do NOT mention subgraphs when recommending Token API or Substreams — those are separate services.
 - When a user asks about a specific protocol or data type, USE your tools to search for real subgraphs and substreams — don't guess
 - After searching, present the top results with their playground links so users can try them
+- ⚠️ SCHEMA GROUNDING — MANDATORY when writing GraphQL queries:
+    1. Call search_subgraphs to find the subgraph IDs
+    2. Call get_subgraph_schema with the chosen ID(s) to fetch the actual queryable entities and field names
+    3. Write the GraphQL query using ONLY field names that appear in the schema response
+    4. If the user asks for queries across multiple chains (e.g. ETH + ARB + BASE), call get_subgraph_schema for EACH subgraph ID — different deployments of the "same" protocol can have different schemas
+    5. NEVER invent field names. If a field isn't in the schema response, don't use it. If schema introspection fails, say so explicitly and recommend the playground link instead of writing a guessed query.
 - Include the specific tool name and example usage when possible
 - If the question isn't about onchain data, politely redirect
 - Use markdown for formatting
@@ -2109,6 +2115,25 @@ CHAT_TOOLS = [
                 },
             },
             "required": ["keyword"],
+        },
+    },
+    {
+        "name": "get_subgraph_schema",
+        "description": (
+            "Introspect a subgraph by ID and return its actual queryable entities + field names. "
+            "MANDATORY before writing any GraphQL query: call search_subgraphs first to get IDs, "
+            "then call this with the chosen ID, then write a query using ONLY the fields returned here. "
+            "Different subgraphs of the 'same' protocol have different schemas — never guess."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subgraph_id": {
+                    "type": "string",
+                    "description": "The subgraph ID returned by search_subgraphs (e.g. '8e4dRt4P4WHXnKbEq7STaQfU2g99WZ5S4w39f2PcUTjD')",
+                },
+            },
+            "required": ["subgraph_id"],
         },
     },
     {
@@ -2315,6 +2340,119 @@ def _search_subgraphs(keyword: str) -> str:
         return output
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+
+# Schema introspection cache — schemas don't change often, and a single
+# subgraph schema introspection is ~10-50KB raw → 1-3KB slimmed. Worth
+# caching for the day. Keyed by subgraph ID.
+_schema_cache: dict[str, tuple[float, str]] = {}
+_SCHEMA_CACHE_TTL = 6 * 60 * 60  # 6h
+
+
+def _get_subgraph_schema(subgraph_id: str) -> str:
+    """Introspect a subgraph and return a slim summary of queryable entities + their fields.
+
+    The chat agent uses this BEFORE writing a GraphQL query so it doesn't invent
+    field names. Returns JSON: { queryable_entities: [...], entity_fields: {...} }.
+    """
+    import httpx as _httpx
+    import time
+
+    sid = (subgraph_id or "").strip()
+    if not sid:
+        return json.dumps({"error": "subgraph_id is required"})
+
+    # Cache check
+    cached = _schema_cache.get(sid)
+    if cached and time.time() - cached[0] < _SCHEMA_CACHE_TTL:
+        return cached[1]
+
+    api_key = (
+        os.environ.get("GRAPH_API_KEY", "")
+        or os.environ.get("GATEWAY_API_KEY", "")
+        or "4c62716b2e5808ac83da1938db78296e"
+    )
+    url = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{sid}"
+
+    introspection = """
+    {
+      __schema {
+        queryType {
+          fields {
+            name
+            args { name type { kind name ofType { kind name ofType { kind name } } } }
+            type { kind name ofType { kind name ofType { kind name } } }
+          }
+        }
+        types {
+          name
+          kind
+          fields { name type { kind name ofType { kind name ofType { kind name } } } }
+        }
+      }
+    }
+    """
+
+    def _unwrap(t):
+        # Walk NON_NULL/LIST chain to the underlying named type
+        while t and isinstance(t, dict) and t.get("ofType"):
+            t = t["ofType"]
+        return (t or {}).get("name") or "?"
+
+    try:
+        r = _httpx.post(url, json={"query": introspection}, timeout=15)
+        if r.status_code != 200:
+            err = json.dumps({"error": f"gateway returned {r.status_code}", "subgraph_id": sid})
+            return err
+        body = r.json()
+        if body.get("errors"):
+            return json.dumps({"error": str(body["errors"])[:300], "subgraph_id": sid})
+        sch = (body.get("data") or {}).get("__schema") or {}
+
+        # Top-level Query fields = what you can query directly
+        query_fields = (sch.get("queryType") or {}).get("fields") or []
+        entity_types_used: set = set()
+        query_summary: list = []
+        for f in query_fields:
+            name = f.get("name") or ""
+            if name.startswith("_"):
+                continue
+            entity = _unwrap(f.get("type"))
+            args = [a.get("name") for a in (f.get("args") or []) if a.get("name")]
+            query_summary.append(f"{name}({', '.join(args)}) -> {entity}")
+            entity_types_used.add(entity)
+
+        # Field map for entities referenced by Query root
+        types = sch.get("types") or []
+        type_map = {
+            t.get("name"): t for t in types
+            if t.get("kind") in ("OBJECT", "INTERFACE") and not (t.get("name") or "").startswith("_")
+        }
+        entity_fields: dict = {}
+        for ename in sorted(entity_types_used):
+            t = type_map.get(ename)
+            if not t:
+                continue
+            fields = []
+            for ef in (t.get("fields") or []):
+                fname = ef.get("name") or ""
+                if fname.startswith("_"):
+                    continue
+                ftype = _unwrap(ef.get("type"))
+                fields.append(f"{fname}: {ftype}")
+            # Cap fields per entity to keep token budget bounded
+            entity_fields[ename] = fields[:30]
+
+        out = json.dumps({
+            "subgraph_id": sid,
+            "note": "Use ONLY these field names — do not invent fields not listed here.",
+            "queryable_entities": query_summary[:40],
+            "entity_fields": dict(list(entity_fields.items())[:25]),
+        }, indent=2)
+        _schema_cache[sid] = (time.time(), out)
+        return out
+    except Exception as e:
+        return json.dumps({"error": str(e), "subgraph_id": sid})
 
 
 def _search_substreams(keyword: str) -> str:
@@ -2987,8 +3125,11 @@ def ask_graph_advocate_chat(
             tools=CHAT_TOOLS,
         )
 
-        # Handle tool use loop (max 3 rounds to prevent runaway)
-        for _ in range(3):
+        # Handle tool use loop. Need extra rounds now that schema introspection
+        # is a separate tool call: search_subgraphs → get_subgraph_schema → write
+        # query is already 3 calls per subgraph. Multi-chain queries (Aave on
+        # ETH+ARB+BASE) want one schema fetch per ID. Cap at 8 to bound runaway.
+        for _ in range(8):
             if response.stop_reason != "tool_use":
                 break
 
@@ -2999,6 +3140,8 @@ def ask_graph_advocate_chat(
                     try:
                         if block.name == "search_subgraphs":
                             result = _search_subgraphs(block.input.get("keyword", ""))
+                        elif block.name == "get_subgraph_schema":
+                            result = _get_subgraph_schema(block.input.get("subgraph_id", ""))
                         elif block.name == "search_substreams":
                             result = _search_substreams(block.input.get("keyword", ""))
                         elif block.name == "lookup_token_api":
