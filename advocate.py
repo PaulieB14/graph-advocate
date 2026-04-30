@@ -217,6 +217,7 @@ Rules:
 - For subgraph queries, always include: the subgraph ID, a working GraphQL query, and a note that API keys are free at thegraph.com/studio (100K queries/month free)
 - When a protocol-specific npm MCP package exists (graph-aave-mcp, graph-polymarket-mcp, etc.), mention it as "even easier: npx <package>" — but still include the direct query
 - Never hallucinate tool names — only use tools listed above
+- Subgraph schema standard (Messari, protocol-native, custom) is a property of the SPECIFIC subgraph deployment, not of the chain. Any chain can host any schema. NEVER write reasoning like "Ethereum uses Messari, Base uses native" — that's a category error. Instead say "the [name] subgraph for chain X uses [standard]" and ground every field name in the injected SCHEMA block for THAT subgraph_id.
 - If unsure, say so with a confidence score and suggest the closest match
 - When multiple services apply, return all ranked
 - confidence must be one of: "high", "medium", "low"
@@ -2153,6 +2154,7 @@ Rules:
     3. Write the GraphQL query using ONLY field names that appear in the schema response
     4. If the user asks for queries across multiple chains (e.g. ETH + ARB + BASE), call get_subgraph_schema for EACH subgraph ID — different deployments of the "same" protocol can have different schemas
     5. NEVER invent field names. If a field isn't in the schema response, don't use it. If schema introspection fails, say so explicitly and recommend the playground link instead of writing a guessed query.
+    6. Schema standard (Messari, protocol-native, custom) is a property of the SPECIFIC subgraph deployment, not of the chain. Any chain can host any schema. NEVER write reasoning like "Ethereum uses Messari, Base uses native" — that's a category error. The schema for THIS subgraph is whatever get_subgraph_schema returned, regardless of which chain it indexes.
 - Include the specific tool name and example usage when possible
 - If the question isn't about onchain data, politely redirect
 - Use markdown for formatting
