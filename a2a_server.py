@@ -4663,8 +4663,9 @@ def build_app():
                             ),
                         ],
                         description=(
-                            "Route an onchain data request through Graph Advocate. "
-                            "Returns a ready-to-execute query, subgraph ID, and MCP install hint."
+                            "Ask any onchain question in plain English. "
+                            "Returns the right subgraph from 15k+ on The Graph, "
+                            "a runnable GraphQL query, and an MCP install hint."
                         ),
                         mime_type="application/json",
                         extensions={
