@@ -48,6 +48,15 @@ Also accepts A2A-format body with `params.message.parts[].text`.
 
 The killer field is `execution_result` — Graph Advocate didn't just tell you where to look, it ran the query for you.
 
+### What to do with the response
+
+- **`gql`** is production-ready GraphQL — paste it as-is into your client or the Graph gateway, no edits needed.
+- **`subgraph_id`** is the deployment ID; combine with `https://gateway.thegraph.com/api/subgraphs/id/{subgraph_id}` to query directly.
+- **`curl_example`** is a complete working request you can run in a terminal — useful for sanity-checking before wiring up your client.
+- **`execution_result`** (when present) is already the answer; no follow-up call needed.
+
+If `execution_result` is missing, fire the `curl_example` against the Graph gateway with your own API key (free tier available). The `gql` is always live-tested before being returned.
+
 ## Pricing
 
 | Tier | Quota | Cost |

@@ -3,6 +3,12 @@ title: "Quickstart"
 description: "30 seconds from zero to first routing response."
 ---
 
+## 0. Just want to see it work?
+
+Open [`/chat`](https://graph-advocate-production.up.railway.app/chat) in your browser and type any onchain question — e.g. *"Top Uniswap V3 pools on Base"* or *"Wallet balance for vitalik.eth"*. No setup, no wallet, no signup.
+
+Calling it from code? Read on.
+
 ## 1. Ask anything
 
 No auth, no keys, nothing to install. POST a plain-English question:
@@ -60,7 +66,7 @@ console.log(await res.json());
 </CodeGroup>
 
 <Note>
-  Free tier: 10 queries/day per sender. After that, `POST /route` returns 402 and any x402-aware client pays $0.01 USDC on Base to continue.
+  **Free tier:** 10 calls/day per requesting wallet — counted by the Ethereum address signing the request (or the source IP if no signature). Beyond that, `POST /route` returns HTTP 402 with x402 payment requirements; any x402-aware client signs a $0.01 USDC `transferWithAuthorization` on Base and retries automatically. **No signup, no card, no API key — ever.**
 </Note>
 
 ## 2. Keep going once you hit the cap

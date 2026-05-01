@@ -4,22 +4,24 @@ description: "Ask any blockchain data question in plain English. Get back the ri
 ---
 
 <Info>
-  **ERC-8004 #734** · `graphadvocate.eth` · Live on Base · Free 10/day then $0.01 USDC
+  **Free 10 calls/day per wallet.** No signup, no API key. Beyond that, $0.01 USDC auto-charged on Base via x402. ERC-8004 #734 · `graphadvocate.eth`
 </Info>
 
 ## What it is
 
-Graph Advocate is the **routing agent for onchain data**. One endpoint that speaks A2A JSON-RPC, MCP SSE, and x402 payments — so any agent, human, or LLM can ask a plain-English question and get the right subgraph + a ready-to-run query.
+The Graph has 15,000+ subgraphs across 70+ networks. Finding the right one and writing a query that actually returns data normally takes 3–4 round trips of search-skim-test. Graph Advocate is **one endpoint that does it for you** — ask a plain-English question, get back the right subgraph, a runnable GraphQL query, and (when possible) the live answer.
+
+It speaks A2A JSON-RPC, MCP SSE, and x402 payments. Any agent, human, or LLM can call it.
 
 <CardGroup cols={2}>
-  <Card title="Routes 15,500+ subgraphs" icon="compass">
+  <Card title="Routes 15,000+ subgraphs" icon="compass">
     Plain-English query → the right subgraph + a GraphQL query ready to fire at the Graph gateway.
   </Card>
   <Card title="Pays per call, no API keys" icon="credit-card">
-    x402-native. Free 10/day, then $0.01 USDC on Base. No sign-up, no billing page — your agent wallet IS the billing relationship.
+    First 10 calls/day free per requesting wallet. After that, $0.01 USDC auto-charged on Base via x402 — no signup, no card, your agent's wallet *is* the billing relationship.
   </Card>
-  <Card title="Triple-subgraph discovery" icon="network-wired">
-    Joins x402 Base subgraph + agent0 ERC-8004 + 8004scan + CDP Bazaar to surface services that are *actually paid* right now.
+  <Card title="Recommends what's actually being used" icon="network-wired">
+    Indexes three live signals — onchain x402 payments on Base, the ERC-8004 agent registry, and the CDP Bazaar — so you only see services that are paid-for and live, not stale brochure listings.
   </Card>
   <Card title="A2A, MCP, ERC-8004" icon="robot">
     Speaks every agent standard. One endpoint, every client.
@@ -60,13 +62,26 @@ curl -X POST https://graph-advocate-production.up.railway.app/ \
 ## Start here
 
 <CardGroup cols={3}>
+  <Card title="Try it in your browser" icon="messages" href="https://graph-advocate-production.up.railway.app/chat">
+    Type a question, see a routed answer. No setup.
+  </Card>
   <Card title="Quickstart" icon="rocket" href="/quickstart">
-    30 seconds from zero to a routing response.
+    30 seconds from zero to a code-driven routing response.
   </Card>
   <Card title="Live Bazaar" icon="wave-pulse" href="/bazaar-active">
     Which x402 services are actually paid right now?
   </Card>
-  <Card title="Agent card" icon="id-card" href="/agent-card">
-    A2A discovery metadata for agent-to-agent calls.
-  </Card>
 </CardGroup>
+
+## Limits & support
+
+| | |
+|---|---|
+| **Free quota** | 10 calls/day per requesting wallet (or per source IP if no wallet signature) |
+| **Paid call** | $0.01 USDC on Base via x402 — no signup, no API key, no card |
+| **Routing surface** | 15,000+ subgraphs across 70+ networks (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and others); plus token-api, substreams, and protocol-specific MCP servers |
+| **Payment networks** | Base mainnet only (more soon) |
+| **Latency** | Typically <2s end-to-end including query execution |
+| **Standards** | A2A JSON-RPC 2.0 · MCP SSE · x402 v1 · ERC-8004 agent identity |
+| **Status** | Live monitoring at [`/dashboard`](https://graph-advocate-production.up.railway.app/dashboard) |
+| **Issues / feature requests** | [github.com/PaulieB14/graph-advocate](https://github.com/PaulieB14/graph-advocate/issues) |
