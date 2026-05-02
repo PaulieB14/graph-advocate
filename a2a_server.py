@@ -4880,7 +4880,15 @@ def build_app():
             # The middleware handles: 402 challenge, payment verification,
             # on-chain settlement, and forwarding to _route_handler on success.
             if _x402_route_app:
-                await _x402_route_app(scope, receive, send)
+                try:
+                    await _x402_route_app(scope, receive, send)
+                except Exception as _x402_err:
+                    import traceback as _tb
+                    log.error(
+                        "X402_MIDDLEWARE_FAIL path=%s err=%r\n%s",
+                        scope["path"], _x402_err, _tb.format_exc(),
+                    )
+                    raise
             else:
                 # Fallback if middleware failed to init — return a static 402
                 import base64 as _b64f
