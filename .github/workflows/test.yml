@@ -1,0 +1,51 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run routing test suite
+        env:
+          ANTHROPIC_API_KEY: dummy-not-needed-for-routing-tests
+        run: python test_advocate_routing.py
+
+      - name: Smoke-import server modules
+        run: |
+          python -c "import advocate"
+          python -c "import a2a_server"
+
+      - name: Verify requirements.txt has upper bounds on critical deps
+        run: |
+          # Catch the next "x402 2.9 broke prod" silent regression early.
+          # Every dep must have <X.Y form so a major bump can't auto-deploy.
+          set -e
+          for pkg in anthropic uvicorn starlette httpx PyNaCl uagents mcp x402 cdp-sdk fastapi; do
+            line=$(grep -E "^${pkg}(\[|>=|==|<)" requirements.txt || true)
+            if [ -z "$line" ]; then
+              echo "::warning::No requirement line found for $pkg"
+              continue
+            fi
+            if ! echo "$line" | grep -qE "<[0-9]"; then
+              echo "::error::$pkg has no upper bound: $line"
+              exit 1
+            fi
+          done
+          echo "All critical deps have upper bounds ✓"

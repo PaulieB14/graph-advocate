@@ -4884,11 +4884,29 @@ def build_app():
                     await _x402_route_app(scope, receive, send)
                 except Exception as _x402_err:
                     import traceback as _tb
+                    _trace = _tb.format_exc()
                     log.error(
                         "X402_MIDDLEWARE_FAIL path=%s err=%r\n%s",
-                        scope["path"], _x402_err, _tb.format_exc(),
+                        scope["path"], _x402_err, _trace,
                     )
-                    raise
+                    # Diagnostic: also surface to client so we can debug
+                    # without Railway log access. Safe to remove once root
+                    # cause is identified — does not leak secrets, only
+                    # exception type + line numbers from x402 library.
+                    _diag = {
+                        "error": "x402 middleware failure",
+                        "exception_type": type(_x402_err).__name__,
+                        "exception_msg": str(_x402_err)[:300],
+                        "trace_tail": _trace.split("\n")[-15:],
+                    }
+                    _diag_body = json.dumps(_diag).encode()
+                    try:
+                        await send({"type": "http.response.start", "status": 500,
+                                    "headers": [[b"content-type", b"application/json"]]})
+                        await send({"type": "http.response.body", "body": _diag_body})
+                    except Exception:
+                        # If headers were already sent, can't override — re-raise
+                        raise _x402_err
             else:
                 # Fallback if middleware failed to init — return a static 402
                 import base64 as _b64f

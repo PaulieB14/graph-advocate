@@ -1,17 +1,18 @@
 # graph-advocate dependencies
-anthropic>=0.40.0
+# All deps pinned with upper bounds — silent x402 2.9.0 regression on
+# 2026-05-02 cost us paying-customer downtime; preventing future repeats.
+anthropic>=0.40.0,<1.0
 a2a-sdk>=0.3.0,<1.0.0
-uvicorn>=0.30.0
-starlette>=0.40.0
-httpx>=0.27.0
-PyNaCl>=1.5.0
-uagents>=0.13.0
-mcp>=1.0.0
+uvicorn>=0.30.0,<1.0
+starlette>=0.40.0,<1.0
+httpx>=0.27.0,<1.0
+PyNaCl>=1.5.0,<2.0
+uagents>=0.13.0,<1.0
+mcp>=1.0.0,<2.0
 
-# Pinned to 2.8.x — 2.9.0 (released 2026-04-27) introduced a new
-# x402ResourceServer / ResourceConfig API and the old PaymentMiddlewareASGI
-# path appears to fail at settle/verify. Triage: stay on 2.8 until we
-# migrate to the new API. See commit history around 2026-05-02 for context.
+# x402 2.9.0 (released 2026-04-27) introduced a new x402ResourceServer /
+# ResourceConfig API; old PaymentMiddlewareASGI path fails at settle.
+# Stay on 2.8.x until we migrate to the new API.
 x402[evm,fastapi]>=2.8.0,<2.9.0
-cdp-sdk>=1.40.0
-fastapi>=0.115.0
+cdp-sdk>=1.40.0,<2.0
+fastapi>=0.115.0,<1.0
