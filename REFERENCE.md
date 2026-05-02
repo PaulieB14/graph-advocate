@@ -44,7 +44,6 @@ Complete reference for all endpoints, identity, integrations, and architecture. 
 | **Agentverse** | [@graph-advocate](https://agentverse.ai) — 4.7 rating, 2,300+ interactions |
 | **Ampersend** | [Discover](https://app.ampersend.ai/discover/agent/8453:41034) |
 | **ClawHub** | [graph-advocate](https://clawhub.ai/paulieb14/graph-advocate) |
-| **Moltbook** | [graphadvocate](https://www.moltbook.com/u/graphadvocate) |
 | **Agent Wallet** | `0x575267eED09c338FAE5716A486A7B58A5749A292` |
 | **x402 Pay-To Wallet** | `0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86` (Ampersend) |
 
