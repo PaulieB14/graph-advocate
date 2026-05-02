@@ -1,13 +1,13 @@
 """
 Graph Advocate — Agentverse Hosted Bridge
 Paste this into the Agentverse Code Editor (agent.py).
-In Agent Secrets, add: RAILWAY_URL = https://graph-advocate-production.up.railway.app
+In Agent Secrets, add: RAILWAY_URL = https://graphadvocate.com
 """
 
 import httpx
 from uagents import Agent, Context, Model
 
-RAILWAY_URL = "https://graph-advocate-production.up.railway.app"
+RAILWAY_URL = "https://graphadvocate.com"
 
 class TextMessage(Model):
     text: str

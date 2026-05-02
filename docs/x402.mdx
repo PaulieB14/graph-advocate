@@ -33,10 +33,16 @@ Uses `x402Client` + `EthAccountSigner` under the hood (`ExactEvmScheme` + `UptoE
 
 ## Wallets
 
-- **Incoming / receive (payTo):** `0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86`
-- **Outgoing (GA_BASE_WALLET_PK):** `0x575267eED09c338FAE5716A486A7B58A5749A292`
+Two wallets, distinct roles:
 
-Separating earn vs spend wallets limits blast radius if the outbound key ever leaks.
+| Role | Address | Key location |
+|---|---|---|
+| **Identity / owner / outbound spender** | `0x575267eED09c338FAE5716A486A7B58A5749A292` (`graphadvocate.eth`) | `GA_BASE_WALLET_PK` on Railway. Owns ERC-8004 agent #41034 (Base) and #734 (Arbitrum). Signs outbound x402 calls from `x402_outreach.py`. Signs in-memory, never logged. |
+| **Incoming x402 payTo** | `0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86` | **Ampersend smart account** — no EOA private key, controlled via Ampersend. Default for `X402_PAY_TO`. |
+
+Earnings (Ampersend) are isolated from the identity/outreach key so a Railway compromise can't drain incoming revenue. The incoming wallet has no EOA key at all.
+
+> **Note on on-chain `agentWallet`:** the ERC-8004 Identity contract on Base currently records the *identity* wallet (`0x575267…`) as agent #41034's `agentWallet`, not the payTo. Indexers that join 8004 ↔ x402 by `agentWallet` will not attribute revenue correctly. The off-chain [erc8004-registration.json](../erc8004-registration.json) declares the Base payTo via a CAIP-10 `agentWallet` service entry. Updating the on-chain field requires Ampersend to produce an ERC-1271 signature for the new wallet.
 
 ## Bazaar discovery
 

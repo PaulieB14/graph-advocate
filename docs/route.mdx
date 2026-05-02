@@ -1,7 +1,7 @@
 ---
 title: "POST /route"
 description: "Paid routing — pay $0.01 USDC and get an end-to-end answer."
-api: "POST https://graph-advocate-production.up.railway.app/route"
+api: "POST https://graphadvocate.com/route"
 ---
 
 <Note>
@@ -82,7 +82,7 @@ register_exact_evm_client(client, EthAccountSigner(Account.from_key(os.environ["
 
 async with x402HttpxClient(client) as http:
     r = await http.post(
-        "https://graph-advocate-production.up.railway.app/route",
+        "https://graphadvocate.com/route",
         json={"request": "Top Aave V3 reserves by TVL on Base"},
     )
     print(r.json())
@@ -97,7 +97,7 @@ const client = new x402Client();
 registerExactEvmScheme(client, { signer: privateKeyToAccount(process.env.EVM_PRIVATE_KEY as `0x${string}`) });
 
 const pay = wrapFetchWithPayment(fetch, client);
-const r = await pay("https://graph-advocate-production.up.railway.app/route", {
+const r = await pay("https://graphadvocate.com/route", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ request: "Top Aave V3 reserves by TVL on Base" }),

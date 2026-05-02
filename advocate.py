@@ -658,9 +658,9 @@ def build_capabilities() -> dict:
     return {
         "agent": "graph-advocate",
         "version": "1.1",
-        "endpoint": "https://graph-advocate-production.up.railway.app/",
+        "endpoint": "https://graphadvocate.com/",
         "protocol": "A2A (JSON-RPC 2.0)",
-        "agent_card": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
+        "agent_card": "https://graphadvocate.com/.well-known/agent-card.json",
         "identity": {
             "ens": "graphadvocate.eth",
             "erc8004_id": 734,
@@ -1808,7 +1808,7 @@ def ask_graph_advocate(
     # Always include a feedback handle so callers can report whether the
     # recommendation actually worked. The /feedback endpoint had zero entries
     # at audit time; without exposing it in every response the loop is dormant.
-    public_url = os.environ.get("ADVOCATE_PUBLIC_URL", "https://graph-advocate-production.up.railway.app")
+    public_url = os.environ.get("ADVOCATE_PUBLIC_URL", "https://graphadvocate.com")
     rec["feedback"] = {
         "url": f"{public_url}/feedback",
         "method": "POST",
@@ -2168,14 +2168,14 @@ Rules:
 - If a user asks how to connect the Graph Advocate to their agent, present ALL integration options:
 
   **Option 1: Simple HTTP (works with any framework)**
-  POST https://graph-advocate-production.up.railway.app/chat
+  POST https://graphadvocate.com/chat
   Body: {"message": "your question here"}
   Response: {"reply": "..."}
   Works with: LangChain, CrewAI, AutoGPT, custom agents, any HTTP client
 
   **Option 2: A2A Protocol (Agent-to-Agent)**
-  Agent card: https://graph-advocate-production.up.railway.app/.well-known/agent-card.json
-  Endpoint: POST https://graph-advocate-production.up.railway.app/ (JSON-RPC 2.0)
+  Agent card: https://graphadvocate.com/.well-known/agent-card.json
+  Endpoint: POST https://graphadvocate.com/ (JSON-RPC 2.0)
   Works with: Google A2A compatible agents
 
   **Option 3: MCP (Model Context Protocol)**

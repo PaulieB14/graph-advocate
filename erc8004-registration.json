@@ -11,17 +11,17 @@
   "services": [
     {
       "name": "MCP",
-      "endpoint": "https://graph-advocate-production.up.railway.app/mcp",
+      "endpoint": "https://graphadvocate.com/mcp",
       "version": "2025-06-18"
     },
     {
       "name": "A2A",
-      "endpoint": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
+      "endpoint": "https://graphadvocate.com/.well-known/agent-card.json",
       "version": "0.3.0"
     },
     {
       "name": "OASF",
-      "endpoint": "https://graph-advocate-production.up.railway.app/.well-known/agent-card.json",
+      "endpoint": "https://graphadvocate.com/.well-known/agent-card.json",
       "version": "0.8.0",
       "skills": [
         "Subgraph Discovery",
@@ -44,7 +44,7 @@
     },
     {
       "name": "web",
-      "endpoint": "https://graph-advocate-production.up.railway.app/dashboard"
+      "endpoint": "https://graphadvocate.com/dashboard"
     },
     {
       "name": "ENS",
@@ -64,17 +64,17 @@
     },
     {
       "name": "llms_txt",
-      "endpoint": "https://graph-advocate-production.up.railway.app/llms.txt",
+      "endpoint": "https://graphadvocate.com/llms.txt",
       "version": "1.0"
     },
     {
       "name": "agents_index",
-      "endpoint": "https://graph-advocate-production.up.railway.app/agents/index.json",
+      "endpoint": "https://graphadvocate.com/agents/index.json",
       "version": "1.0"
     },
     {
       "name": "capabilities",
-      "endpoint": "https://graph-advocate-production.up.railway.app/agents/capabilities.json",
+      "endpoint": "https://graphadvocate.com/agents/capabilities.json",
       "version": "1.0"
     },
     {

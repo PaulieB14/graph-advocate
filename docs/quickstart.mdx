@@ -5,7 +5,7 @@ description: "30 seconds from zero to first routing response."
 
 ## 0. Just want to see it work?
 
-Open [`/chat`](https://graph-advocate-production.up.railway.app/chat) in your browser and type any onchain question — e.g. *"Top Uniswap V3 pools on Base"* or *"Wallet balance for vitalik.eth"*. No setup, no wallet, no signup.
+Open [`/chat`](https://graphadvocate.com/chat) in your browser and type any onchain question — e.g. *"Top Uniswap V3 pools on Base"* or *"Wallet balance for vitalik.eth"*. No setup, no wallet, no signup.
 
 Calling it from code? Read on.
 
@@ -16,7 +16,7 @@ No auth, no keys, nothing to install. POST a plain-English question:
 <CodeGroup>
 
 ```bash curl
-curl -X POST https://graph-advocate-production.up.railway.app/ \
+curl -X POST https://graphadvocate.com/ \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -36,7 +36,7 @@ curl -X POST https://graph-advocate-production.up.railway.app/ \
 import httpx, json
 
 r = httpx.post(
-    "https://graph-advocate-production.up.railway.app/",
+    "https://graphadvocate.com/",
     json={
         "jsonrpc": "2.0", "id": "q1", "method": "message/send",
         "params": {"message": {
@@ -49,7 +49,7 @@ print(json.dumps(r.json(), indent=2))
 ```
 
 ```typescript TypeScript
-const res = await fetch("https://graph-advocate-production.up.railway.app/", {
+const res = await fetch("https://graphadvocate.com/", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -86,7 +86,7 @@ register_exact_evm_client(client, EthAccountSigner(Account.from_key(os.environ["
 
 async with x402HttpxClient(client) as http:
     r = await http.post(
-        "https://graph-advocate-production.up.railway.app/route",
+        "https://graphadvocate.com/route",
         json={"request": "Uniswap V3 pools on Base"},
     )
     print(r.json())
@@ -102,7 +102,7 @@ registerExactEvmScheme(client, { signer: privateKeyToAccount(process.env.EVM_PRI
 
 const pay = wrapFetchWithPayment(fetch, client);
 
-const r = await pay("https://graph-advocate-production.up.railway.app/route", {
+const r = await pay("https://graphadvocate.com/route", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ request: "Uniswap V3 pools on Base" }),
@@ -120,7 +120,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "graph-advocate": {
-      "url": "https://graph-advocate-production.up.railway.app/mcp"
+      "url": "https://graphadvocate.com/mcp"
     }
   }
 }

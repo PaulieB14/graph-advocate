@@ -77,14 +77,14 @@ If the request spans two services, use both and combine results.
 
 | Method | URL | Purpose |
 |--------|-----|---------|
-| POST | `https://graph-advocate-production.up.railway.app/` | A2A JSON-RPC 2.0 |
-| POST | `https://graph-advocate-production.up.railway.app/chat` | Simple HTTP chat |
-| GET | `https://graph-advocate-production.up.railway.app/.well-known/agent-card.json` | Agent card |
-| GET | `https://graph-advocate-production.up.railway.app/agents/capabilities.json` | Machine-readable capability list |
-| GET | `https://graph-advocate-production.up.railway.app/mcp/catalog` | List of installable MCP servers |
-| GET | `https://graph-advocate-production.up.railway.app/llms.txt` | LLM-friendly discovery file |
-| GET | `https://graph-advocate-production.up.railway.app/dashboard` | Live monitoring |
-| POST | `https://graph-advocate-production.up.railway.app/feedback` | Agent feedback |
+| POST | `https://graphadvocate.com/` | A2A JSON-RPC 2.0 |
+| POST | `https://graphadvocate.com/chat` | Simple HTTP chat |
+| GET | `https://graphadvocate.com/.well-known/agent-card.json` | Agent card |
+| GET | `https://graphadvocate.com/agents/capabilities.json` | Machine-readable capability list |
+| GET | `https://graphadvocate.com/mcp/catalog` | List of installable MCP servers |
+| GET | `https://graphadvocate.com/llms.txt` | LLM-friendly discovery file |
+| GET | `https://graphadvocate.com/dashboard` | Live monitoring |
+| POST | `https://graphadvocate.com/feedback` | Agent feedback |
 
 ## x402 Payments
 
@@ -95,7 +95,7 @@ Payments go to Ampersend smart account. Agents with x402 wallets pay automatical
 
 | Endpoint | Data sent | Purpose |
 |----------|-----------|---------|
-| `graph-advocate-production.up.railway.app` | Your plain-English query | Routes to the right Graph service |
+| `graphadvocate.com` | Your plain-English query | Routes to the right Graph service |
 | `gateway.thegraph.com/api/` | GraphQL queries | Executes subgraph queries for live data |
 | `token-api.thegraph.com/` | REST requests | Fetches token/NFT/swap data |
 | `api.studio.thegraph.com` | GraphQL queries | x402 payment analytics |
@@ -115,7 +115,7 @@ Payments go to Ampersend smart account. Agents with x402 wallets pay automatical
 
 ## Trust Statement
 
-By using this skill, your plain-English data queries are sent to `graph-advocate-production.up.railway.app` (hosted on Railway, operated by @paulieb14). The service returns structured JSON with live data. Only install if you trust this endpoint with your query text.
+By using this skill, your plain-English data queries are sent to `graphadvocate.com` (hosted on Railway, operated by @paulieb14). The service returns structured JSON with live data. Only install if you trust this endpoint with your query text.
 
 ## Links
 

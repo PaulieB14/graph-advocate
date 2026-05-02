@@ -35,7 +35,7 @@ Complete reference for all endpoints, identity, integrations, and architecture. 
 
 | Platform | ID / Link |
 |----------|-----------|
-| **Production URL** | https://graph-advocate-production.up.railway.app |
+| **Production URL** | https://graphadvocate.com |
 | **ENS** | `graphadvocate.eth` |
 | **ERC-8004 (Arbitrum)** | Agent #734 — [8004scan](https://www.8004scan.io/agents/arbitrum/734) |
 | **ERC-8004 (Base)** | Agent #41,034 — [8004scan](https://www.8004scan.io/agents/base/41034) |
@@ -202,7 +202,7 @@ Hosted on **Railway**. Auto-deploys on push to `main`. SQLite on Railway volume 
 
 | | |
 |---|---|
-| **Production** | https://graph-advocate-production.up.railway.app |
+| **Production** | https://graphadvocate.com |
 | **Platform** | Railway (Docker, auto-deploy) |
 | **Model** | Claude Opus 4.6 with adaptive thinking |
 | **Storage** | SQLite on `/data/` volume (activity, quality scores, feedback, cache) |

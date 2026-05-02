@@ -33,7 +33,7 @@ It speaks A2A JSON-RPC, MCP SSE, and x402 payments. Any agent, human, or LLM can
 <CodeGroup>
 
 ```bash One free call
-curl -X POST https://graph-advocate-production.up.railway.app/ \
+curl -X POST https://graphadvocate.com/ \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0","id":"1","method":"message/send",
@@ -62,7 +62,7 @@ curl -X POST https://graph-advocate-production.up.railway.app/ \
 ## Start here
 
 <CardGroup cols={3}>
-  <Card title="Try it in your browser" icon="messages" href="https://graph-advocate-production.up.railway.app/chat">
+  <Card title="Try it in your browser" icon="messages" href="https://graphadvocate.com/chat">
     Type a question, see a routed answer. No setup.
   </Card>
   <Card title="Quickstart" icon="rocket" href="/quickstart">
@@ -83,5 +83,5 @@ curl -X POST https://graph-advocate-production.up.railway.app/ \
 | **Payment networks** | Base mainnet only (more soon) |
 | **Latency** | Typically <2s end-to-end including query execution |
 | **Standards** | A2A JSON-RPC 2.0 · MCP SSE · x402 v1 · ERC-8004 agent identity |
-| **Status** | Live monitoring at [`/dashboard`](https://graph-advocate-production.up.railway.app/dashboard) |
+| **Status** | Live monitoring at [`/dashboard`](https://graphadvocate.com/dashboard) |
 | **Issues / feature requests** | [github.com/PaulieB14/graph-advocate](https://github.com/PaulieB14/graph-advocate/issues) |

@@ -12,11 +12,11 @@ Ask a question about blockchain data. Get back the right subgraph, a ready-to-ex
 [![x402scan](https://img.shields.io/badge/x402scan-listed-blue)](https://www.x402scan.com)
 [![ERC-8004](https://img.shields.io/badge/ERC--8004-%23734-purple)](https://www.8004scan.io/agents/arbitrum/734)
 
-**[📚 Docs](https://graphadvocate-31.mintlify.app)** · [Live Dashboard](https://graph-advocate-production.up.railway.app/dashboard) · [Chat](https://graph-advocate-production.up.railway.app/chat) · [Agent Card](https://graph-advocate-production.up.railway.app/.well-known/agent-card.json) · [llms.txt](https://graph-advocate-production.up.railway.app/llms.txt) · [capabilities.json](https://graph-advocate-production.up.railway.app/agents/capabilities.json)
+**[📚 Docs](https://graphadvocate-31.mintlify.app)** · [Live Dashboard](https://graphadvocate.com/dashboard) · [Chat](https://graphadvocate.com/chat) · [Agent Card](https://graphadvocate.com/.well-known/agent-card.json) · [llms.txt](https://graphadvocate.com/llms.txt) · [capabilities.json](https://graphadvocate.com/agents/capabilities.json)
 
 **Discoverable on:** [Agentic Market](https://agentic.market/?service=graph-advocate-production-up-railway-app) · [CDP Bazaar](https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant?payTo=0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86) · [Ampersend](https://app.ampersend.ai/discover/agent/8453:41034) · [Agentverse](https://agentverse.ai) · [x402scan](https://www.x402scan.com) · [ClawHub](https://clawhub.ai/paulieb14/graph-advocate) · [Moltbook](https://www.moltbook.com/u/graphadvocate) · [8004scan](https://www.8004scan.io/agents/base/41034)
 
-> **For LLM tools (Cursor, Claude Code, etc.):** point at `https://graph-advocate-production.up.railway.app/llms.txt` for auto-discovery of routing services and capabilities.
+> **For LLM tools (Cursor, Claude Code, etc.):** point at `https://graphadvocate.com/llms.txt` for auto-discovery of routing services and capabilities.
 
 </div>
 
@@ -41,7 +41,7 @@ Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x40
 
 ```bash
 # Try it
-npx agentcash try https://graph-advocate-production.up.railway.app
+npx agentcash try https://graphadvocate.com
 ```
 
 ## Protocols
@@ -61,7 +61,7 @@ Routes to: **Token API** (balances, swaps, NFTs), **Subgraph Registry** (15,500+
 ## Quick start
 
 ```bash
-curl -X POST https://graph-advocate-production.up.railway.app \
+curl -X POST https://graphadvocate.com \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","messageId":"1","parts":[{"kind":"text","text":"Top Aave V3 markets by TVL"}]}}}'
 ```
@@ -79,7 +79,7 @@ python3 a2a_server.py
 
 Railway (auto-deploy on push). Requires: `ANTHROPIC_API_KEY`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `GRAPH_API_KEY`.
 
-**Live:** https://graph-advocate-production.up.railway.app
+**Live:** https://graphadvocate.com
 
 ## License
 

@@ -248,7 +248,7 @@ def _x402_payment_required_response() -> dict:
         "confidence": "high",
         "x402Version": 2,
         "resource": {
-            "url": "https://graph-advocate-production.up.railway.app",
+            "url": "https://graphadvocate.com",
             "method": "POST",
             "description": "Graph Advocate onchain data routing — 15,500+ subgraphs, Token API, Substreams",
             "mimeType": "application/json",
@@ -1275,7 +1275,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                     "unique_sessions": _unique_senders,
                 },
                 "protocols": ["A2A", "MCP", "ERC-8004", "x402"],
-                "endpoint": "https://graph-advocate-production.up.railway.app",
+                "endpoint": "https://graphadvocate.com",
             }
             _log_request(task_id, user_text, "operational-confirmation", "high", "openclaw-probe", response=_openclaw_resp)
             await event_queue.enqueue_event(new_agent_text_message(json.dumps(_openclaw_resp)))
@@ -1290,9 +1290,9 @@ class GraphAdvocateExecutor(AgentExecutor):
                 "recommendation": "registry-info",
                 "status": "registered",
                 "agent": "Graph Advocate",
-                "agent_card_url": "https://graph-advocate-production.up.railway.app/.well-known/agent.json",
+                "agent_card_url": "https://graphadvocate.com/.well-known/agent.json",
                 "agent_card_exists": True,
-                "endpoint": "https://graph-advocate-production.up.railway.app",
+                "endpoint": "https://graphadvocate.com",
                 "a2a_registry_id": "afd9b3bb-413c-41cf-9874-6361ea309e32",
                 "erc8004_id": 734,
                 "ens": "graphadvocate.eth",
@@ -2041,7 +2041,7 @@ about any blockchain (Ethereum, Base, Arbitrum, Polygon, Solana, TON, BNB,
 Polymarket, Aave, Uniswap, ENS, ERC-8004 agents, etc.) and receive back
 the best service to use plus a ready-to-run curl / GraphQL / MCP example.
 
-Production: https://graph-advocate-production.up.railway.app
+Production: https://graphadvocate.com
 Repository: https://github.com/PaulieB14/graph-advocate
 
 ## Endpoints
@@ -2078,7 +2078,7 @@ Full per-service definitions: /agents/capabilities.json
 ## Example
 
 ```bash
-curl -X POST https://graph-advocate-production.up.railway.app \\
+curl -X POST https://graphadvocate.com \\
   -H "Content-Type: application/json" \\
   -d '{
     "jsonrpc": "2.0",
@@ -2122,7 +2122,7 @@ async def mcp_catalog_endpoint(request: Request):
 
 async def agents_index_endpoint(request: Request):
     """GET /agents/index.json — agent file discovery map (Push-Chain pattern)."""
-    base = "https://graph-advocate-production.up.railway.app"
+    base = "https://graphadvocate.com"
     return JSONResponse({
         "agent": "graph-advocate",
         "version": "1.0",
@@ -4140,7 +4140,7 @@ document.addEventListener('click', e => {
       <div class="option-desc">Works with any framework — LangChain, CrewAI, AutoGPT, or plain code. Just POST a JSON message.</div>
       <div class="option-code">
         <button class="cp" onclick="copyCode(this)">Copy</button>
-        <span class="code-text">curl -X POST https://graph-advocate-production.up.railway.app/chat \\
+        <span class="code-text">curl -X POST https://graphadvocate.com/chat \\
   -H "Content-Type: application/json" \\
   -d '{"message": "Find me Uniswap subgraphs"}'</span>
       </div>
@@ -4156,8 +4156,8 @@ document.addEventListener('click', e => {
       <div class="option-desc">Google's Agent-to-Agent protocol. Discover the agent card and send JSON-RPC 2.0 requests.</div>
       <div class="option-code">
         <button class="cp" onclick="copyCode(this)">Copy</button>
-        <span class="code-text">Agent Card: https://graph-advocate-production.up.railway.app/.well-known/agent-card.json
-Endpoint:   POST https://graph-advocate-production.up.railway.app/</span>
+        <span class="code-text">Agent Card: https://graphadvocate.com/.well-known/agent-card.json
+Endpoint:   POST https://graphadvocate.com/</span>
       </div>
       <div class="option-works">Works with: A2A-compatible agents (Google, Fetch.ai, etc.)</div>
     </div>
@@ -4256,7 +4256,7 @@ def build_app():
     #   2. /.well-known/x402 with a resources[] list (compatibility)
     # Both point at our existing POST / endpoint and reuse the same payment
     # config as _x402_payment_required_response().
-    BASE_URL = "https://graph-advocate-production.up.railway.app"
+    BASE_URL = "https://graphadvocate.com"
     USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     PRICE_USDC_ATOMIC = str(X402_PRICE_CENTS * 10000)  # 1 cent = 10000 atomic USDC
 
@@ -4443,16 +4443,16 @@ def build_app():
   <meta property="og:type" content="website">
   <meta property="og:title" content="Graph Advocate — Onchain Data Routing Agent">
   <meta property="og:description" content="Claude-powered routing for The Graph Protocol. 15,500+ subgraphs, Token API, Substreams, and 8+ MCP packages. Pay-per-query via x402 on Base.">
-  <meta property="og:image" content="https://graph-advocate-production.up.railway.app/graphadvocate.png">
+  <meta property="og:image" content="https://graphadvocate.com/graphadvocate.png">
   <meta property="og:image:width" content="1024">
   <meta property="og:image:height" content="1024">
-  <meta property="og:url" content="https://graph-advocate-production.up.railway.app">
+  <meta property="og:url" content="https://graphadvocate.com">
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Graph Advocate — Onchain Data Routing Agent">
   <meta name="twitter:description" content="Claude-powered routing for The Graph Protocol. 15,500+ subgraphs queryable via x402.">
-  <meta name="twitter:image" content="https://graph-advocate-production.up.railway.app/graphadvocate.png">
+  <meta name="twitter:image" content="https://graphadvocate.com/graphadvocate.png">
 
   <style>
     *{box-sizing:border-box;margin:0;padding:0}

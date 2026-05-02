@@ -36,7 +36,7 @@
   },
   "navbar": {
     "links": [
-      { "label": "Live API", "href": "https://graph-advocate-production.up.railway.app" },
+      { "label": "Live API", "href": "https://graphadvocate.com" },
       { "label": "GitHub", "href": "https://github.com/PaulieB14/graph-advocate" }
     ],
     "primary": {

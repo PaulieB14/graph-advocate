@@ -19,9 +19,9 @@ Examples:
 
 Machine-readable discovery surfaces (auto-fetched by Cursor, Claude Code, etc.):
 
-- **llms.txt:** https://graph-advocate-production.up.railway.app/llms.txt
-- **Capabilities (JSON):** https://graph-advocate-production.up.railway.app/agents/capabilities.json
-- **Agent card (A2A):** https://graph-advocate-production.up.railway.app/.well-known/agent-card.json
+- **llms.txt:** https://graphadvocate.com/llms.txt
+- **Capabilities (JSON):** https://graphadvocate.com/agents/capabilities.json
+- **Agent card (A2A):** https://graphadvocate.com/.well-known/agent-card.json
 
 ## Overview
 

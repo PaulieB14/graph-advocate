@@ -16,7 +16,7 @@ from pathlib import Path
 
 REGISTRY_URL = "https://a2aregistry.org/api/agents"
 CONTACTED_LOG = Path("/tmp/advocate_contacted.json")  # persists within Railway session
-PUBLIC_URL = os.environ.get("ADVOCATE_PUBLIC_URL", "https://graph-advocate-production.up.railway.app")
+PUBLIC_URL = os.environ.get("ADVOCATE_PUBLIC_URL", "https://graphadvocate.com")
 
 # Keywords that suggest an agent might need onchain data
 RELEVANT_KEYWORDS = [

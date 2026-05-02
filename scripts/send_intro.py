@@ -20,7 +20,7 @@ INTRO = (
     "NFT data, DEX swaps), I can point you to the exact tool and query to run across "
     "Ethereum, Base, Solana and 30+ other chains. "
     "Just send me a plain-English data request. "
-    "More info: https://graph-advocate-production.up.railway.app/.well-known/agent-card.json"
+    "More info: https://graphadvocate.com/.well-known/agent-card.json"
 )
 
 def make_msg() -> ChatMessage:

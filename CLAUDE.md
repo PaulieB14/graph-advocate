@@ -4,7 +4,7 @@
 
 Claude-powered A2A routing agent for The Graph Protocol. Agents ask plain-English data questions, get back the right subgraph + a ready-to-run GraphQL query.
 
-**Live:** `https://graph-advocate-production.up.railway.app`
+**Live:** `https://graphadvocate.com`
 **Deploys:** Railway auto-deploys on push to `main`
 **Stack:** Python, Starlette/uvicorn, SQLite, Anthropic API
 
