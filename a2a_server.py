@@ -106,53 +106,6 @@ def _get_x402_server():
             facilitator = HTTPFacilitatorClient(
                 FacilitatorConfig(url=facilitator_url, auth_provider=auth_provider)
             )
-
-            # ── Diagnostic: wrap settle/verify to log facilitator responses ──
-            # When CDP rejects a payment, the SDK swallows the response body —
-            # we only see "rejected" without WHY. This wrap captures and logs
-            # the raw response so we can identify auth issues, balance issues,
-            # nonce issues, etc. Safe to remove once root cause is known.
-            try:
-                _orig_settle = facilitator.settle
-                _orig_verify = facilitator.verify
-
-                async def _logged_settle(*a, **kw):
-                    try:
-                        result = await _orig_settle(*a, **kw)
-                        log.info(f"CDP_SETTLE_OK result={result!r}"[:500])
-                        return result
-                    except Exception as e:
-                        log.error(f"CDP_SETTLE_FAIL type={type(e).__name__} msg={str(e)[:300]} args={getattr(e,'args',None)}")
-                        # Try to pull HTTP response body if it's an httpx error
-                        resp = getattr(e, "response", None)
-                        if resp is not None:
-                            try:
-                                log.error(f"CDP_SETTLE_FAIL body={resp.text[:500]}")
-                            except Exception:
-                                pass
-                        raise
-
-                async def _logged_verify(*a, **kw):
-                    try:
-                        result = await _orig_verify(*a, **kw)
-                        log.info(f"CDP_VERIFY_OK result={result!r}"[:500])
-                        return result
-                    except Exception as e:
-                        log.error(f"CDP_VERIFY_FAIL type={type(e).__name__} msg={str(e)[:300]}")
-                        resp = getattr(e, "response", None)
-                        if resp is not None:
-                            try:
-                                log.error(f"CDP_VERIFY_FAIL body={resp.text[:500]}")
-                            except Exception:
-                                pass
-                        raise
-
-                facilitator.settle = _logged_settle
-                facilitator.verify = _logged_verify
-                log.info("CDP facilitator wrapped with diagnostic logging")
-            except Exception as wrap_err:
-                log.warning(f"Could not wrap facilitator for diagnostics: {wrap_err}")
-
             _x402_server = x402ResourceServer(facilitator)
             _x402_server.register("eip155:*", ExactEvmServerScheme())
 
@@ -4687,7 +4640,17 @@ def build_app():
                 routes={
                     "POST /route": RouteConfig(
                         accepts=[
-                            # EIP-3009 transferWithAuthorization — for EOAs (MetaMask, viem).
+                            # EIP-3009 transferWithAuthorization — works for EOAs
+                            # AND for smart accounts that implement ERC-1271 (e.g.
+                            # the recurring paying customer 0xac5a07c4..., a smart
+                            # account confirmed paying via this path on 2026-04-29).
+                            #
+                            # The Permit2 + EIP-2612 sponsoring path was dropped
+                            # 2026-05-02: CDP's facilitator returned invalid_payload
+                            # on every Permit2 attempt (verified from awal embedded
+                            # wallets). Until x402 SDK + awal + CDP align on Permit2,
+                            # advertising it just confuses clients. Reintroduce after
+                            # confirming an end-to-end Permit2 settlement works.
                             PaymentOption(
                                 scheme="exact",
                                 pay_to=X402_WALLET,
@@ -4695,18 +4658,6 @@ def build_app():
                                 network="eip155:8453",
                                 max_timeout_seconds=300,
                                 extra={"name": "USD Coin", "version": "2"},
-                            ),
-                            # Permit2 — for smart wallets (ERC-4337, CDP embedded, AgentKit).
-                            # With EIP-2612 gas sponsoring declared below, the Permit2
-                            # approval is gasless; the facilitator submits permit() on the
-                            # buyer's behalf.
-                            PaymentOption(
-                                scheme="exact",
-                                pay_to=X402_WALLET,
-                                price="$0.01",
-                                network="eip155:8453",
-                                max_timeout_seconds=300,
-                                extra={"name": "USD Coin", "version": "2", "assetTransferMethod": "permit2"},
                             ),
                         ],
                         description=(
@@ -4747,8 +4698,8 @@ def build_app():
                                     },
                                 ),
                             ),
-                            **(declare_eip2612_gas_sponsoring_extension()
-                               if _GAS_SPONSORING_AVAILABLE else {}),
+                            # Permit2 + EIP-2612 sponsoring removed 2026-05-02 —
+                            # see /route comment above.
                         },
                     ),
                     "POST /tip": RouteConfig(
@@ -4760,14 +4711,6 @@ def build_app():
                                 network="eip155:8453",
                                 max_timeout_seconds=300,
                                 extra={"name": "USD Coin", "version": "2"},
-                            ),
-                            PaymentOption(
-                                scheme="exact",
-                                pay_to=X402_WALLET,
-                                price="$0.01",
-                                network="eip155:8453",
-                                max_timeout_seconds=300,
-                                extra={"name": "USD Coin", "version": "2", "assetTransferMethod": "permit2"},
                             ),
                         ],
                         description=(
@@ -4786,8 +4729,7 @@ def build_app():
                                     },
                                 ),
                             ),
-                            **(declare_eip2612_gas_sponsoring_extension()
-                               if _GAS_SPONSORING_AVAILABLE else {}),
+                            # Permit2 + EIP-2612 sponsoring removed 2026-05-02.
                         },
                     ),
                 },
@@ -4927,33 +4869,7 @@ def build_app():
             # The middleware handles: 402 challenge, payment verification,
             # on-chain settlement, and forwarding to _route_handler on success.
             if _x402_route_app:
-                try:
-                    await _x402_route_app(scope, receive, send)
-                except Exception as _x402_err:
-                    import traceback as _tb
-                    _trace = _tb.format_exc()
-                    log.error(
-                        "X402_MIDDLEWARE_FAIL path=%s err=%r\n%s",
-                        scope["path"], _x402_err, _trace,
-                    )
-                    # Diagnostic: also surface to client so we can debug
-                    # without Railway log access. Safe to remove once root
-                    # cause is identified — does not leak secrets, only
-                    # exception type + line numbers from x402 library.
-                    _diag = {
-                        "error": "x402 middleware failure",
-                        "exception_type": type(_x402_err).__name__,
-                        "exception_msg": str(_x402_err)[:300],
-                        "trace_tail": _trace.split("\n")[-15:],
-                    }
-                    _diag_body = json.dumps(_diag).encode()
-                    try:
-                        await send({"type": "http.response.start", "status": 500,
-                                    "headers": [[b"content-type", b"application/json"]]})
-                        await send({"type": "http.response.body", "body": _diag_body})
-                    except Exception:
-                        # If headers were already sent, can't override — re-raise
-                        raise _x402_err
+                await _x402_route_app(scope, receive, send)
             else:
                 # Fallback if middleware failed to init — return a static 402
                 import base64 as _b64f
