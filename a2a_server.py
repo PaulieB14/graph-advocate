@@ -106,6 +106,53 @@ def _get_x402_server():
             facilitator = HTTPFacilitatorClient(
                 FacilitatorConfig(url=facilitator_url, auth_provider=auth_provider)
             )
+
+            # ── Diagnostic: wrap settle/verify to log facilitator responses ──
+            # When CDP rejects a payment, the SDK swallows the response body —
+            # we only see "rejected" without WHY. This wrap captures and logs
+            # the raw response so we can identify auth issues, balance issues,
+            # nonce issues, etc. Safe to remove once root cause is known.
+            try:
+                _orig_settle = facilitator.settle
+                _orig_verify = facilitator.verify
+
+                async def _logged_settle(*a, **kw):
+                    try:
+                        result = await _orig_settle(*a, **kw)
+                        log.info(f"CDP_SETTLE_OK result={result!r}"[:500])
+                        return result
+                    except Exception as e:
+                        log.error(f"CDP_SETTLE_FAIL type={type(e).__name__} msg={str(e)[:300]} args={getattr(e,'args',None)}")
+                        # Try to pull HTTP response body if it's an httpx error
+                        resp = getattr(e, "response", None)
+                        if resp is not None:
+                            try:
+                                log.error(f"CDP_SETTLE_FAIL body={resp.text[:500]}")
+                            except Exception:
+                                pass
+                        raise
+
+                async def _logged_verify(*a, **kw):
+                    try:
+                        result = await _orig_verify(*a, **kw)
+                        log.info(f"CDP_VERIFY_OK result={result!r}"[:500])
+                        return result
+                    except Exception as e:
+                        log.error(f"CDP_VERIFY_FAIL type={type(e).__name__} msg={str(e)[:300]}")
+                        resp = getattr(e, "response", None)
+                        if resp is not None:
+                            try:
+                                log.error(f"CDP_VERIFY_FAIL body={resp.text[:500]}")
+                            except Exception:
+                                pass
+                        raise
+
+                facilitator.settle = _logged_settle
+                facilitator.verify = _logged_verify
+                log.info("CDP facilitator wrapped with diagnostic logging")
+            except Exception as wrap_err:
+                log.warning(f"Could not wrap facilitator for diagnostics: {wrap_err}")
+
             _x402_server = x402ResourceServer(facilitator)
             _x402_server.register("eip155:*", ExactEvmServerScheme())
 
