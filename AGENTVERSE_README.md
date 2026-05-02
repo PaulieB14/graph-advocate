@@ -116,7 +116,7 @@ Returns structured JSON with:
 - **8004scan (Arbitrum):** [agents/arbitrum/734](https://www.8004scan.io/agents/arbitrum/734)
 - **x402scan:** [www.x402scan.com](https://www.x402scan.com)
 - **Lodestar Dispatch (RPC provider):** Active on Arbitrum One, score 1.0 in `/providers/42161`
-- **Mintlify Docs:** [graphadvocate-31.mintlify.app](https://graphadvocate-31.mintlify.app)
+- **Mintlify Docs:** [docs.graphadvocate.com](https://docs.graphadvocate.com)
 
 ## Metadata
 
