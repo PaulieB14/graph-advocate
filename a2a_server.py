@@ -61,6 +61,64 @@ X402_NETWORK = os.environ.get("X402_NETWORK", "base")
 # ── x402 Payment Verification (via x402 library v2.6+) ──────────────────────
 _x402_server = None
 
+def _patch_facilitator_for_cdp_compat():
+    """Patch x402 SDK to make V2 paymentPayload pass CDP's schema check.
+
+    CDP's facilitator requires `scheme` and `network` at the TOP level of
+    paymentPayload (V1-style). The Python SDK 2.8.x V2 PaymentPayload class
+    nests them under `accepted.scheme` and omits them at the top, so CDP
+    rejects with HTTP 400:
+        'paymentPayload' is invalid: must match one of
+        [x402V2PaymentPayload, x402V1PaymentPayload]. schema requires 'scheme'
+
+    This patches FacilitatorClientBase._build_request_body to copy
+    `accepted.scheme` and `accepted.network` to the top level of the
+    paymentPayload dict before sending to the facilitator. Idempotent —
+    only runs once. Verified root cause via Railway logs 2026-05-04.
+    """
+    # Class name varies between x402 SDK versions:
+    #   2.6.x — FacilitatorClient (file: facilitator_client.py)
+    #   2.8.x — HTTPFacilitatorClientBase (file: facilitator_client_base.py)
+    # Try both so the patch holds across the supported pin range.
+    target = None
+    for path, name in (
+        ("x402.http.facilitator_client_base", "HTTPFacilitatorClientBase"),
+        ("x402.http.facilitator_client_base", "FacilitatorClientBase"),
+        ("x402.http.facilitator_client", "FacilitatorClient"),
+    ):
+        try:
+            module = __import__(path, fromlist=[name])
+            target = getattr(module, name, None)
+            if target is not None and hasattr(target, "_build_request_body"):
+                break
+        except ImportError:
+            continue
+    if target is None:
+        return False
+    if getattr(target, "_cdp_scheme_patched", False):
+        return True
+    _orig = target._build_request_body
+
+    def _patched(self, version, payload_dict, requirements_dict):
+        body = _orig(self, version, payload_dict, requirements_dict)
+        pp = body.get("paymentPayload")
+        if isinstance(pp, dict) and "scheme" not in pp:
+            accepted = pp.get("accepted") or {}
+            if isinstance(accepted, dict):
+                if "scheme" in accepted and accepted["scheme"]:
+                    pp["scheme"] = accepted["scheme"]
+                if "network" in accepted and accepted["network"]:
+                    pp["network"] = accepted["network"]
+        return body
+
+    target._build_request_body = _patched
+    target._cdp_scheme_patched = True
+    return True
+
+
+_patch_facilitator_for_cdp_compat()
+
+
 def _get_x402_server():
     """Lazy-init the x402 resource server.
 
