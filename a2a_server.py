@@ -116,8 +116,18 @@ def _patch_facilitator_for_cdp_compat():
         body = _orig(self, version, payload_dict, requirements_dict)
         pp = body.get("paymentPayload")
         if isinstance(pp, dict):
+            # Translate caip-2 network → CDP enum
             _normalize(pp)
             _normalize(pp.get("accepted"))
+            # CDP requires `scheme` (and `network`) at the top level even
+            # for V2 payloads. The Python SDK only nests them under
+            # `accepted`, so copy them up.
+            accepted = pp.get("accepted") or {}
+            if isinstance(accepted, dict):
+                if "scheme" not in pp and accepted.get("scheme"):
+                    pp["scheme"] = accepted["scheme"]
+                if "network" not in pp and accepted.get("network"):
+                    pp["network"] = accepted["network"]
         _normalize(body.get("paymentRequirements"))
         return body
 
