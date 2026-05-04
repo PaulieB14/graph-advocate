@@ -4856,9 +4856,21 @@ def build_app():
                             ),
                         ],
                         description=(
-                            "Ask any onchain question in plain English. "
-                            "Returns the right subgraph from 15k+ on The Graph, "
-                            "a runnable GraphQL query, and an MCP install hint."
+                            "Onchain data routing for AI agents — plain-English queries return "
+                            "a working GraphQL query, subgraph ID, or REST call. Indexes 15,500+ "
+                            "subgraphs across Ethereum, Arbitrum, Base, Polygon, Optimism, Solana, "
+                            "BSC, TON. Use cases: wallet balances + transfer history, USDC/token "
+                            "holder rankings, smart money flows + DEX analytics, Uniswap V2/V3 "
+                            "pool TVL + fee tiers + swap volume, Aave V2/V3 liquidations + "
+                            "lending markets + interest rates, Compound + Morpho + Curve "
+                            "lending rates, ENS domain registrations + reverse lookups, NFT "
+                            "sales + holders + collection rankings, OHLCV price data, Polymarket "
+                            "prediction markets + trader P&L + open interest, Limitless + "
+                            "Predict.fun prediction market data, ERC-8004 agent discovery + "
+                            "x402 payment analytics. Wallet enrichment, alpha hunting, MEV "
+                            "research, portfolio tracking, DeFi position monitoring, indexer "
+                            "performance, lending APY comparison. First 10 queries/day free; "
+                            "$0.01 USDC per query after. No SDK required — any HTTP POST works."
                         ),
                         mime_type="application/json",
                         extensions={
