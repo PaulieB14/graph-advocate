@@ -4751,8 +4751,18 @@ def build_app():
         from starlette.responses import JSONResponse as _RouteJSON
 
         async def _route_handler(request):
-            """The actual routing logic — runs ONLY after payment is verified."""
+            """The actual routing logic — runs ONLY after payment is verified.
+
+            Wrapped in a top-level exception handler that surfaces the actual
+            exception type + message in the response (instead of bare HTTP 500
+            from Starlette). This is required to debug the recurring /route 500
+            seen since 2026-05-02 — the previous version logged the error to
+            Railway only, leaving paying clients with no signal except a 500.
+            With this wrapper, paying clients at least learn what failed and
+            we can correlate via the trace_id in Railway logs.
+            """
             import json as _json
+            import traceback
             try:
                 body = await request.body()
                 req_data = _json.loads(body) if body else {}
@@ -4778,11 +4788,26 @@ def build_app():
                     "hint": "POST {\"request\": \"your query\"} or A2A format",
                 })
 
-            rec, _ = ask_graph_advocate(user_text, requesting_agent="x402-paid")
-            _log_request("x402-paid", user_text, rec.get("recommendation", "unknown"),
-                        rec.get("confidence", "high"), "x402-route", response=rec)
-            log.info(f"X402-ROUTE paid query: {user_text[:60]}")
-            return _RouteJSON(rec)
+            try:
+                rec, _ = ask_graph_advocate(user_text, requesting_agent="x402-paid")
+                _log_request("x402-paid", user_text, rec.get("recommendation", "unknown"),
+                            rec.get("confidence", "high"), "x402-route", response=rec)
+                log.info(f"X402-ROUTE paid query: {user_text[:60]}")
+                return _RouteJSON(rec)
+            except Exception as exc:
+                # Don't return a bare 500 — surface what crashed so the caller
+                # (and Railway logs) can act on it. Keep the message short to
+                # avoid leaking internals; the full traceback goes to logs.
+                log.exception(f"X402-ROUTE handler crashed for: {user_text[:60]}")
+                return _RouteJSON({
+                    "error": "internal_error",
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc)[:200],
+                    "hint": (
+                        "The paid handler crashed AFTER payment was settled. "
+                        "Operator: check Railway logs around this timestamp."
+                    ),
+                }, status_code=500)
 
         async def _tip_handler(request):
             """Runs after payment is verified — return a thank-you.
