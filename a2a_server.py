@@ -113,22 +113,26 @@ def _patch_facilitator_for_cdp_compat():
                     d["network"] = mapped
 
     def _patched(self, version, payload_dict, requirements_dict):
+        # CDP's API splits the network format across two layers:
+        #   - schema validator on `paymentPayload` requires V1 enum
+        #     (`base`, `polygon`, ...) — CAIP-2 fails string-enum check
+        #   - facilitator routing on `paymentRequirements` keys by
+        #     CAIP-2 (`eip155:8453`) — V1 names get "no facilitator"
+        # So we translate CAIP-2 → V1 only in paymentPayload, and leave
+        # paymentRequirements untouched.
         body = _orig(self, version, payload_dict, requirements_dict)
         pp = body.get("paymentPayload")
         if isinstance(pp, dict):
-            # Translate caip-2 network → CDP enum
             _normalize(pp)
             _normalize(pp.get("accepted"))
-            # CDP requires `scheme` (and `network`) at the top level even
-            # for V2 payloads. The Python SDK only nests them under
-            # `accepted`, so copy them up.
+            # V1 schema requires `scheme` and `network` at the top level
+            # of paymentPayload; copy them up from `accepted`.
             accepted = pp.get("accepted") or {}
             if isinstance(accepted, dict):
                 if "scheme" not in pp and accepted.get("scheme"):
                     pp["scheme"] = accepted["scheme"]
                 if "network" not in pp and accepted.get("network"):
                     pp["network"] = accepted["network"]
-        _normalize(body.get("paymentRequirements"))
         return body
 
     target._build_request_body = _patched
