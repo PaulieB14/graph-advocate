@@ -61,25 +61,30 @@ X402_NETWORK = os.environ.get("X402_NETWORK", "base")
 # ── x402 Payment Verification (via x402 library v2.6+) ──────────────────────
 _x402_server = None
 
+# CDP's facilitator validates `network` against V1's enum
+# ['base-sepolia', 'base', 'solana-devnet', 'solana', 'polygon'] even on V2
+# endpoints — CAIP-2 chain IDs ("eip155:8453") get rejected as
+#   "value is not one of the allowed values [...]"
+# The x402 Python SDK ships V2 payloads with CAIP-2 network strings, so we
+# rewrite them at the facilitator boundary. Verified via Railway logs
+# 2026-05-04.
+_CAIP2_TO_CDP_NETWORK = {
+    "eip155:8453": "base",
+    "eip155:84532": "base-sepolia",
+    "eip155:137": "polygon",
+    "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "solana",
+    "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1": "solana-devnet",
+}
+
+
 def _patch_facilitator_for_cdp_compat():
-    """Patch x402 SDK to make V2 paymentPayload pass CDP's schema check.
+    """Patch x402 facilitator client to translate CAIP-2 network strings to
+    CDP's V1-style enum before each verify/settle call.
 
-    CDP's facilitator requires `scheme` and `network` at the TOP level of
-    paymentPayload (V1-style). The Python SDK 2.8.x V2 PaymentPayload class
-    nests them under `accepted.scheme` and omits them at the top, so CDP
-    rejects with HTTP 400:
-        'paymentPayload' is invalid: must match one of
-        [x402V2PaymentPayload, x402V1PaymentPayload]. schema requires 'scheme'
-
-    This patches FacilitatorClientBase._build_request_body to copy
-    `accepted.scheme` and `accepted.network` to the top level of the
-    paymentPayload dict before sending to the facilitator. Idempotent —
-    only runs once. Verified root cause via Railway logs 2026-05-04.
+    Idempotent — only patches once. Logs once on apply. Survives x402 SDK
+    version bumps because we walk a small list of likely (module, class)
+    pairs and only patch a class that exposes `_build_request_body`.
     """
-    # Class name varies between x402 SDK versions:
-    #   2.6.x — FacilitatorClient (file: facilitator_client.py)
-    #   2.8.x — HTTPFacilitatorClientBase (file: facilitator_client_base.py)
-    # Try both so the patch holds across the supported pin range.
     target = None
     for path, name in (
         ("x402.http.facilitator_client_base", "HTTPFacilitatorClientBase"),
@@ -95,28 +100,36 @@ def _patch_facilitator_for_cdp_compat():
             continue
     if target is None:
         return False
-    if getattr(target, "_cdp_scheme_patched", False):
+    if getattr(target, "_cdp_network_patched", False):
         return True
     _orig = target._build_request_body
+
+    def _normalize(d):
+        if isinstance(d, dict):
+            net = d.get("network")
+            if isinstance(net, str):
+                mapped = _CAIP2_TO_CDP_NETWORK.get(net)
+                if mapped:
+                    d["network"] = mapped
 
     def _patched(self, version, payload_dict, requirements_dict):
         body = _orig(self, version, payload_dict, requirements_dict)
         pp = body.get("paymentPayload")
-        if isinstance(pp, dict) and "scheme" not in pp:
-            accepted = pp.get("accepted") or {}
-            if isinstance(accepted, dict):
-                if "scheme" in accepted and accepted["scheme"]:
-                    pp["scheme"] = accepted["scheme"]
-                if "network" in accepted and accepted["network"]:
-                    pp["network"] = accepted["network"]
+        if isinstance(pp, dict):
+            _normalize(pp)
+            _normalize(pp.get("accepted"))
+        _normalize(body.get("paymentRequirements"))
         return body
 
     target._build_request_body = _patched
-    target._cdp_scheme_patched = True
+    target._cdp_network_patched = True
     return True
 
 
-_patch_facilitator_for_cdp_compat()
+if _patch_facilitator_for_cdp_compat():
+    logging.getLogger("graph-advocate").info(
+        "x402 facilitator patched for CDP network enum"
+    )
 
 
 def _get_x402_server():
