@@ -103,7 +103,7 @@ CRITICAL — Token API parameter names (use EXACTLY these, never alias):
     GET /v1/polymarket/users/positions — user portfolio with realized/unrealized PNL per outcome token
   Docs: https://thegraph.com/docs/en/token-api/polymarket-markets/markets/
   PREFER Token API for Polymarket queries (markets, OHLCV, positions, P&L, activity, leaderboards).
-  Use graph-polymarket-mcp only for advanced use cases: live orderbook depth, live spreads, disputed markets, UMA resolution lifecycle.
+  Live orderbook / spreads / disputes / UMA resolution are also reachable directly: hit clob.polymarket.com REST or the underlying Polymarket Orderbook subgraph (QmVGA9v...) and Resolution subgraph (QmZnnrH...). graph-polymarket-mcp wraps these for npm convenience but is not required.
 
 [SUBGRAPH REGISTRY]
 Best for: protocol-level indexed data (Uniswap, Aave, ENS, Compound, Curve, Balancer, etc.)
@@ -130,8 +130,12 @@ Auth: Substreams uses a JWT (not a plain API key like subgraphs). Sign up at htt
 npm: substreams-search-mcp (search and inspect Substreams packages, browse registry, introspect .spkg modules)
 npm: create-substreams-sink-sql (scaffold a Substreams SQL sink for PostgreSQL — zero custom code)
 
-[PROTOCOL-SPECIFIC MCP SERVERS — npm packages by @paulieb]
-Use these when the agent's request matches a specific protocol. Install via: npx <package-name>
+[PROTOCOL-SPECIFIC MCP SERVERS — npm packages by @paulieb, ALWAYS ALTERNATIVES]
+These are wrappers around the subgraphs and REST APIs already listed above —
+no new data, just friendlier tool names for npm-capable runtimes. Recommend
+the underlying subgraph_id or REST endpoint as the primary `recommendation`,
+and surface the matching MCP package in `alternatives` for users who want
+pre-built tooling. Install via: npx <package-name>
 
 - graph-aave-mcp: Aave V2/V3/V4 — 40 tools across 16 Graph subgraphs + Aave V4 API
   Use for: Aave liquidations, deposits, borrows, interest rates, governance votes, V4 hubs/spokes, cross-chain positions, exchange rates, swap quotes, rewards
@@ -143,7 +147,7 @@ Use these when the agent's request matches a specific protocol. Install via: npx
   Powered by Graph subgraphs: Messari-standardized subgraphs for Aave, Compound, MakerDAO, and other lending protocols
 - graph-polymarket-mcp (v2.0.0): Polymarket prediction markets — 31 tools combining The Graph subgraphs + Polymarket REST APIs (Gamma + CLOB)
   NOTE: For common Polymarket queries (markets, OHLCV, positions, P&L, activity), PREFER Token API — simpler REST, no npm install.
-  Use graph-polymarket-mcp ONLY for: live orderbook depth, live spreads, disputed markets, UMA resolution, subgraph-specific deep queries
+  All of these features (live orderbook depth, live spreads, disputes, UMA resolution) are reachable directly via the underlying Polymarket subgraphs (Orderbook QmVGA9v..., Resolution QmZnnrH..., Open Interest QmbT2Mm..., etc.) or clob.polymarket.com REST. Recommend those primary; list graph-polymarket-mcp in alternatives.
   Supports stdio and SSE transports (--http for remote/server deployments, --http-only for SSE only)
   REST API tools (no key needed, v2.0.0 additions): search_markets, get_market_info, list_polymarket_events, get_live_prices, get_live_spread, get_live_orderbook, get_price_history, get_last_trade, get_clob_market, search_markets_enriched
   Graph subgraph tools (needs GRAPH_API_KEY): get_market_data, get_account_pnl, get_top_traders, get_market_open_interest, get_market_resolution, get_disputed_markets, get_trader_profile, get_orderbook_trades, and more
@@ -763,7 +767,9 @@ def _compare_route(request: str) -> dict | None:
     if "substream" in req:
         mentions.append("substreams")
     if "aave" in req:
-        mentions.append("graph-aave-mcp")
+        # Aave data lives in the Aave V3 / V2 / Governance subgraphs; route
+        # comparisons to subgraph-registry rather than the MCP wrapper.
+        mentions.append("subgraph-registry")
     if "polymarket" in req:
         mentions.append("token-api")
     if "8004" in req:

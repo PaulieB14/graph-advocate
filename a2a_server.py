@@ -1337,18 +1337,20 @@ class GraphAdvocateExecutor(AgentExecutor):
                 if _method in ("tools/list", "resources/list", "prompts/list", "initialize", "ping"):
                     log.info(f"MCP-PROBE task={task_id} | method={_method}")
                     _mcp_resp = {
-                        "recommendation": "registry-info",
+                        "recommendation": "out-of-scope",
                         "reason": (
-                            "This is the A2A endpoint. For MCP, point your client at "
-                            "https://graphadvocate.com/mcp instead — it speaks the "
+                            f"This is an A2A (data-routing) endpoint — JSON-RPC '{_method}' is an "
+                            "MCP protocol call, not a data question. Point your MCP client at "
+                            "https://graphadvocate.com/mcp instead — that endpoint speaks the "
                             "Model Context Protocol natively."
                         ),
                         "confidence": "high",
                         "agent": "Graph Advocate",
                         "mcp_endpoint": "https://graphadvocate.com/mcp",
                         "a2a_endpoint": "https://graphadvocate.com",
-                        "tools_overview": [
-                            "find_subgraph", "write_query", "onchain_data",
+                        "what_i_handle": [
+                            "Plain-English questions about onchain data, subgraphs, GraphQL queries.",
+                            "Examples: 'Top 20 USDC holders on Ethereum', 'GraphQL query for top Aave markets by TVL', 'Which subgraph tracks ENS domains?'",
                         ],
                         "discovery": {
                             "agent_card": "https://graphadvocate.com/.well-known/agent-card.json",
@@ -1357,7 +1359,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                         },
                         "cache_for_seconds": 86400,
                     }
-                    _log_request(task_id, user_text, "registry-info", "high", "mcp-probe", response=_mcp_resp)
+                    _log_request(task_id, user_text, "out-of-scope", "high", "mcp-probe", response=_mcp_resp)
                     await event_queue.enqueue_event(new_agent_text_message(json.dumps(_mcp_resp)))
                     return
             except (json.JSONDecodeError, ValueError):
