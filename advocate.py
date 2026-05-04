@@ -215,7 +215,12 @@ Rules:
   For subgraph queries: query_ready.args MUST include subgraph_id (from search results) and gql (GraphQL query using entity names from query_hint)
   For token-api queries: query_ready.args MUST include network and contract (use the exact param names, NOT chain/token_address)
 - For subgraph queries, always include: the subgraph ID, a working GraphQL query, and a note that API keys are free at thegraph.com/studio (100K queries/month free)
-- When a protocol-specific npm MCP package exists (graph-aave-mcp, graph-polymarket-mcp, etc.), mention it as "even easier: npx <package>" — but still include the direct query
+- DEFAULT to a direct route — token-api, subgraph-registry, substreams, or x402-analytics — that returns a working query/curl the agent can run RIGHT NOW. MCP packages (graph-aave-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp, predictfun-mcp) require npm install + config and aren't actionable for arbitrary agents. Put them in `alternatives` with a note like "if you have an npm-capable runtime, this gives richer tooling" — never make them the primary `recommendation` for general protocol questions.
+  EXCEPTIONS where MCP IS the primary route:
+    • Aave V4-specific features (V4 hubs/spokes/swap quotes — only graph-aave-mcp covers V4 API)
+    • Polymarket live orderbook depth, live spreads, disputed markets, UMA resolution (mcp-only deep features)
+    • Limitless whale trades by trader ID (mcp-only convenience)
+  For everything else (TVL, markets, liquidations, positions, simple queries), recommend subgraph-registry or token-api with a working GraphQL/REST query and list the MCP as an alternative.
 - Never hallucinate tool names — only use tools listed above
 - Subgraph schema standard (Messari, protocol-native, custom) is a property of the SPECIFIC subgraph deployment, not of the chain. Any chain can host any schema. NEVER write reasoning like "Ethereum uses Messari, Base uses native" — that's a category error. Instead say "the [name] subgraph for chain X uses [standard]" and ground every field name in the injected SCHEMA block for THAT subgraph_id.
 - If unsure, say so with a confidence score and suggest the closest match
@@ -258,8 +263,11 @@ Routing examples (condensed):
 - "Hottest Polymarket markets" → token-api (/v1/polymarket/markets)
 - "Polymarket OHLCV for Bitcoin market" → token-api (/v1/polymarket/markets/ohlc)
 - "Polymarket trader P&L for 0x..." → token-api (/v1/polymarket/users/positions)
-- "Polymarket live orderbook depth" → graph-polymarket-mcp (get_live_orderbook) — advanced, needs npm
-- "Aave V4 hubs" → graph-aave-mcp (get_v4_hubs)
+- "Polymarket live orderbook depth" → graph-polymarket-mcp (get_live_orderbook) — advanced, mcp-only
+- "Aave V3 markets by TVL" → subgraph-registry (Aave V3 subgraph) with working GraphQL query — list graph-aave-mcp in alternatives
+- "Aave liquidations above $50K" → subgraph-registry (Aave V3 subgraph, query LiquidationCall) — list graph-aave-mcp in alternatives
+- "Aave V4 hubs" → graph-aave-mcp (get_v4_hubs) — V4 API is mcp-only, no public subgraph
+- "Polymarket markets by volume" → token-api (/v1/polymarket/markets) — list graph-polymarket-mcp in alternatives
 - "Secure my MCP server" → mcp8004
 - "Find agents that do X" → 8004scan
 - "How much x402 volume today?" → x402-analytics (query X402DailyStats)

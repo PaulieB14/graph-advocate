@@ -1323,6 +1323,47 @@ class GraphAdvocateExecutor(AgentExecutor):
             await event_queue.enqueue_event(new_agent_text_message(json.dumps(_chiark_resp)))
             return
 
+        # ── MCP JSON-RPC introspection short-circuit ─────────────────────────
+        # Some clients send raw MCP protocol calls like
+        #   {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        # to the A2A endpoint by mistake (or to probe). These are protocol calls,
+        # not data questions — they should hit /mcp, but we handle them gracefully
+        # here too instead of charging Claude tokens to "route" them.
+        _stripped = user_text.strip()
+        if _stripped.startswith("{") and '"jsonrpc"' in _stripped and '"method"' in _stripped:
+            try:
+                _rpc = json.loads(_stripped)
+                _method = _rpc.get("method", "")
+                if _method in ("tools/list", "resources/list", "prompts/list", "initialize", "ping"):
+                    log.info(f"MCP-PROBE task={task_id} | method={_method}")
+                    _mcp_resp = {
+                        "recommendation": "registry-info",
+                        "reason": (
+                            "This is the A2A endpoint. For MCP, point your client at "
+                            "https://graphadvocate.com/mcp instead — it speaks the "
+                            "Model Context Protocol natively."
+                        ),
+                        "confidence": "high",
+                        "agent": "Graph Advocate",
+                        "mcp_endpoint": "https://graphadvocate.com/mcp",
+                        "a2a_endpoint": "https://graphadvocate.com",
+                        "tools_overview": [
+                            "find_subgraph", "write_query", "onchain_data",
+                        ],
+                        "discovery": {
+                            "agent_card": "https://graphadvocate.com/.well-known/agent-card.json",
+                            "capabilities": "https://graphadvocate.com/agents/capabilities.json",
+                            "llms_txt": "https://graphadvocate.com/llms.txt",
+                        },
+                        "cache_for_seconds": 86400,
+                    }
+                    _log_request(task_id, user_text, "registry-info", "high", "mcp-probe", response=_mcp_resp)
+                    await event_queue.enqueue_event(new_agent_text_message(json.dumps(_mcp_resp)))
+                    return
+            except (json.JSONDecodeError, ValueError):
+                # Fall through to normal handling if it doesn't parse as JSON-RPC
+                pass
+
         # ── Non-data trivia probes (arithmetic, HTTP status, list counts, etc.) ──
         # Bots often test agents with off-topic trivia ending in "Give me only the
         # number." These never need Claude — return a canonical out-of-scope.
@@ -1945,9 +1986,28 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
 
     Scoring is service-aware — REST API services (token-api, 8004scan, etc.) are not
     penalized for missing subgraph_id, since they don't query subgraphs at all.
+
+    Non-routing buckets (greetings, conformance probes, tips, payment receipts,
+    out-of-scope) are skipped entirely. The 5-point rubric (parse, query_ready,
+    subgraph_id, curl, install) doesn't apply to them — scoring intros against
+    "did you return a GraphQL query" tanks the dashboard quality metric and is
+    actively misleading. The avg-quality figure should reflect actual data
+    routing performance, not the floor of "we said hi."
     """
     try:
         service = _normalize_service(rec.get("recommendation"))
+
+        # Skip scoring entirely for non-routing service classes.
+        NON_ROUTING_SERVICES = {
+            "introduction", "out-of-scope", "conformance",
+            "operational-confirmation", "tip", "x402-tip",
+            "x402-paid", "x402-failed", "payment-required",
+            "chat", "cached", "rate-limited",
+            "clarification-needed", "no-match", "unclear-request",
+            "registry-info",
+        }
+        if service in NON_ROUTING_SERVICES:
+            return
 
         # Services that don't expose a subgraph_id by design — REST APIs, MCP
         # tool servers, probes, and meta responses. Scoring auto-credits the
