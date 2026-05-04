@@ -27,7 +27,7 @@ from decimal import Decimal
 GA_NAME = "Graph Advocate"
 GA_ENS = "graphadvocate.eth"
 GA_NOTE = (
-    "Onchain data routing for AI agents — graphadvocate.com. "
+    "Onchain data routing for AI agents - graphadvocate.com. "
     "Free first 10 queries/day, $0.01 USDC after on Base. "
     "Use cases: subgraph discovery, GraphQL queries, wallet/token data."
 )
@@ -157,11 +157,9 @@ async def main() -> None:
         body = t.get("json")
         try:
             if method == "GET":
-                r = await asyncio.to_thread(http.get, url, headers=SENDER_HEADERS)
+                r = await http.get(url, headers=SENDER_HEADERS)
             else:
-                r = await asyncio.to_thread(
-                    http.post, url, json=body, headers=SENDER_HEADERS
-                )
+                r = await http.post(url, json=body, headers=SENDER_HEADERS)
             status = r.status_code
             try:
                 payload = r.json()
