@@ -61,89 +61,6 @@ X402_NETWORK = os.environ.get("X402_NETWORK", "base")
 # ── x402 Payment Verification (via x402 library v2.6+) ──────────────────────
 _x402_server = None
 
-# CDP's facilitator validates `network` against V1's enum
-# ['base-sepolia', 'base', 'solana-devnet', 'solana', 'polygon'] even on V2
-# endpoints — CAIP-2 chain IDs ("eip155:8453") get rejected as
-#   "value is not one of the allowed values [...]"
-# The x402 Python SDK ships V2 payloads with CAIP-2 network strings, so we
-# rewrite them at the facilitator boundary. Verified via Railway logs
-# 2026-05-04.
-_CAIP2_TO_CDP_NETWORK = {
-    "eip155:8453": "base",
-    "eip155:84532": "base-sepolia",
-    "eip155:137": "polygon",
-    "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "solana",
-    "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1": "solana-devnet",
-}
-
-
-def _patch_facilitator_for_cdp_compat():
-    """Patch x402 facilitator client to translate CAIP-2 network strings to
-    CDP's V1-style enum before each verify/settle call.
-
-    Idempotent — only patches once. Logs once on apply. Survives x402 SDK
-    version bumps because we walk a small list of likely (module, class)
-    pairs and only patch a class that exposes `_build_request_body`.
-    """
-    target = None
-    for path, name in (
-        ("x402.http.facilitator_client_base", "HTTPFacilitatorClientBase"),
-        ("x402.http.facilitator_client_base", "FacilitatorClientBase"),
-        ("x402.http.facilitator_client", "FacilitatorClient"),
-    ):
-        try:
-            module = __import__(path, fromlist=[name])
-            target = getattr(module, name, None)
-            if target is not None and hasattr(target, "_build_request_body"):
-                break
-        except ImportError:
-            continue
-    if target is None:
-        return False
-    if getattr(target, "_cdp_network_patched", False):
-        return True
-    _orig = target._build_request_body
-
-    def _normalize(d):
-        if isinstance(d, dict):
-            net = d.get("network")
-            if isinstance(net, str):
-                mapped = _CAIP2_TO_CDP_NETWORK.get(net)
-                if mapped:
-                    d["network"] = mapped
-
-    def _patched(self, version, payload_dict, requirements_dict):
-        # CDP's API splits the network format across two layers:
-        #   - schema validator on `paymentPayload` requires V1 enum
-        #     (`base`, `polygon`, ...) — CAIP-2 fails string-enum check
-        #   - facilitator routing on `paymentRequirements` keys by
-        #     CAIP-2 (`eip155:8453`) — V1 names get "no facilitator"
-        # So we translate CAIP-2 → V1 only in paymentPayload, and leave
-        # paymentRequirements untouched.
-        body = _orig(self, version, payload_dict, requirements_dict)
-        pp = body.get("paymentPayload")
-        if isinstance(pp, dict):
-            _normalize(pp)
-            _normalize(pp.get("accepted"))
-            # V1 schema requires `scheme` and `network` at the top level
-            # of paymentPayload; copy them up from `accepted`.
-            accepted = pp.get("accepted") or {}
-            if isinstance(accepted, dict):
-                if "scheme" not in pp and accepted.get("scheme"):
-                    pp["scheme"] = accepted["scheme"]
-                if "network" not in pp and accepted.get("network"):
-                    pp["network"] = accepted["network"]
-        return body
-
-    target._build_request_body = _patched
-    target._cdp_network_patched = True
-    return True
-
-
-if _patch_facilitator_for_cdp_compat():
-    logging.getLogger("graph-advocate").info(
-        "x402 facilitator patched for CDP network enum"
-    )
 
 
 def _get_x402_server():
@@ -4965,22 +4882,17 @@ def build_app():
                                 extra={"name": "USD Coin", "version": "2"},
                             ),
                         ],
+                        # CDP's V2 schema caps resource.description at 500 chars
+                        # (X402ResourceInfo.description max_length=500); anything
+                        # longer fails verify with "maximum string length is 500".
+                        # Keep the BM25-friendly keyword density tight.
                         description=(
-                            "Onchain data routing for AI agents — plain-English queries return "
-                            "a working GraphQL query, subgraph ID, or REST call. Indexes 15,500+ "
-                            "subgraphs across Ethereum, Arbitrum, Base, Polygon, Optimism, Solana, "
-                            "BSC, TON. Use cases: wallet balances + transfer history, USDC/token "
-                            "holder rankings, smart money flows + DEX analytics, Uniswap V2/V3 "
-                            "pool TVL + fee tiers + swap volume, Aave V2/V3 liquidations + "
-                            "lending markets + interest rates, Compound + Morpho + Curve "
-                            "lending rates, ENS domain registrations + reverse lookups, NFT "
-                            "sales + holders + collection rankings, OHLCV price data, Polymarket "
-                            "prediction markets + trader P&L + open interest, Limitless + "
-                            "Predict.fun prediction market data, ERC-8004 agent discovery + "
-                            "x402 payment analytics. Wallet enrichment, alpha hunting, MEV "
-                            "research, portfolio tracking, DeFi position monitoring, indexer "
-                            "performance, lending APY comparison. First 10 queries/day free; "
-                            "$0.01 USDC per query after. No SDK required — any HTTP POST works."
+                            "Onchain data router for AI agents. Plain-English queries → working "
+                            "GraphQL or REST. 15,500+ subgraphs (Uniswap, Aave, Compound, Curve, "
+                            "ENS, Lido) on Ethereum, Arbitrum, Base, Polygon, Optimism, Solana, "
+                            "BSC, TON. Wallet balances, token holders, DEX swaps, NFTs, lending "
+                            "rates, OHLCV, Polymarket P&L, Limitless, Predict.fun, ERC-8004 "
+                            "agents. 10 free/day, $0.01 USDC after."
                         ),
                         mime_type="application/json",
                         extensions={
