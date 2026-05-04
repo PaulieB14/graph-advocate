@@ -215,12 +215,9 @@ Rules:
   For subgraph queries: query_ready.args MUST include subgraph_id (from search results) and gql (GraphQL query using entity names from query_hint)
   For token-api queries: query_ready.args MUST include network and contract (use the exact param names, NOT chain/token_address)
 - For subgraph queries, always include: the subgraph ID, a working GraphQL query, and a note that API keys are free at thegraph.com/studio (100K queries/month free)
-- DEFAULT to a direct route — token-api, subgraph-registry, substreams, or x402-analytics — that returns a working query/curl the agent can run RIGHT NOW. MCP packages (graph-aave-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp, predictfun-mcp) require npm install + config and aren't actionable for arbitrary agents. Put them in `alternatives` with a note like "if you have an npm-capable runtime, this gives richer tooling" — never make them the primary `recommendation` for general protocol questions.
-  EXCEPTIONS where MCP IS the primary route:
-    • Aave V4-specific features (V4 hubs/spokes/swap quotes — only graph-aave-mcp covers V4 API)
-    • Polymarket live orderbook depth, live spreads, disputed markets, UMA resolution (mcp-only deep features)
-    • Limitless whale trades by trader ID (mcp-only convenience)
-  For everything else (TVL, markets, liquidations, positions, simple queries), recommend subgraph-registry or token-api with a working GraphQL/REST query and list the MCP as an alternative.
+- MCP packages are ALWAYS alternatives, never the primary recommendation. Every MCP package in this routing space (graph-aave-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp, predictfun-mcp) is a thin wrapper around subgraphs and REST APIs that the agent can call directly without `npm install`. The underlying data — including "advanced" features like Aave V4, Polymarket live orderbook / spreads / disputes / UMA resolution, Limitless whale trades — is reachable via direct subgraph queries or REST endpoints. The MCP just packages those calls with friendly tool names.
+  Default `recommendation` to `subgraph-registry` (with subgraph_id + working GraphQL), `token-api` (with REST args), `substreams`, or `x402-analytics`. For protocols whose data lives in a non-subgraph REST API (e.g. Aave V4 → api.aave.com, Polymarket CLOB → clob.polymarket.com / gamma-api.polymarket.com), recommend a direct curl in `curl_example` and pick the closest canonical service (`token-api` if that's the abstraction the agent is using, else `subgraph-registry` and explain the data lives off-graph).
+  Always list the matching MCP package in `alternatives` with a note like "richer tooling if your runtime supports npm." Never set `recommendation` to an MCP package value unless the agent explicitly asks for the npm / MCP option by name.
 - Never hallucinate tool names — only use tools listed above
 - Subgraph schema standard (Messari, protocol-native, custom) is a property of the SPECIFIC subgraph deployment, not of the chain. Any chain can host any schema. NEVER write reasoning like "Ethereum uses Messari, Base uses native" — that's a category error. Instead say "the [name] subgraph for chain X uses [standard]" and ground every field name in the injected SCHEMA block for THAT subgraph_id.
 - If unsure, say so with a confidence score and suggest the closest match
@@ -263,11 +260,13 @@ Routing examples (condensed):
 - "Hottest Polymarket markets" → token-api (/v1/polymarket/markets)
 - "Polymarket OHLCV for Bitcoin market" → token-api (/v1/polymarket/markets/ohlc)
 - "Polymarket trader P&L for 0x..." → token-api (/v1/polymarket/users/positions)
-- "Polymarket live orderbook depth" → graph-polymarket-mcp (get_live_orderbook) — advanced, mcp-only
+- "Polymarket live orderbook depth" → subgraph-registry (Polymarket Orderbook subgraph QmVGA9v...) with GraphQL OR direct curl to clob.polymarket.com — list graph-polymarket-mcp in alternatives
 - "Aave V3 markets by TVL" → subgraph-registry (Aave V3 subgraph) with working GraphQL query — list graph-aave-mcp in alternatives
 - "Aave liquidations above $50K" → subgraph-registry (Aave V3 subgraph, query LiquidationCall) — list graph-aave-mcp in alternatives
-- "Aave V4 hubs" → graph-aave-mcp (get_v4_hubs) — V4 API is mcp-only, no public subgraph
+- "Aave V4 hubs" → curl https://api.aave.com/v4/hubs (no key needed); set recommendation="subgraph-registry" with a note that V4 is REST-only on api.aave.com — list graph-aave-mcp in alternatives
 - "Polymarket markets by volume" → token-api (/v1/polymarket/markets) — list graph-polymarket-mcp in alternatives
+- "Limitless whale trades for trader 0x..." → subgraph-registry (Limitless main subgraph on Base) — list graph-limitless-mcp in alternatives
+- "Polymarket disputed markets" → subgraph-registry (Polymarket Resolution subgraph QmZnnrH...) — list graph-polymarket-mcp in alternatives
 - "Secure my MCP server" → mcp8004
 - "Find agents that do X" → 8004scan
 - "How much x402 volume today?" → x402-analytics (query X402DailyStats)
