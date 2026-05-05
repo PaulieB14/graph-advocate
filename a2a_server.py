@@ -896,6 +896,9 @@ _CANONICAL_SERVICES = {
     "token-api", "subgraph-registry", "substreams",
     "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
     "graph-limitless-mcp", "predictfun-mcp", "mcp8004", "8004scan",
+    # GA-native paid endpoints layered on top of the Pinax Token API:
+    # /polymarket/pnl-quick, /polymarket/pnl, /polymarket/screen, /polymarket/risk
+    "polymarket-token-api",
     # meta/operational buckets (kept so headline filter can target them)
     "introduction", "out-of-scope", "conformance", "cached", "unknown",
     "rate-limited", "x402-paid", "x402-failed", "x402-tip", "payment-required",
@@ -933,8 +936,18 @@ def _normalize_service(service: str | None) -> str:
             s = s.split(sep, 1)[0].strip()
             if s in _CANONICAL_SERVICES:
                 return s
-    # Keyword fallbacks for common free-text patterns
+    # Keyword fallbacks for common free-text patterns.
+    # GA-native paid /polymarket/* endpoints must match BEFORE the generic
+    # "polymarket" → graph-polymarket-mcp rule, otherwise pm-pnl / pm-screen /
+    # pm-risk land in the wrong dashboard bucket.
     if "aave" in s: return "graph-aave-mcp"
+    if (
+        s.startswith("polymarket-pnl") or s.startswith("polymarket-screen")
+        or s.startswith("polymarket-risk") or s.startswith("pm-pnl")
+        or s.startswith("pm-screen") or s.startswith("pm-risk")
+        or s == "polymarket-token-api"
+    ):
+        return "polymarket-token-api"
     if "polymarket" in s: return "graph-polymarket-mcp"
     if "limitless" in s: return "graph-limitless-mcp"
     if "predict" in s and "fun" in s: return "predictfun-mcp"
@@ -4964,7 +4977,7 @@ def build_app():
             try:
                 scores = await score_wallet(wallet)
                 _log_request("x402-paid", f"pm-pnl-quick {wallet[:10]}",
-                             "polymarket-pnl-quick", "high", "x402-pm")
+                             "polymarket-pnl-quick", "high", "polymarket-token-api")
                 return _RouteJSON({
                     "wallet": wallet,
                     **scores,
@@ -4988,7 +5001,7 @@ def build_app():
                 positions = await fetch_user_positions(wallet)
                 scores = compute_scores(positions)
                 _log_request("x402-paid", f"pm-pnl {wallet[:10]}",
-                             "polymarket-pnl", "high", "x402-pm")
+                             "polymarket-pnl", "high", "polymarket-token-api")
                 return _RouteJSON({
                     "wallet": wallet,
                     "scores": scores,
@@ -5113,7 +5126,7 @@ def build_app():
                     )
 
                 _log_request("x402-paid", f"pm-screen {condition_id[:10]} n={n}",
-                             "polymarket-screen", "high", "x402-pm")
+                             "polymarket-screen", "high", "polymarket-token-api")
                 return _RouteJSON({
                     "condition_id": condition_id,
                     "market_slug": meta.get("market_slug"),
@@ -5150,7 +5163,7 @@ def build_app():
             try:
                 wallet_info = await detect_wallet_type(wallet)
                 _log_request("x402-paid", f"pm-risk {wallet[:10]}",
-                             "polymarket-risk", "high", "x402-pm")
+                             "polymarket-risk", "high", "polymarket-token-api")
                 return _RouteJSON({
                     "wallet": wallet,
                     "wallet_type": wallet_info["type"],
