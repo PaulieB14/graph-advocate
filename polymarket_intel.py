@@ -35,7 +35,10 @@ log = logging.getLogger(__name__)
 
 PINAX_BASE = os.getenv(
     "PINAX_BASE_URL",
-    "https://app.pinax.network/api/v1/polymarket",
+    # Pinax-operated Token API hosted at token-api.thegraph.com.
+    # Confirmed in advocate.py:485-488 and the Polymarket section of the
+    # routing system prompt — the endpoints live under /v1/polymarket/*.
+    "https://token-api.thegraph.com/v1/polymarket",
 )
 # Pinax / Token API JWT — mirrors advocate.py:1859 convention exactly.
 # TOKEN_API_JWT is the canonical name; TOKEN_API_ACCESS_TOKEN is the legacy
