@@ -37,7 +37,14 @@ PINAX_BASE = os.getenv(
     "PINAX_BASE_URL",
     "https://app.pinax.network/api/v1/polymarket",
 )
-PINAX_KEY = os.getenv("PINAX_API_KEY", "")
+# Pinax / Token API JWT — mirrors advocate.py:1859 convention exactly.
+# TOKEN_API_JWT is the canonical name; TOKEN_API_ACCESS_TOKEN is the legacy
+# fallback. PINAX_API_KEY supported as a third-tier alias for clarity.
+PINAX_KEY = (
+    os.getenv("TOKEN_API_JWT", "")
+    or os.getenv("TOKEN_API_ACCESS_TOKEN", "")
+    or os.getenv("PINAX_API_KEY", "")
+)
 POLYGON_RPC = os.getenv("POLYGON_RPC_URL", "https://polygon.drpc.org")
 
 # Polymarket deposit-wallet factory on Polygon mainnet (chainId 137).
