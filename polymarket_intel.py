@@ -33,21 +33,26 @@ log = logging.getLogger(__name__)
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-PINAX_BASE = os.getenv(
-    "PINAX_BASE_URL",
-    # Pinax-operated Token API hosted at token-api.thegraph.com.
-    # Confirmed in advocate.py:485-488 and the Polymarket section of the
-    # routing system prompt — the endpoints live under /v1/polymarket/*.
-    "https://token-api.thegraph.com/v1/polymarket",
-)
-# Pinax / Token API JWT — mirrors advocate.py:1859 convention exactly.
-# TOKEN_API_JWT is the canonical name; TOKEN_API_ACCESS_TOKEN is the legacy
-# fallback. PINAX_API_KEY supported as a third-tier alias for clarity.
-PINAX_KEY = (
-    os.getenv("TOKEN_API_JWT", "")
-    or os.getenv("TOKEN_API_ACCESS_TOKEN", "")
-    or os.getenv("PINAX_API_KEY", "")
-)
+def _pinax_base() -> str:
+    return os.getenv(
+        "PINAX_BASE_URL",
+        # Pinax-operated Token API hosted at token-api.thegraph.com.
+        # Confirmed in advocate.py:485-488 and via self-pay test 2026-05-04.
+        "https://token-api.thegraph.com/v1/polymarket",
+    )
+
+
+def _pinax_key() -> str:
+    """Read JWT at call time — mirrors advocate.py:1859 (request-time read).
+
+    TOKEN_API_JWT is canonical; TOKEN_API_ACCESS_TOKEN is the legacy fallback;
+    PINAX_API_KEY is a third-tier alias for clarity in new docs.
+    """
+    return (
+        os.environ.get("TOKEN_API_JWT", "")
+        or os.environ.get("TOKEN_API_ACCESS_TOKEN", "")
+        or os.environ.get("PINAX_API_KEY", "")
+    )
 POLYGON_RPC = os.getenv("POLYGON_RPC_URL", "https://polygon.drpc.org")
 
 # Polymarket deposit-wallet factory on Polygon mainnet (chainId 137).
@@ -67,12 +72,20 @@ _HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 async def _pinax(path: str, **params: Any) -> Any:
     """GET against Pinax Polymarket API. Returns parsed JSON."""
-    headers = {"Authorization": f"Bearer {PINAX_KEY}"} if PINAX_KEY else {}
-    url = f"{PINAX_BASE}{path}"
+    key = _pinax_key()
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    url = f"{_pinax_base()}{path}"
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         r = await client.get(url, headers=headers, params=params)
     if r.status_code >= 400:
-        raise RuntimeError(f"pinax {path} {r.status_code}: {r.text[:200]}")
+        # Surface auth-config state in the error so 401 vs missing-key is obvious
+        # in the upstream_error response without spilling secrets.
+        key_state = "set" if key else "MISSING"
+        raise RuntimeError(
+            f"pinax {path} {r.status_code} (jwt={key_state}, "
+            f"sources_checked=TOKEN_API_JWT,TOKEN_API_ACCESS_TOKEN,PINAX_API_KEY): "
+            f"{r.text[:200]}"
+        )
     return r.json()
 
 
