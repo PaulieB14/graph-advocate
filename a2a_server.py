@@ -4958,7 +4958,21 @@ def build_app():
             data = await _pm_read_body(request)
             wallet = normalize_wallet(data.get("wallet"))
             if not wallet:
-                return _RouteJSON({"error": "invalid_wallet"}, status_code=400)
+                # Diagnostic: include what we actually received so the caller
+                # (and us via the response) can see if body parsing dropped fields.
+                try:
+                    raw = await request.body()
+                    raw_preview = raw[:300].decode("utf-8", errors="replace")
+                except Exception:
+                    raw_preview = "<body unreadable>"
+                return _RouteJSON({
+                    "error": "invalid_wallet",
+                    "received_body_keys": list(data.keys()) if isinstance(data, dict) else None,
+                    "received_wallet_value": data.get("wallet") if isinstance(data, dict) else None,
+                    "received_wallet_type": type(data.get("wallet")).__name__ if isinstance(data, dict) else None,
+                    "raw_body_preview": raw_preview,
+                    "content_type": request.headers.get("content-type"),
+                }, status_code=400)
             try:
                 scores = await score_wallet(wallet)
                 _log_request("x402-paid", f"pm-pnl-quick {wallet[:10]}",
