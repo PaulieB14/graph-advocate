@@ -1726,13 +1726,15 @@ class GraphAdvocateExecutor(AgentExecutor):
 agent_card = AgentCard(
     name="Graph Advocate",
     description=(
-        "Find the right subgraph and get a ready-to-run GraphQL query for any onchain data need. "
-        "Searches 15,500+ subgraphs across 20+ chains (Uniswap, Aave, ENS, Compound, Curve, Lido, and more). "
-        "Also provides live data via Token API (wallet balances, DEX swaps, NFTs, holder rankings) "
-        "across EVM, Solana, and TON. Free API key — 100K queries/month, 2 min signup at thegraph.com/studio."
+        "Onchain data router for AI agents. Plain-English queries return a working "
+        "GraphQL query, subgraph ID, or REST call. 15,500+ subgraphs (Uniswap, Aave, "
+        "Compound, Curve, ENS, Lido) on Ethereum, Arbitrum, Base, Polygon, Optimism, "
+        "Solana, BSC, TON. Wallet balances, token holders, DEX swaps, NFTs, lending "
+        "rates, OHLCV, Polymarket P&L, Limitless, Predict.fun, ERC-8004 agent discovery. "
+        "10 free queries/day, $0.01 USDC after via x402 on Base."
     ),
     url=f"{PUBLIC_URL}/",
-    version="1.0.0",
+    version="1.1.0",
     default_input_modes=["text"],
     default_output_modes=["text"],
     capabilities=AgentCapabilities(
@@ -1741,10 +1743,10 @@ agent_card = AgentCard(
         state_transition_history=False,
     ),
     skills=SKILLS,
-    documentation_url=f"{PUBLIC_URL}/llms.txt",
+    documentation_url="https://docs.graphadvocate.com/",
     provider={
         "organization": "PaulieB14",
-        "url": f"{PUBLIC_URL}/chat",
+        "url": f"{PUBLIC_URL}/",
     },
 )
 
