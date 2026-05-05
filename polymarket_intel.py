@@ -52,17 +52,27 @@ def _pinax_base() -> str:
     )
 
 
-def _pinax_key() -> str:
-    """Mirrors advocate.py:1859 — request-time read of TOKEN_API_JWT.
+# Free-tier fallback JWT — MIRROR of advocate.py:1862-1866 (same value, already
+# public in the committed repo). Lets us serve requests when no paid JWT is set
+# in Railway env. Limits: 200 req/min, 2500 credits, 10 records per query,
+# Token API free plan, expires 2027.
+_FALLBACK_JWT = (
+    "eyJhbGciOiJLTVNFUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJleHAiOjE4MDUyMTk1MzQsImp0aSI6IjE4ZTU3Mjk2LTcyYTktNDVlYi1iNDlhLWY0MWFlMzIzYTUzOCIsImlhdCI6MTc2OTIxOTUzNCwiaXNzIjoiZGZ1c2UuaW8iLCJzdWIiOiIwYm9qaTQ5NTUyMjg5MjIwYzVkYjciLCJ2IjoyLCJha2kiOiIzNjJiNDU5NGI1NmFkYWE0YzIxZWNhYzE3M2M4MTEyZDM3OGMyMWY1MjM1MDUzZWYwYmJkYjVlZjJkZWY2NDViIiwidWlkIjoiMGJvamk0OTU1MjI4OTIyMGM1ZGI3Iiwic3Vic3RyZWFtc19wbGFuX3RpZXIiOiJGUkVFIiwiY2ZnIjp7IlNVQlNUUkVBTVNfTUFYX1JFUVVFU1RTIjoiMiIsIlNVQlNUUkVBTVNfUEFSQUxMRUxfSk9CUyI6IjUiLCJTVUJTVFJFQU1TX1BBUkFMTEVMX1dPUktFUlMiOiI1In0sInRva2VuX2FwaV9wbGFuX3RpZXIiOiJGUkVFIiwidG9rZW5fYXBpX2ZlYXR1cmVfY29uZmlncyI6eyJUT0tFTl9BUElfQkFUQ0hfU0laRSI6IjEiLCJUT0tFTl9BUElfSVRFTVNfUkVUVVJORUQiOiIxMCIsIlRPS0VOX0FQSV9NQVhJTVVNX0FMTE9XRURfRU5EUE9JTlRfR1JPVVAiOiJuZnQiLCJUT0tFTl9BUElfUExBTl9DUkVESVRTX0NFTlRTIjoiMjUwMCIsIlRPS0VOX0FQSV9SQVRFX0xJTUlUX1BFUl9NSU5VVEUiOiIyMDAiLCJUT0tFTl9BUElfUkVBTF9USU1FX0RBVEEiOiJ0cnVlIn19."
+    "pXh91NO328L1rs9AinFazARJSqEq6dSBeTjxrrDM-pO2BN71VUHBXwJVgH8kNxxw33BgI8SkhZL6cCDjgxwkVw"
+)
 
-    Falls back to TOKEN_API_ACCESS_TOKEN, then PINAX_API_KEY. If none are
-    set, returns empty string and the request goes unauthenticated (will
-    401 against token-api.thegraph.com).
+
+def _pinax_key() -> str:
+    """Mirrors advocate.py:1859 — request-time read of TOKEN_API_JWT,
+    with the same free-tier fallback as advocate.py:1862. For higher
+    rate limits and >10-record pages, set TOKEN_API_JWT in Railway env.
     """
     return (
         os.environ.get("TOKEN_API_JWT", "")
         or os.environ.get("TOKEN_API_ACCESS_TOKEN", "")
         or os.environ.get("PINAX_API_KEY", "")
+        or _FALLBACK_JWT
     )
 
 
@@ -76,7 +86,15 @@ async def _pinax(path: str, **params: Any) -> Any:
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         r = await client.get(url, headers=headers, params=params)
     if r.status_code >= 400:
-        key_state = "set" if key else "MISSING"
+        # Surface which JWT source we used for fast triage (env vs free fallback).
+        if os.environ.get("TOKEN_API_JWT"):
+            key_state = "env:TOKEN_API_JWT"
+        elif os.environ.get("TOKEN_API_ACCESS_TOKEN"):
+            key_state = "env:TOKEN_API_ACCESS_TOKEN"
+        elif os.environ.get("PINAX_API_KEY"):
+            key_state = "env:PINAX_API_KEY"
+        else:
+            key_state = "free-tier-fallback"
         raise RuntimeError(
             f"pinax {path} {r.status_code} (jwt={key_state}): {r.text[:200]}"
         )
