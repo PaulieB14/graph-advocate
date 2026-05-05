@@ -1258,6 +1258,85 @@ SKILLS = [
         input_modes=["text"],
         output_modes=["text"],
     ),
+    AgentSkill(
+        id="polymarket_pnl_quick",
+        name="Polymarket trader skill score (quick)",
+        description=(
+            "POST /polymarket/pnl-quick {wallet}. Pure-JSON skill metrics for any "
+            "Polymarket trader: skill_score (0-100, Sharpe-weighted by confidence), "
+            "classification (sharp/neutral/retail), win_rate, sample_size, max_drawdown, "
+            "realized + unrealized PnL. No lot reconstruction — designed for batch "
+            "screening top holders before entering a market or vetting a copy-trade signal. "
+            "$0.01 USDC per call on Base."
+        ),
+        tags=["polymarket", "trader-intelligence", "skill-score", "agent-economy",
+              "copy-trading", "x402", "pnl"],
+        examples=[
+            "Score Polymarket wallet 0x38e598961dd0456a7fb2e758bd433d3e59fb8a4a",
+            "Is this Polymarket trader sharp money or retail? 0xac5a07c4...",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="polymarket_pnl_full",
+        name="Polymarket full PnL (per-lot, FIFO/LIFO/HIFO)",
+        description=(
+            "POST /polymarket/pnl {wallet, method?}. Full PnL report: derived skill "
+            "metrics + per-lot realized PnL with FIFO/LIFO/HIFO matching + open positions "
+            "with mark-to-market unrealized. For agents that need to inspect specific "
+            "trades — audit, debug, or feed into a deeper reputation signal. "
+            "$0.05 USDC per call on Base."
+        ),
+        tags=["polymarket", "pnl", "tax-lots", "fifo", "lifo", "hifo", "x402"],
+        examples=[
+            "Full Polymarket PnL with FIFO accounting for 0x38e598...",
+            "Per-lot realized PnL HIFO for Polymarket trader 0xac5a...",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="polymarket_screen",
+        name="Polymarket size-the-room (top holders + skill + ghost-fill risk)",
+        description=(
+            "POST /polymarket/screen {condition_id, n?}. Returns the top N (default 10, "
+            "max 25) position holders of a market, ranked by position size, each with "
+            "skill_score, sharp/retail/insufficient_data classification, AND ghost-fill "
+            "risk per holder. The pre-trade check for trading and market-maker agents — "
+            "answers 'who am I about to be against, and will their fills actually settle?' "
+            "$0.02 USDC per call on Base."
+        ),
+        tags=["polymarket", "pre-trade", "market-maker", "adverse-selection",
+              "ghost-fill", "screen", "x402"],
+        examples=[
+            "Screen top 10 holders of Polymarket market 0x6331a779482df72d904c3c1e12b6409ff836bc06f8c97945cba9b25ada2c605c",
+            "Who's holding the YES side of this Polymarket market and how sharp are they?",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="polymarket_risk",
+        name="Polymarket ghost-fill counterparty risk",
+        description=(
+            "POST /polymarket/risk {wallet}. Classifies a Polymarket maker by ghost-fill "
+            "risk via Polygon eth_getCode + ERC-1967 implementation slot probe. Returns "
+            "wallet_type (eoa | smart_account_erc1967 | legacy_smart_account), "
+            "ghost_fill_risk (low/medium/high), and a 24h collateral outflow flag. "
+            "Polymarket's new POLY_1271 / sig type 3 deposit wallets are ghost-fill-immune "
+            "by design; legacy EOAs / Safes carry the historical risk that LPs have been "
+            "getting burned by. $0.02 USDC per call on Base."
+        ),
+        tags=["polymarket", "ghost-fill", "risk", "market-maker", "deposit-wallet",
+              "poly1271", "erc1271", "x402"],
+        examples=[
+            "Will this Polymarket maker's fill actually settle? 0x38e598...",
+            "Is this wallet a deposit wallet or legacy EOA? 0xac5a07c4...",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
 ]
 
 
@@ -4848,6 +4927,229 @@ def build_app():
                 "tip": "received",
             })
 
+        # ── Polymarket trader intelligence handlers ────────────────────────
+        # Four agent-priced endpoints on top of the free Pinax Polymarket REST
+        # API. Pure JSON for autonomous agents — trading bots sizing the room,
+        # copy-trade vetting, MM adverse-selection pricing, ERC-8004 reputation
+        # graphs. Logic lives in polymarket_intel.py to keep this file small.
+        from polymarket_intel import (
+            build_lots,
+            compute_scores,
+            detect_wallet_type,
+            recent_outflow_flag,
+            score_wallet,
+            fetch_user_activity,
+            fetch_user_positions,
+            fetch_market_positions,
+            normalize_wallet,
+            normalize_condition_id,
+            _gather as _pm_gather,
+        )
+
+        async def _pm_read_body(request) -> dict:
+            try:
+                body = await request.body()
+                return _json.loads(body) if body else {}
+            except Exception:
+                return {}
+
+        async def _pm_pnl_quick_handler(request):
+            """$0.01 — derived skill metrics for a wallet, no lot reconstruction."""
+            data = await _pm_read_body(request)
+            wallet = normalize_wallet(data.get("wallet"))
+            if not wallet:
+                return _RouteJSON({"error": "invalid_wallet"}, status_code=400)
+            try:
+                scores = await score_wallet(wallet)
+                _log_request("x402-paid", f"pm-pnl-quick {wallet[:10]}",
+                             "polymarket-pnl-quick", "high", "x402-pm")
+                return _RouteJSON({
+                    "wallet": wallet,
+                    **scores,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                log.exception(f"pm-pnl-quick crashed: {wallet}")
+                return _RouteJSON({
+                    "error": "upstream_error",
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc)[:200],
+                }, status_code=502)
+
+        async def _pm_pnl_handler(request):
+            """$0.05 — full PnL: scores + per-lot FIFO/LIFO/HIFO + open positions."""
+            data = await _pm_read_body(request)
+            wallet = normalize_wallet(data.get("wallet"))
+            method = data.get("method") if data.get("method") in ("fifo", "lifo", "hifo") else "fifo"
+            if not wallet:
+                return _RouteJSON({"error": "invalid_wallet"}, status_code=400)
+            try:
+                activity, positions = await _pm_gather(
+                    fetch_user_activity(wallet),
+                    fetch_user_positions(wallet),
+                )
+                lots = build_lots(activity, method)
+                scores = compute_scores(lots["closed"], positions)
+                _log_request("x402-paid", f"pm-pnl {wallet[:10]} {method}",
+                             "polymarket-pnl", "high", "x402-pm")
+                return _RouteJSON({
+                    "wallet": wallet,
+                    "method": method,
+                    "scores": scores,
+                    "realized": lots["closed"],
+                    "open": [
+                        {
+                            "market_slug": (p.get("market") or {}).get("market_slug"),
+                            "outcome": (p.get("market") or {}).get("outcome_label"),
+                            "token_id": (p.get("market") or {}).get("token_id"),
+                            "qty": float(p.get("net_position") or 0),
+                            "avg_buy_price": float(p.get("avg_price") or 0),
+                            "current_price": float(p.get("current_price") or 0),
+                            "position_value_usdc": float(p.get("position_value") or 0),
+                            "unrealized_pnl_usdc": float(p.get("unrealized_pnl") or 0),
+                        }
+                        for p in positions
+                    ],
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                log.exception(f"pm-pnl crashed: {wallet}")
+                return _RouteJSON({
+                    "error": "upstream_error",
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc)[:200],
+                }, status_code=502)
+
+        async def _pm_screen_handler(request):
+            """$0.02 — top-N holders of a market ranked by skill + ghost-fill risk."""
+            data = await _pm_read_body(request)
+            condition_id = normalize_condition_id(data.get("condition_id"))
+            try:
+                n = max(1, min(25, int(data.get("n") or 10)))
+            except (TypeError, ValueError):
+                n = 10
+            if not condition_id:
+                return _RouteJSON({"error": "invalid_condition_id"}, status_code=400)
+            try:
+                positions = await fetch_market_positions(condition_id)
+                top = sorted(
+                    [p for p in positions if p.get("user") and float(p.get("position_value") or 0) > 0],
+                    key=lambda p: float(p.get("position_value") or 0),
+                    reverse=True,
+                )[:n]
+
+                async def _score_holder(idx_p):
+                    idx, p = idx_p
+                    wallet = str(p.get("user")).lower()
+                    base = {
+                        "rank": idx + 1,
+                        "wallet": wallet,
+                        "position_value_usdc": float(p.get("position_value") or 0),
+                        "side": (p.get("market") or {}).get("outcome_label"),
+                    }
+                    try:
+                        s = await score_wallet(wallet)
+                        base.update({
+                            "skill_score": s["skill_score"],
+                            "classification": s["classification"],
+                            "sample_size": s["sample_size"],
+                            "confidence": s["confidence"],
+                            "sharpe_like": s["sharpe_like"],
+                            "win_rate": s["win_rate"],
+                        })
+                    except Exception as e:
+                        base["score_error"] = str(e)[:150]
+                    try:
+                        w = await detect_wallet_type(wallet)
+                        base["wallet_type"] = w["type"]
+                        base["ghost_fill_risk"] = w["ghost_fill_risk"]
+                    except Exception as e:
+                        base["risk_error"] = str(e)[:150]
+                    return base
+
+                scored = await _pm_gather(*(_score_holder((i, p)) for i, p in enumerate(top)))
+
+                skill_counts: dict[str, int] = {}
+                risk_counts: dict[str, int] = {}
+                for h in scored:
+                    skill_counts[h.get("classification") or "error"] = (
+                        skill_counts.get(h.get("classification") or "error", 0) + 1
+                    )
+                    risk_counts[h.get("ghost_fill_risk") or "unknown"] = (
+                        risk_counts.get(h.get("ghost_fill_risk") or "unknown", 0) + 1
+                    )
+
+                _log_request("x402-paid", f"pm-screen {condition_id[:10]} n={n}",
+                             "polymarket-screen", "high", "x402-pm")
+                return _RouteJSON({
+                    "condition_id": condition_id,
+                    "holders_screened": len(scored),
+                    "sharp_count": skill_counts.get("sharp", 0),
+                    "retail_count": skill_counts.get("retail", 0),
+                    "neutral_count": skill_counts.get("neutral", 0),
+                    "insufficient_data_count": skill_counts.get("insufficient_data", 0),
+                    "ghost_fill_risk_breakdown": {
+                        "low": risk_counts.get("low", 0),
+                        "medium": risk_counts.get("medium", 0),
+                        "high": risk_counts.get("high", 0),
+                        "unknown": risk_counts.get("unknown", 0),
+                    },
+                    "holders": list(scored),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                log.exception(f"pm-screen crashed: {condition_id}")
+                return _RouteJSON({
+                    "error": "upstream_error",
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc)[:200],
+                }, status_code=502)
+
+        async def _pm_risk_handler(request):
+            """$0.02 — ghost-fill counterparty risk: wallet type + 24h outflow flag."""
+            data = await _pm_read_body(request)
+            wallet = normalize_wallet(data.get("wallet"))
+            if not wallet:
+                return _RouteJSON({"error": "invalid_wallet"}, status_code=400)
+            try:
+                wallet_info, outflow = await _pm_gather(
+                    detect_wallet_type(wallet),
+                    recent_outflow_flag(wallet),
+                )
+                _log_request("x402-paid", f"pm-risk {wallet[:10]}",
+                             "polymarket-risk", "high", "x402-pm")
+                return _RouteJSON({
+                    "wallet": wallet,
+                    "wallet_type": wallet_info["type"],
+                    "ghost_fill_risk": wallet_info["ghost_fill_risk"],
+                    "reason": wallet_info["reason"],
+                    "impl_address": wallet_info.get("impl_address"),
+                    "recent_outflow_24h": outflow,
+                    "methodology": {
+                        "wallet_type": (
+                            "Polygon eth_getCode + ERC-1967 implementation slot probe. "
+                            "EOA = no bytecode. ERC-1967 proxy ≈ Polymarket deposit "
+                            "wallet (POLY_1271, sig type 3). Other contract bytecode = "
+                            "legacy proxy/Safe."
+                        ),
+                        "ghost_fill_link": (
+                            "Deposit wallets validate orders via ERC-1271 against "
+                            "on-chain state at fill time, eliminating the balance/"
+                            "allowance drift that produces ghost fills on the legacy "
+                            "EOA/proxy/Safe path."
+                        ),
+                        "docs": "https://docs.polymarket.com — Deposit Wallet Migration",
+                    },
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                log.exception(f"pm-risk crashed: {wallet}")
+                return _RouteJSON({
+                    "error": "upstream_error",
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc)[:200],
+                }, status_code=502)
+
         # POST-only — GETs were hanging for ~10s on `await request.body()` because
         # the payment middleware only registers POST routes (per RouteConfig keys),
         # so GETs bypass payment and fall through to the inner handler which blocks
@@ -4855,6 +5157,10 @@ def build_app():
         _inner_route_app = _RouteStarlette(routes=[
             _RouteRoute("/route", _route_handler, methods=["POST"]),
             _RouteRoute("/tip", _tip_handler, methods=["POST"]),
+            _RouteRoute("/polymarket/pnl-quick", _pm_pnl_quick_handler, methods=["POST"]),
+            _RouteRoute("/polymarket/pnl", _pm_pnl_handler, methods=["POST"]),
+            _RouteRoute("/polymarket/screen", _pm_screen_handler, methods=["POST"]),
+            _RouteRoute("/polymarket/risk", _pm_risk_handler, methods=["POST"]),
         ])
 
         x402_server = _get_x402_server()
@@ -4961,6 +5267,193 @@ def build_app():
                                 ),
                             ),
                             # Permit2 + EIP-2612 sponsoring removed 2026-05-02.
+                        },
+                    ),
+                    # ── Polymarket trader intelligence (4 endpoints) ──────
+                    "POST /polymarket/pnl-quick": RouteConfig(
+                        accepts=[
+                            PaymentOption(
+                                scheme="exact",
+                                pay_to=X402_WALLET,
+                                price="$0.01",
+                                network="eip155:8453",
+                                max_timeout_seconds=300,
+                                extra={"name": "USD Coin", "version": "2"},
+                            ),
+                        ],
+                        description=(
+                            "Polymarket trader skill score — pure JSON for agents. "
+                            "POST {wallet}. Returns skill_score (0-100, Sharpe-weighted "
+                            "by confidence), classification (sharp/neutral/retail), "
+                            "win_rate, sample_size, max_drawdown, realized + unrealized "
+                            "PnL. No lot reconstruction — for batch screening top "
+                            "holders before entering a market or mirroring a copy-trade."
+                        ),
+                        mime_type="application/json",
+                        extensions={
+                            **declare_discovery_extension(
+                                input={"wallet": "0x38e598961dd0456a7fb2e758bd433d3e59fb8a4a"},
+                                input_schema={
+                                    "type": "object",
+                                    "properties": {
+                                        "wallet": {"type": "string", "description": "Polymarket trader address (0x-prefixed, lowercase)"},
+                                    },
+                                    "required": ["wallet"],
+                                },
+                                body_type="json",
+                                output=OutputConfig(
+                                    example={
+                                        "wallet": "0x38e598961dd0456a7fb2e758bd433d3e59fb8a4a",
+                                        "skill_score": 71.4,
+                                        "classification": "sharp",
+                                        "sharpe_like": 0.84,
+                                        "win_rate": 0.612,
+                                        "sample_size": 213,
+                                        "confidence": 0.93,
+                                        "max_drawdown_usdc": 412.55,
+                                        "realized_pnl_usdc": 1820.4,
+                                        "unrealized_pnl_usdc": 220.1,
+                                        "total_pnl_usdc": 2040.5,
+                                        "open_positions_count": 14,
+                                    },
+                                    schema={"type": "object"},
+                                ),
+                            ),
+                        },
+                    ),
+                    "POST /polymarket/pnl": RouteConfig(
+                        accepts=[
+                            PaymentOption(
+                                scheme="exact",
+                                pay_to=X402_WALLET,
+                                price="$0.05",
+                                network="eip155:8453",
+                                max_timeout_seconds=300,
+                                extra={"name": "USD Coin", "version": "2"},
+                            ),
+                        ],
+                        description=(
+                            "Polymarket full PnL report. POST {wallet, method?}. "
+                            "Returns derived skill metrics + per-lot realized PnL "
+                            "(FIFO/LIFO/HIFO matching, default fifo) + open positions "
+                            "with mark-to-market unrealized. For agents that need to "
+                            "inspect specific trades, audit, or feed into a deeper "
+                            "reputation signal."
+                        ),
+                        mime_type="application/json",
+                        extensions={
+                            **declare_discovery_extension(
+                                input={"wallet": "0x38e598961dd0456a7fb2e758bd433d3e59fb8a4a", "method": "fifo"},
+                                input_schema={
+                                    "type": "object",
+                                    "properties": {
+                                        "wallet": {"type": "string"},
+                                        "method": {"type": "string", "enum": ["fifo", "lifo", "hifo"]},
+                                    },
+                                    "required": ["wallet"],
+                                },
+                                body_type="json",
+                                output=OutputConfig(
+                                    example={
+                                        "wallet": "0x38e5...",
+                                        "method": "fifo",
+                                        "scores": {"skill_score": 71.4, "classification": "sharp", "sample_size": 213},
+                                        "realized": [{"market_slug": "btc-updown-5m-1771359600", "outcome": "Up", "qty": 100, "buy_price": 0.42, "sell_price": 0.91, "pnl_usdc": 49.0}],
+                                        "open": [{"market_slug": "will-x-happen-by-eoy", "outcome": "Yes", "qty": 500, "avg_buy_price": 0.31}],
+                                    },
+                                    schema={"type": "object"},
+                                ),
+                            ),
+                        },
+                    ),
+                    "POST /polymarket/screen": RouteConfig(
+                        accepts=[
+                            PaymentOption(
+                                scheme="exact",
+                                pay_to=X402_WALLET,
+                                price="$0.02",
+                                network="eip155:8453",
+                                max_timeout_seconds=300,
+                                extra={"name": "USD Coin", "version": "2"},
+                            ),
+                        ],
+                        description=(
+                            "Size-the-room: top N holders of a Polymarket market "
+                            "ranked by skill_score, with per-holder ghost-fill risk. "
+                            "POST {condition_id, n?}. The pre-trade check for trading "
+                            "and market-maker agents — answers 'who am I about to be "
+                            "against, and will their fills actually settle?'"
+                        ),
+                        mime_type="application/json",
+                        extensions={
+                            **declare_discovery_extension(
+                                input={"condition_id": "0x6331a779482df72d904c3c1e12b6409ff836bc06f8c97945cba9b25ada2c605c", "n": 10},
+                                input_schema={
+                                    "type": "object",
+                                    "properties": {
+                                        "condition_id": {"type": "string", "description": "Polymarket condition_id (0x + 64 hex chars)"},
+                                        "n": {"type": "integer", "minimum": 1, "maximum": 25, "default": 10},
+                                    },
+                                    "required": ["condition_id"],
+                                },
+                                body_type="json",
+                                output=OutputConfig(
+                                    example={
+                                        "condition_id": "0x6331...",
+                                        "holders_screened": 10,
+                                        "sharp_count": 3,
+                                        "retail_count": 4,
+                                        "neutral_count": 2,
+                                        "insufficient_data_count": 1,
+                                        "ghost_fill_risk_breakdown": {"low": 6, "medium": 3, "high": 1},
+                                        "holders": [{"rank": 1, "wallet": "0x38e5...", "position_value_usdc": 9005.64, "side": "Yes", "skill_score": 71.4, "classification": "sharp", "wallet_type": "smart_account_erc1967", "ghost_fill_risk": "low"}],
+                                    },
+                                    schema={"type": "object"},
+                                ),
+                            ),
+                        },
+                    ),
+                    "POST /polymarket/risk": RouteConfig(
+                        accepts=[
+                            PaymentOption(
+                                scheme="exact",
+                                pay_to=X402_WALLET,
+                                price="$0.02",
+                                network="eip155:8453",
+                                max_timeout_seconds=300,
+                                extra={"name": "USD Coin", "version": "2"},
+                            ),
+                        ],
+                        description=(
+                            "Polymarket ghost-fill counterparty risk. POST {wallet}. "
+                            "Returns wallet_type (eoa | smart_account_erc1967 | "
+                            "legacy_smart_account), ghost_fill_risk (low/medium/high), "
+                            "24h collateral outflow flag. Deposit wallets (POLY_1271, "
+                            "sig type 3) are ghost-fill-immune by design. For MM agents "
+                            "pricing adverse selection before quoting against a maker."
+                        ),
+                        mime_type="application/json",
+                        extensions={
+                            **declare_discovery_extension(
+                                input={"wallet": "0x38e598961dd0456a7fb2e758bd433d3e59fb8a4a"},
+                                input_schema={
+                                    "type": "object",
+                                    "properties": {"wallet": {"type": "string"}},
+                                    "required": ["wallet"],
+                                },
+                                body_type="json",
+                                output=OutputConfig(
+                                    example={
+                                        "wallet": "0x38e5...",
+                                        "wallet_type": "smart_account_erc1967",
+                                        "ghost_fill_risk": "low",
+                                        "reason": "ERC-1967 proxy wallet. Likely Polymarket deposit wallet — ghost-fill-immune by design.",
+                                        "impl_address": "0x...",
+                                        "recent_outflow_24h": {"flag": False, "events_24h": 0},
+                                    },
+                                    schema={"type": "object"},
+                                ),
+                            ),
                         },
                     ),
                 },
