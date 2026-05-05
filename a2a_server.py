@@ -5588,10 +5588,15 @@ def build_app():
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/")):
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and scope["path"] in ("/route", "/tip"):
+        elif scope["type"] == "http" and (
+            scope["path"] in ("/route", "/tip")
+            or scope["path"].startswith("/polymarket/")
+        ):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.
             # The middleware handles: 402 challenge, payment verification,
-            # on-chain settlement, and forwarding to _route_handler on success.
+            # on-chain settlement, and forwarding to the right handler on success.
+            # /polymarket/* serves the trader-intelligence endpoints registered
+            # in the same middleware (see _inner_route_app build above).
             if _x402_route_app:
                 await _x402_route_app(scope, receive, send)
             else:
