@@ -4933,14 +4933,12 @@ def build_app():
         # copy-trade vetting, MM adverse-selection pricing, ERC-8004 reputation
         # graphs. Logic lives in polymarket_intel.py to keep this file small.
         from polymarket_intel import (
-            build_lots,
             compute_scores,
             detect_wallet_type,
-            recent_outflow_flag,
             score_wallet,
-            fetch_user_activity,
             fetch_user_positions,
-            fetch_market_positions,
+            fetch_market_meta,
+            fetch_market_holders,
             normalize_wallet,
             normalize_condition_id,
             _gather as _pm_gather,
@@ -4981,39 +4979,49 @@ def build_app():
                 }, status_code=502)
 
         async def _pm_pnl_handler(request):
-            """$0.05 — full PnL: scores + per-lot FIFO/LIFO/HIFO + open positions."""
+            """$0.05 — full PnL: scores + per-position records (Pinax aggregates)."""
             data = await _pm_read_body(request)
             wallet = normalize_wallet(data.get("wallet"))
-            method = data.get("method") if data.get("method") in ("fifo", "lifo", "hifo") else "fifo"
             if not wallet:
                 return _RouteJSON({"error": "invalid_wallet"}, status_code=400)
             try:
-                activity, positions = await _pm_gather(
-                    fetch_user_activity(wallet),
-                    fetch_user_positions(wallet),
-                )
-                lots = build_lots(activity, method)
-                scores = compute_scores(lots["closed"], positions)
-                _log_request("x402-paid", f"pm-pnl {wallet[:10]} {method}",
+                positions = await fetch_user_positions(wallet)
+                scores = compute_scores(positions)
+                _log_request("x402-paid", f"pm-pnl {wallet[:10]}",
                              "polymarket-pnl", "high", "x402-pm")
                 return _RouteJSON({
                     "wallet": wallet,
-                    "method": method,
                     "scores": scores,
-                    "realized": lots["closed"],
-                    "open": [
+                    "positions": [
                         {
                             "market_slug": (p.get("market") or {}).get("market_slug"),
+                            "condition_id": (p.get("market") or {}).get("condition_id"),
                             "outcome": (p.get("market") or {}).get("outcome_label"),
                             "token_id": (p.get("market") or {}).get("token_id"),
-                            "qty": float(p.get("net_position") or 0),
+                            "active": p.get("active"),
+                            "buys": int(p.get("buys") or 0),
+                            "sells": int(p.get("sells") or 0),
+                            "transactions": int(p.get("transactions") or 0),
+                            "net_position": float(p.get("net_position") or 0),
                             "avg_buy_price": float(p.get("avg_price") or 0),
                             "current_price": float(p.get("current_price") or 0),
+                            "buy_cost_usdc": float(p.get("buy_cost") or 0),
+                            "sell_revenue_usdc": float(p.get("sell_revenue") or 0),
                             "position_value_usdc": float(p.get("position_value") or 0),
+                            "realized_pnl_usdc": float(p.get("realized_pnl") or 0),
                             "unrealized_pnl_usdc": float(p.get("unrealized_pnl") or 0),
+                            "total_pnl_usdc": float(p.get("total_pnl") or 0),
+                            "pnl_pct": float(p.get("pnl_pct") or 0),
                         }
                         for p in positions
                     ],
+                    "note": (
+                        "Per-position aggregates from Pinax /users/positions. "
+                        "Free-tier JWT caps at 10 positions per wallet; a paid "
+                        "TOKEN_API_JWT lifts this. Lot-level FIFO/LIFO/HIFO "
+                        "reconstruction was dropped from v0.1 because the "
+                        "/markets/activity feed has no buy/sell side field."
+                    ),
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                 })
             except Exception as exc:
@@ -5035,7 +5043,27 @@ def build_app():
             if not condition_id:
                 return _RouteJSON({"error": "invalid_condition_id"}, status_code=400)
             try:
-                positions = await fetch_market_positions(condition_id)
+                # Markets have multiple outcomes (Yes/No or N candidates); each
+                # outcome is its own ERC-1155 token_id. The Pinax holders
+                # endpoint requires token_id, so we look them up from /markets
+                # first, then query holders for each outcome in parallel.
+                meta = await fetch_market_meta(condition_id)
+                if not meta:
+                    return _RouteJSON({"error": "market_not_found"}, status_code=404)
+                outcomes = meta.get("outcomes") or []
+                token_lookup = {
+                    str(o.get("token_id")): o.get("label")
+                    for o in outcomes if o.get("token_id")
+                }
+                holders_lists = await _pm_gather(
+                    *(fetch_market_holders(tid) for tid in token_lookup.keys())
+                )
+                positions = [
+                    {**p, "_outcome_label": token_lookup.get(
+                        str((p.get("market") or {}).get("token_id"))
+                    )}
+                    for sublist in holders_lists for p in sublist
+                ]
                 top = sorted(
                     [p for p in positions if p.get("user") and float(p.get("position_value") or 0) > 0],
                     key=lambda p: float(p.get("position_value") or 0),
@@ -5049,14 +5077,15 @@ def build_app():
                         "rank": idx + 1,
                         "wallet": wallet,
                         "position_value_usdc": float(p.get("position_value") or 0),
-                        "side": (p.get("market") or {}).get("outcome_label"),
+                        "side": p.get("_outcome_label") or (p.get("market") or {}).get("outcome_label"),
                     }
                     try:
                         s = await score_wallet(wallet)
                         base.update({
                             "skill_score": s["skill_score"],
                             "classification": s["classification"],
-                            "sample_size": s["sample_size"],
+                            "sample_size_markets": s["sample_size_markets"],
+                            "sample_size_trades": s["sample_size_trades"],
                             "confidence": s["confidence"],
                             "sharpe_like": s["sharpe_like"],
                             "win_rate": s["win_rate"],
@@ -5087,6 +5116,9 @@ def build_app():
                              "polymarket-screen", "high", "x402-pm")
                 return _RouteJSON({
                     "condition_id": condition_id,
+                    "market_slug": meta.get("market_slug"),
+                    "question": meta.get("question"),
+                    "outcomes_screened": list(token_lookup.values()),
                     "holders_screened": len(scored),
                     "sharp_count": skill_counts.get("sharp", 0),
                     "retail_count": skill_counts.get("retail", 0),
@@ -5110,16 +5142,13 @@ def build_app():
                 }, status_code=502)
 
         async def _pm_risk_handler(request):
-            """$0.02 — ghost-fill counterparty risk: wallet type + 24h outflow flag."""
+            """$0.02 — ghost-fill counterparty risk: wallet-type probe."""
             data = await _pm_read_body(request)
             wallet = normalize_wallet(data.get("wallet"))
             if not wallet:
                 return _RouteJSON({"error": "invalid_wallet"}, status_code=400)
             try:
-                wallet_info, outflow = await _pm_gather(
-                    detect_wallet_type(wallet),
-                    recent_outflow_flag(wallet),
-                )
+                wallet_info = await detect_wallet_type(wallet)
                 _log_request("x402-paid", f"pm-risk {wallet[:10]}",
                              "polymarket-risk", "high", "x402-pm")
                 return _RouteJSON({
@@ -5128,7 +5157,6 @@ def build_app():
                     "ghost_fill_risk": wallet_info["ghost_fill_risk"],
                     "reason": wallet_info["reason"],
                     "impl_address": wallet_info.get("impl_address"),
-                    "recent_outflow_24h": outflow,
                     "methodology": {
                         "wallet_type": (
                             "Polygon eth_getCode + ERC-1967 implementation slot probe. "
