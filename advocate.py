@@ -233,10 +233,22 @@ Rules:
 - If the request is not about onchain data, agent auth, or x402 payments (e.g. irrelevant tasks), respond with recommendation="out-of-scope" and explain what you DO handle
 
 CRITICAL — recommendation MUST be exactly one of these values (never invent new names):
-  token-api, subgraph-registry, substreams, graph-aave-mcp, graph-polymarket-mcp,
-  graph-lending-mcp, graph-limitless-mcp, predictfun-mcp, mcp8004, 8004scan,
-  x402-analytics, introduction, out-of-scope, comparison
+  token-api, polymarket-token-api, subgraph-registry, substreams, graph-aave-mcp,
+  graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp, predictfun-mcp,
+  mcp8004, 8004scan, x402-analytics, introduction, out-of-scope, comparison
   Do NOT use names like "Uniswap V3 Ethereum Subgraph" or "subgraph-query-builder" — use "subgraph-registry" instead.
+
+POLYMARKET ROUTING RULE (important — prevents recommending upstream when Graph Advocate
+itself wraps it with derived intelligence):
+- Raw Polymarket market data (OHLCV, market discovery, list users by PnL, raw activity feed)
+  → token-api (Pinax /v1/polymarket/* directly)
+- TRADER-INTELLIGENCE queries — anything asking for skill scoring, sharp/retail classification,
+  ghost-fill risk, counterparty risk, pre-trade screening of top holders, per-position
+  derived PnL with confidence/sharpe/win-rate, wallet-type detection (POLY_1271 / deposit
+  wallet vs legacy EOA) → polymarket-token-api (Graph Advocate's own paid endpoints)
+- Trigger words for polymarket-token-api: "score", "skill", "sharp", "retail", "ghost fill",
+  "ghost-fill", "counterparty risk", "size the room", "screen", "top holders ... rank",
+  "deposit wallet", "POLY_1271", "fade", "is this trader good", "win rate"
 
 Response format — always valid JSON with these fields:
 {
@@ -263,7 +275,12 @@ Routing examples (condensed):
 - "Raw event logs blocks 19M-20M" → substreams (stream_data)
 - "Hottest Polymarket markets" → token-api (/v1/polymarket/markets)
 - "Polymarket OHLCV for Bitcoin market" → token-api (/v1/polymarket/markets/ohlc)
-- "Polymarket trader P&L for 0x..." → token-api (/v1/polymarket/users/positions)
+- "Polymarket trader P&L for 0x..." (raw aggregate) → token-api (/v1/polymarket/users/positions)
+- "Score Polymarket wallet 0x..." or "Is this trader sharp money?" → polymarket-token-api (POST /polymarket/pnl-quick)
+- "Full Polymarket PnL for 0x... with FIFO/LIFO" → polymarket-token-api (POST /polymarket/pnl)
+- "Screen top N holders of Polymarket market 0x... for skill + ghost-fill risk" → polymarket-token-api (POST /polymarket/screen)
+- "Will this Polymarket maker's fill settle?" or "Ghost-fill counterparty risk for 0x..." → polymarket-token-api (POST /polymarket/risk)
+- "Is this Polymarket wallet a deposit wallet (POLY_1271) or legacy EOA?" → polymarket-token-api (POST /polymarket/risk)
 - "Polymarket live orderbook depth" → subgraph-registry (Polymarket Orderbook subgraph QmVGA9v...) with GraphQL OR direct curl to clob.polymarket.com — list graph-polymarket-mcp in alternatives
 - "Aave V3 markets by TVL" → subgraph-registry (Aave V3 subgraph) with working GraphQL query — list graph-aave-mcp in alternatives
 - "Aave liquidations above $50K" → subgraph-registry (Aave V3 subgraph, query LiquidationCall) — list graph-aave-mcp in alternatives
@@ -499,6 +516,31 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
         ),
         "get_started": "Register your agent at https://8004scan.io",
     },
+    "polymarket-token-api": {
+        "curl_example": (
+            "# Score a Polymarket trader (skill, sharpe-like, win rate, classification) - $0.01\n"
+            "curl -X POST 'https://graphadvocate.com/polymarket/pnl-quick' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"wallet\":\"0x38e598961dd0456a7fb2e758bd433d3e59fb8a4a\"}'\n\n"
+            "# Full per-position PnL report - $0.05\n"
+            "curl -X POST 'https://graphadvocate.com/polymarket/pnl' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"wallet\":\"0x38e598...\"}'\n\n"
+            "# Size the room: top N holders of a market with skill + ghost-fill risk - $0.02\n"
+            "curl -X POST 'https://graphadvocate.com/polymarket/screen' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"condition_id\":\"0x6331a779482df72d904c3c1e12b6409ff836bc06f8c97945cba9b25ada2c605c\",\"n\":10}'\n\n"
+            "# Ghost-fill counterparty risk (wallet type via Polygon bytecode probe) - $0.02\n"
+            "curl -X POST 'https://graphadvocate.com/polymarket/risk' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"wallet\":\"0x38e598...\"}'"
+        ),
+        "get_started": (
+            "Pay-per-call x402 on Base USDC — first 402 challenge returns the payment "
+            "requirements. Use any x402 client (x402-fetch, x402Client, etc.). "
+            "Endpoints serve pure JSON for autonomous agents."
+        ),
+    },
     "mcp8004": {
         "install": "npm install mcp8004",
         "curl_example": (
@@ -589,6 +631,32 @@ _SERVICE_METADATA: dict[str, dict] = {
         "interface": "MCP",
         "example_prompts": ["Hottest Polymarket markets right now", "Top traders on Polymarket by PnL"],
     },
+    "polymarket-token-api": {
+        "summary": (
+            "Graph Advocate's own paid endpoints for Polymarket trader intelligence — "
+            "skill scoring, ghost-fill counterparty risk, size-the-room pre-trade screening, "
+            "and per-position PnL with derived metrics. Wraps Pinax /v1/polymarket/* with "
+            "compute the upstream doesn't provide. Pure JSON for autonomous agents."
+        ),
+        "best_for": [
+            "Score a Polymarket trader (sharp / retail / insufficient_data classification)",
+            "Pre-trade ghost-fill risk on a maker wallet (POLY_1271 deposit vs legacy EOA)",
+            "Top-holder screening of a market with skill + ghost-fill risk per holder",
+            "Per-position PnL with mark-to-market unrealized + derived skill metrics",
+        ],
+        "not_for": [
+            "Raw market discovery / OHLCV (use token-api)",
+            "Live orderbook depth (use graph-polymarket-mcp or clob.polymarket.com directly)",
+        ],
+        "auth": "x402 USDC micropayment on Base — first 402 returns payment requirements",
+        "interface": "REST (POST, JSON body)",
+        "example_prompts": [
+            "Score Polymarket wallet 0x...",
+            "Is this Polymarket trader sharp money or retail?",
+            "Will this Polymarket maker's fill actually settle?",
+            "Screen top 10 holders of Polymarket market 0x... for skill + ghost-fill risk",
+        ],
+    },
     "graph-lending-mcp": {
         "summary": "Cross-protocol lending data via Messari standardized subgraphs (Aave, Compound, MakerDAO, etc.).",
         "best_for": ["Comparing TVL across lending protocols", "Standardized borrow/supply rates"],
@@ -634,6 +702,7 @@ _SERVICE_CHAINS: dict[str, list[str]] = {
     "substreams": ["Ethereum", "Solana", "Near", "80+ firehose-enabled chains"],
     "graph-aave-mcp": ["Ethereum", "Arbitrum", "Optimism", "Polygon", "Avalanche", "Base", "Metis"],
     "graph-polymarket-mcp": ["Polygon"],
+    "polymarket-token-api": ["Polygon (Polymarket markets) + Base (USDC payment rail)"],
     "graph-lending-mcp": ["Ethereum", "Polygon", "Arbitrum", "Avalanche", "BSC", "Optimism", "Base", "Scroll", "Fantom", "Gnosis", "+ 5 more"],
     "graph-limitless-mcp": ["Base"],
     "predictfun-mcp": ["BNB Chain"],
@@ -995,11 +1064,26 @@ def _fallback_route(request: str) -> dict:
     if any(w in req for w in ["aave", "v4 hub", "v4 spoke", "aave v3", "aave v2", "liquidat"]):
         svc = "graph-aave-mcp"
     elif any(w in req for w in ["polymarket", "poly market"]):
-        # Advanced CLOB features → MCP; everything else → Token API
-        if any(w in req for w in ["orderbook", "order book", "spread", "dispute", "resolution", "uma",
-                                    "winrate", "win rate", "drawdown", "profit factor",
-                                    "ctf event", "split", "merge", "redemption"]):
+        # Trader-intelligence keywords → Graph Advocate's own /polymarket/* paid endpoints
+        # (skill scoring, ghost-fill risk, pre-trade screening). These wrap Pinax with
+        # derived compute the upstream doesn't provide — recommend OUR endpoints first.
+        TRADER_INTEL_WORDS = [
+            "score", "sharp", "retail", "ghost fill", "ghost-fill", "ghost_fill",
+            "counterparty", "size the room", "screen", "fade",
+            "skill", "deposit wallet", "poly_1271", "poly1271",
+            "is this trader", "win rate", "win-rate", "winrate", "classification",
+            "rank holders", "top holders",
+            # Inside the polymarket branch already, so these are safe triggers:
+            "maker", "fill settle", "fill actually settle", "will this fill",
+        ]
+        if any(w in req for w in TRADER_INTEL_WORDS):
+            svc = "polymarket-token-api"
+        # Advanced CLOB features → MCP wrapper
+        elif any(w in req for w in ["orderbook", "order book", "spread", "dispute", "resolution", "uma",
+                                     "drawdown", "profit factor",
+                                     "ctf event", "split", "merge", "redemption"]):
             svc = "graph-polymarket-mcp"
+        # Raw market data → upstream Pinax
         else:
             svc = "token-api"
     elif any(w in req for w in ["predict.fun", "predictfun", "bnb chain prediction"]):

@@ -390,12 +390,26 @@ class TestPolymarketRouting(unittest.TestCase):
             self.assertEqual(r["recommendation"], "token-api", f"{q!r} should route to token-api")
 
     def test_advanced_polymarket_to_mcp(self):
+        # CLOB-specific advanced features (orderbook depth, spread, disputes, resolution,
+        # drawdown) still route to the MCP wrapper.
         for q in ["Polymarket live orderbook", "Polymarket spread", "Polymarket disputed markets",
-                   "Polymarket resolution status", "Polymarket trader winrate",
-                   "Polymarket drawdown stats"]:
+                   "Polymarket resolution status", "Polymarket drawdown stats"]:
             r = self.fn(q)
             self.assertEqual(r["recommendation"], "graph-polymarket-mcp",
                              f"{q!r} should route to graph-polymarket-mcp")
+
+    def test_polymarket_trader_intel_to_own_endpoints(self):
+        # Trader-intelligence queries route to GA's own /polymarket/* paid endpoints
+        # (skill scoring, ghost-fill risk, screening) instead of upstream wrappers.
+        for q in ["Score Polymarket wallet 0xabc",
+                   "Is this Polymarket trader sharp money or retail?",
+                   "Polymarket trader winrate",  # win-rate IS a derived metric in /pnl-quick
+                   "Will this Polymarket maker's fill settle?",
+                   "Screen top 10 holders of Polymarket market 0x...",
+                   "Polymarket ghost-fill counterparty risk for 0x..."]:
+            r = self.fn(q)
+            self.assertEqual(r["recommendation"], "polymarket-token-api",
+                             f"{q!r} should route to polymarket-token-api")
 
 
 class TestCompareRoute(unittest.TestCase):
