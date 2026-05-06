@@ -1,13 +1,22 @@
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Graph Advocate",
-  "description": "Find the right subgraph and get a ready-to-run GraphQL query for any onchain data need. Searches 15,500+ subgraphs across 20+ chains (Uniswap, Aave, ENS, Compound, Curve, Lido, and more). Returns the subgraph ID, a working query, and a playground link. Also provides live data via Token API (wallet balances, DEX swaps, NFTs, holder rankings) across EVM, Solana, and TON. Free API key — 100K queries/month at thegraph.com/studio.",
+  "description": "Onchain data routing + agent-priced trader intelligence. Find the right subgraph and get a ready-to-run GraphQL query for any onchain need (15,500+ subgraphs across 20+ chains). Live data via Token API (wallet balances, DEX swaps, NFTs, holder rankings) across EVM, Solana, and TON. Plus four x402-paid Polymarket trader endpoints designed for autonomous agents — skill scoring, ghost-fill counterparty risk, size-the-room pre-trade screening, full per-position PnL. Operates the x402-bazaar-intelligence service (the non-CDP view of the x402 economy on Base). Free entry tier, x402 micropayments after.",
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-04-28T22:30:00Z",
+  "updatedAt": "2026-05-06T01:00:00Z",
   "mcpTools": ["find_subgraph", "write_query", "onchain_data"],
-  "a2aSkills": ["find_subgraph", "write_query", "onchain_data"],
+  "a2aSkills": [
+    "find_subgraph",
+    "write_query",
+    "onchain_data",
+    "polymarket_data",
+    "polymarket_pnl_quick",
+    "polymarket_pnl_full",
+    "polymarket_screen",
+    "polymarket_risk"
+  ],
   "services": [
     {
       "name": "MCP",
@@ -31,14 +40,21 @@
         "API Schema Understanding",
         "Tool Use Planning",
         "Data Transformation Pipeline",
-        "Schema Inference"
+        "Schema Inference",
+        "Trader Skill Scoring",
+        "Counterparty Risk Assessment",
+        "Pre-Trade Market Analysis",
+        "Wallet Profiling",
+        "Ghost-Fill Detection"
       ],
       "domains": [
         "technology/blockchain",
         "technology/blockchain/defi",
         "technology/blockchain/smart_contracts",
+        "technology/blockchain/prediction_markets",
         "technology/software_engineering/apis_integration",
         "finance_and_business/investment_services",
+        "finance_and_business/trading",
         "technology/artificial_intelligence"
       ]
     },
@@ -107,6 +123,24 @@
     {
       "name": "x402-bazaar-intelligence-github",
       "endpoint": "https://github.com/PaulieB14/x402-bazaar-intelligence"
+    },
+    {
+      "name": "polymarket-token-api",
+      "endpoint": "https://graphadvocate.com/polymarket/pnl-quick",
+      "version": "0.1.0",
+      "description": "Agent-priced Polymarket trader intelligence over x402. Four endpoints: /polymarket/pnl-quick ($0.01 skill score), /polymarket/pnl ($0.05 full per-position PnL), /polymarket/screen ($0.02 size-the-room with ghost-fill risk per top holder), /polymarket/risk ($0.02 ghost-fill counterparty classification via Polygon bytecode probe). Pure JSON for autonomous trading agents — built on top of the Pinax Polymarket REST API (token-api.thegraph.com). First settlements landed 2026-05-05."
+    },
+    {
+      "name": "polymarket-pnl-full",
+      "endpoint": "https://graphadvocate.com/polymarket/pnl"
+    },
+    {
+      "name": "polymarket-screen",
+      "endpoint": "https://graphadvocate.com/polymarket/screen"
+    },
+    {
+      "name": "polymarket-risk",
+      "endpoint": "https://graphadvocate.com/polymarket/risk"
     }
   ],
   "registrations": [
