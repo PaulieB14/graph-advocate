@@ -1524,6 +1524,21 @@ def _inject_missing_fields(rec: dict, request: str) -> dict:
     frequently omits so agents always receive a working example to run.
     Also normalizes the service name to a canonical short label.
     """
+    # Deterministic correction: when Claude emits a graphadvocate.com/polymarket/*
+    # URL in curl_example, the recommendation MUST be polymarket-token-api regardless
+    # of what enum value Claude picked. Fixes the observed pattern where Claude
+    # understood the routing rule (right URL) but mis-tagged the recommendation field
+    # with the closely-named "token-api". Verified live 2026-05-06.
+    ce = (rec.get("curl_example") or "")
+    if "graphadvocate.com/polymarket/" in ce and rec.get("recommendation") != "polymarket-token-api":
+        rec["recommendation"] = "polymarket-token-api"
+        # Also normalize the get_started + reason if they reference upstream
+        if not rec.get("get_started") or "thegraph.market" in (rec.get("get_started") or ""):
+            rec["get_started"] = (
+                "x402 USDC micropayment on Base — first 402 returns payment "
+                "requirements. Use any x402 client (x402-fetch, x402Client, etc.)."
+            )
+
     svc_raw = rec.get("recommendation", "")
     svc = _normalize_service_name(svc_raw)
     if svc != svc_raw:
