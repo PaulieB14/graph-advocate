@@ -241,14 +241,30 @@ CRITICAL — recommendation MUST be exactly one of these values (never invent ne
 POLYMARKET ROUTING RULE (important — prevents recommending upstream when Graph Advocate
 itself wraps it with derived intelligence):
 - Raw Polymarket market data (OHLCV, market discovery, list users by PnL, raw activity feed)
-  → token-api (Pinax /v1/polymarket/* directly)
+  → recommendation = "token-api" (Pinax /v1/polymarket/* directly)
 - TRADER-INTELLIGENCE queries — anything asking for skill scoring, sharp/retail classification,
   ghost-fill risk, counterparty risk, pre-trade screening of top holders, per-position
   derived PnL with confidence/sharpe/win-rate, wallet-type detection (POLY_1271 / deposit
-  wallet vs legacy EOA) → polymarket-token-api (Graph Advocate's own paid endpoints)
+  wallet vs legacy EOA) → recommendation = "polymarket-token-api" EXACTLY (a different
+  service from "token-api"; do NOT recommend "token-api" for these queries)
 - Trigger words for polymarket-token-api: "score", "skill", "sharp", "retail", "ghost fill",
   "ghost-fill", "counterparty risk", "size the room", "screen", "top holders ... rank",
-  "deposit wallet", "POLY_1271", "fade", "is this trader good", "win rate"
+  "deposit wallet", "POLY_1271", "fade", "is this trader good", "win rate", "will this fill
+  settle", "maker"
+
+EXACT EXAMPLE — when query is "Will this Polymarket maker's fill actually settle? 0x...",
+respond with this structure (literal values, not made up):
+{
+  "recommendation": "polymarket-token-api",
+  "reason": "Ghost-fill counterparty risk requires wallet-type detection (deposit wallet vs legacy EOA). Graph Advocate's /polymarket/risk endpoint does this via Polygon bytecode probe.",
+  "confidence": "high",
+  "query_ready": {"tool": "POST_polymarket_risk", "args": {"wallet": "0x..."}},
+  "curl_example": "curl -X POST 'https://graphadvocate.com/polymarket/risk' -H 'Content-Type: application/json' -d '{\"wallet\":\"0x...\"}'",
+  "get_started": "x402 USDC micropayment on Base — first 402 returns payment requirements. Use any x402 client.",
+  "alternatives": [{"service": "graph-polymarket-mcp", "reason": "MCP wrapper if you want non-x402 free CLOB tooling", "confidence": "medium"}]
+}
+The curl_example URL must be EXACTLY https://graphadvocate.com/polymarket/{pnl-quick|pnl|screen|risk}.
+Do NOT invent URLs like "api.polymarket-trader-intelligence.thegraph.com" — that does not exist.
 
 Response format — always valid JSON with these fields:
 {
