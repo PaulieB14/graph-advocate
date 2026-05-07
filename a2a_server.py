@@ -1038,9 +1038,15 @@ _init_activity_db()
 import asyncio as _asyncio
 
 FETCH_SEED = os.environ.get("FETCH_SEED", "graph-advocate-prod-v1")
-# Fetch.ai connection mode: "proxy" (default — for always-online public agents like ours)
-# or "mailbox" (for offline-tolerant agents). Proxy is correct for Railway-hosted agents.
-FETCH_MODE = os.environ.get("FETCH_MODE", "proxy").lower()
+# Fetch.ai connection mode: "mailbox" (default — Agentverse hosts the message
+# queue and forwards Test/chat eval messages to us) or "proxy" (uagent maintains
+# outbound socket to a fetch.ai proxy server).
+#
+# Default is mailbox because proxy mode published `http://127.0.0.1:8000` as
+# our endpoint URI — Agentverse couldn't reach localhost from outside the
+# Railway container, so Test eval just spun forever (diagnosed 2026-05-07).
+# Mailbox mode lets Agentverse deliver into a hosted queue we read from.
+FETCH_MODE = os.environ.get("FETCH_MODE", "mailbox").lower()
 _fetch_agent = None
 _FETCH_ENABLED = False
 
