@@ -412,6 +412,36 @@ class TestPolymarketRouting(unittest.TestCase):
                              f"{q!r} should route to polymarket-token-api")
 
 
+class TestHyperliquidRouting(unittest.TestCase):
+    """Hyperliquid: raw market data → token-api; trader/vault/risk intel → hyperliquid-token-api."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("RECOMMENDATIONS_DB", "/tmp/test_advocate.db")
+        from advocate import _fallback_route
+        self.fn = _fallback_route
+
+    def test_raw_hyperliquid_to_token_api(self):
+        for q in ["Top Hyperliquid markets",
+                   "Hyperliquid BTC perp open interest",
+                   "List builder-deployed DEXs on Hyperliquid",
+                   "Hyperliquid platform 24h volume"]:
+            r = self.fn(q)
+            self.assertEqual(r["recommendation"], "token-api",
+                             f"{q!r} should route to token-api")
+
+    def test_hyperliquid_trader_intel_to_own_endpoints(self):
+        for q in ["Score Hyperliquid trader 0xabc",
+                   "Is this Hyperliquid perps trader sharp or retail?",
+                   "Evaluate Hyperliquid vault 0xabc",
+                   "Liquidation risk for Hyperliquid trader 0xabc",
+                   "Funding burn for Hyperliquid wallet 0xabc",
+                   "Should I deposit into this Hyperliquid vault?"]:
+            r = self.fn(q)
+            self.assertEqual(r["recommendation"], "hyperliquid-token-api",
+                             f"{q!r} should route to hyperliquid-token-api")
+
+
 class TestCompareRoute(unittest.TestCase):
     """_compare_route should detect multi-service comparison requests."""
 
@@ -442,6 +472,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestGreetingDetection))
     suite.addTests(loader.loadTestsFromTestCase(TestBenchmarkMatching))
     suite.addTests(loader.loadTestsFromTestCase(TestPolymarketRouting))
+    suite.addTests(loader.loadTestsFromTestCase(TestHyperliquidRouting))
     suite.addTests(loader.loadTestsFromTestCase(TestCompareRoute))
 
     runner = unittest.TextTestRunner(verbosity=2)

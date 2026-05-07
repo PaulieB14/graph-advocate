@@ -256,9 +256,9 @@ Rules:
 - If the request is not about onchain data, agent auth, or x402 payments (e.g. irrelevant tasks), respond with recommendation="out-of-scope" and explain what you DO handle
 
 CRITICAL — recommendation MUST be exactly one of these values (never invent new names):
-  token-api, polymarket-token-api, subgraph-registry, substreams, graph-aave-mcp,
-  graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp, predictfun-mcp,
-  mcp8004, 8004scan, x402-analytics, introduction, out-of-scope, comparison
+  token-api, polymarket-token-api, hyperliquid-token-api, subgraph-registry, substreams,
+  graph-aave-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp,
+  predictfun-mcp, mcp8004, 8004scan, x402-analytics, introduction, out-of-scope, comparison
   Do NOT use names like "Uniswap V3 Ethereum Subgraph" or "subgraph-query-builder" — use "subgraph-registry" instead.
 
 POLYMARKET ROUTING RULE (important — prevents recommending upstream when Graph Advocate
@@ -288,6 +288,22 @@ respond with this structure (literal values, not made up):
 }
 The curl_example URL must be EXACTLY https://graphadvocate.com/polymarket/{pnl-quick|pnl|screen|risk}.
 Do NOT invent URLs like "api.polymarket-trader-intelligence.thegraph.com" — that does not exist.
+
+HYPERLIQUID ROUTING RULE (same shape as Polymarket — Graph Advocate wraps the upstream
+with derived intelligence the upstream doesn't provide):
+- Raw Hyperliquid market data (markets, OHLCV, OI, raw user listings, vault listings,
+  platform aggregates, builder DEXs, raw activity) → recommendation = "token-api"
+  (Pinax /v1/hyperliquid/* directly)
+- TRADER-INTELLIGENCE queries — skill scoring, sharp/retail classification, per-coin
+  PnL with derived metrics, top-traders-by-coin screening, vault evaluation (leader skill +
+  redemption pressure + commission), liquidation+funding risk profiling →
+  recommendation = "hyperliquid-token-api" EXACTLY (a different service from "token-api";
+  do NOT recommend "token-api" for these queries)
+- Trigger words for hyperliquid-token-api: "score", "skill", "sharp", "retail",
+  "evaluate vault", "vault evaluator", "redemption pressure", "should I deposit",
+  "liquidation risk", "funding burn", "is this trader good", "leverage risk",
+  "screen top", "rank by skill", "copy trade ... safe"
+The curl_example URL must be EXACTLY https://graphadvocate.com/hyperliquid/{score|pnl|screen|vault|risk}.
 
 Response format — always valid JSON with these fields:
 {
@@ -333,6 +349,11 @@ Routing examples (condensed):
 - "Hyperliquid vault stats for 0x..." → token-api (/v1/hyperliquid/vaults?vault=0x...)
 - "Trader profile for 0x... on Hyperliquid (PnL, funding paid, liquidations)" → token-api (/v1/hyperliquid/users?user=0x...)
 - "List builder-deployed DEXs on Hyperliquid" → token-api (/v1/hyperliquid/dexes — FREE, no auth needed)
+- "Score Hyperliquid trader 0x..." or "Is this Hyperliquid perps trader sharp money?" → hyperliquid-token-api (POST /hyperliquid/score)
+- "Full Hyperliquid PnL by coin for 0x..." → hyperliquid-token-api (POST /hyperliquid/pnl)
+- "Top N Hyperliquid BTC traders ranked by skill" or "Who's the sharpest ETH perps trader?" → hyperliquid-token-api (POST /hyperliquid/screen)
+- "Evaluate Hyperliquid vault 0x..." or "Should I deposit into this Hyperliquid vault?" → hyperliquid-token-api (POST /hyperliquid/vault)
+- "Liquidation + funding risk for Hyperliquid trader 0x..." or "How leveraged is this Hyperliquid wallet?" → hyperliquid-token-api (POST /hyperliquid/risk)
 - "Top N subgraphs by query volume / most queried subgraphs / leaderboard" → subgraph-registry
   with the **Graph QoS subgraph** (id Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D, entity
   queryDailyDataPoints, fields query_count + total_query_fees + dayStart). Example query
@@ -616,6 +637,36 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
             "Endpoints serve pure JSON for autonomous agents."
         ),
     },
+    "hyperliquid-token-api": {
+        "curl_example": (
+            "# Score a Hyperliquid perps trader (skill, liquidation rate, funding burn) - $0.02\n"
+            "curl -X POST 'https://graphadvocate.com/hyperliquid/score' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"user\":\"0xac5a07c4...\"}'\n\n"
+            "# Full per-coin PnL breakdown - $0.05\n"
+            "curl -X POST 'https://graphadvocate.com/hyperliquid/pnl' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"user\":\"0xac5a07c4...\"}'\n\n"
+            "# Top traders of a coin (BTC/ETH/SOL/etc.) ranked by skill - $0.05\n"
+            "curl -X POST 'https://graphadvocate.com/hyperliquid/screen' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"coin\":\"BTC\",\"n\":10}'\n\n"
+            "# Vault evaluator: leader skill + redemption pressure + commission - $0.10\n"
+            "curl -X POST 'https://graphadvocate.com/hyperliquid/vault' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"vault\":\"0x...\"}'\n\n"
+            "# Liquidation + funding risk profile - $0.02\n"
+            "curl -X POST 'https://graphadvocate.com/hyperliquid/risk' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"user\":\"0xac5a07c4...\"}'"
+        ),
+        "get_started": (
+            "Pay-per-call x402 on Base USDC — first 402 challenge returns the payment "
+            "requirements. Pure-JSON endpoints designed for autonomous agents. "
+            "Wraps Pinax /v1/hyperliquid/* (prod since v3.17.0) with derived skill, "
+            "vault, and risk metrics."
+        ),
+    },
     "mcp8004": {
         "install": "npm install mcp8004",
         "curl_example": (
@@ -732,6 +783,34 @@ _SERVICE_METADATA: dict[str, dict] = {
             "Screen top 10 holders of Polymarket market 0x... for skill + ghost-fill risk",
         ],
     },
+    "hyperliquid-token-api": {
+        "summary": (
+            "Graph Advocate's own paid endpoints for Hyperliquid perps trader intelligence — "
+            "skill scoring (liquidation/funding-aware), per-coin PnL, top-traders screen, "
+            "vault evaluator, liquidation/funding risk. Wraps Pinax /v1/hyperliquid/* with "
+            "compute the upstream doesn't provide. Pure JSON for autonomous agents."
+        ),
+        "best_for": [
+            "Score a Hyperliquid trader (sharp / retail / insufficient_data classification)",
+            "Per-coin PnL breakdown with funding + fees + liquidation fills",
+            "Top traders of BTC / ETH / SOL / etc. ranked by skill",
+            "Vault evaluator (leader skill + redemption pressure + commission rate)",
+            "Liquidation + funding burn risk profile",
+        ],
+        "not_for": [
+            "Raw market discovery / OHLCV (use token-api /v1/hyperliquid/markets)",
+            "Spot/HyperEVM token data (use token-api EVM endpoints)",
+        ],
+        "auth": "x402 USDC micropayment on Base — first 402 returns payment requirements",
+        "interface": "REST (POST, JSON body)",
+        "example_prompts": [
+            "Score Hyperliquid trader 0xac5a07c4...",
+            "Is this Hyperliquid perps trader sharp or retail?",
+            "Top 10 Hyperliquid BTC traders ranked by skill",
+            "Evaluate Hyperliquid vault 0x...",
+            "Liquidation + funding risk for Hyperliquid trader 0x...",
+        ],
+    },
     "graph-lending-mcp": {
         "summary": "Cross-protocol lending data via Messari standardized subgraphs (Aave, Compound, MakerDAO, etc.).",
         "best_for": ["Comparing TVL across lending protocols", "Standardized borrow/supply rates"],
@@ -778,6 +857,7 @@ _SERVICE_CHAINS: dict[str, list[str]] = {
     "graph-aave-mcp": ["Ethereum", "Arbitrum", "Optimism", "Polygon", "Avalanche", "Base", "Metis"],
     "graph-polymarket-mcp": ["Polygon"],
     "polymarket-token-api": ["Polygon (Polymarket markets) + Base (USDC payment rail)"],
+    "hyperliquid-token-api": ["Hyperliquid (HyperCore perps) + Base (USDC payment rail)"],
     "graph-lending-mcp": ["Ethereum", "Polygon", "Arbitrum", "Avalanche", "BSC", "Optimism", "Base", "Scroll", "Fantom", "Gnosis", "+ 5 more"],
     "graph-limitless-mcp": ["Base"],
     "predictfun-mcp": ["BNB Chain"],
@@ -1147,7 +1227,28 @@ def _fallback_route(request: str) -> dict:
     req = request.lower()
 
     # Ordered from most-specific to least-specific
-    if any(w in req for w in ["aave", "v4 hub", "v4 spoke", "aave v3", "aave v2", "liquidat"]):
+    # Protocol-specific matches (polymarket, hyperliquid) come BEFORE the generic
+    # "liquidat" → aave catch-all, so e.g. "Liquidation risk for Hyperliquid trader"
+    # routes to hyperliquid-token-api, not graph-aave-mcp.
+    if any(w in req for w in ["hyperliquid", "hypercore", "hyperevm"]):
+        # Pinax Token API v3.17.0 added /v1/hyperliquid/* — first-class data
+        # domain alongside EVM and Solana. Markets/users/vaults/platform.
+        # Trader-intelligence keywords → Graph Advocate's own /hyperliquid/*
+        # paid endpoints (skill, vault evaluator, liquidation/funding risk).
+        HL_TRADER_INTEL_WORDS = [
+            "score", "sharp", "retail", "skill", "is this trader",
+            "rank by skill", "rank traders",
+            "evaluate", "vault evaluator", "redemption pressure",
+            "should i deposit", "leader skill", "copy trade", "copy-trade",
+            "liquidation risk", "funding burn", "funding-burn",
+            "leverage risk", "leverage pattern",
+            "screen top", "classification",
+        ]
+        if any(w in req for w in HL_TRADER_INTEL_WORDS):
+            svc = "hyperliquid-token-api"
+        else:
+            svc = "token-api"
+    elif any(w in req for w in ["aave", "v4 hub", "v4 spoke", "aave v3", "aave v2", "liquidat"]):
         svc = "graph-aave-mcp"
     elif any(w in req for w in ["polymarket", "poly market"]):
         # Trader-intelligence keywords → Graph Advocate's own /polymarket/* paid endpoints
@@ -1172,10 +1273,6 @@ def _fallback_route(request: str) -> dict:
         # Raw market data → upstream Pinax
         else:
             svc = "token-api"
-    elif any(w in req for w in ["hyperliquid", "hypercore", "hyperevm"]):
-        # Pinax Token API v3.17.0 added /v1/hyperliquid/* — first-class data
-        # domain alongside EVM and Solana. Markets/users/vaults/platform.
-        svc = "token-api"
     elif any(w in req for w in ["predict.fun", "predictfun", "bnb chain prediction"]):
         svc = "predictfun-mcp"
     elif any(w in req for w in ["limitless", "limitless market"]):
@@ -1336,9 +1433,11 @@ def _normalize_service_name(svc: str) -> str:
 
     # Canonical service names — first match wins (order matters)
     # Multi-service labels (combinations) collapse to the primary service
-    # IMPORTANT: 'polymarket-token-api' must match BEFORE 'token-api' (substring trap)
+    # IMPORTANT: 'polymarket-token-api' / 'hyperliquid-token-api' must match
+    # BEFORE 'token-api' (substring trap — both contain "token-api").
     CANONICAL = [
         ("polymarket-token-api", "polymarket-token-api"),
+        ("hyperliquid-token-api", "hyperliquid-token-api"),
         ("graph-aave-mcp", "graph-aave-mcp"),
         ("graph-polymarket-mcp", "graph-polymarket-mcp"),
         ("graph-lending-mcp", "graph-lending-mcp"),
@@ -1614,6 +1713,14 @@ def _inject_missing_fields(rec: dict, request: str) -> dict:
                 "x402 USDC micropayment on Base — first 402 returns payment "
                 "requirements. Use any x402 client (x402-fetch, x402Client, etc.)."
             )
+    # Same correction for the hyperliquid-token-api family.
+    if "graphadvocate.com/hyperliquid/" in ce and rec.get("recommendation") != "hyperliquid-token-api":
+        rec["recommendation"] = "hyperliquid-token-api"
+        if not rec.get("get_started") or "thegraph.market" in (rec.get("get_started") or ""):
+            rec["get_started"] = (
+                "x402 USDC micropayment on Base — first 402 returns payment "
+                "requirements. Use any x402 client (x402-fetch, x402Client, etc.)."
+            )
 
     # Subgraph-leaderboard guard: 'top subgraphs by query volume' / 'most queried
     # subgraphs' is answerable via the Graph QoS subgraph. Don't let it slip into
@@ -1664,7 +1771,7 @@ def _inject_missing_fields(rec: dict, request: str) -> dict:
     # discover the polymarket-token-api family on their next /route hit. Only
     # injected when not already the recommendation (so we don't show "did you
     # know about polymarket-token-api?" inside a polymarket-token-api response).
-    if rec.get("recommendation") != "polymarket-token-api":
+    if rec.get("recommendation") not in ("polymarket-token-api", "hyperliquid-token-api"):
         rec.setdefault("promoted_skills", [
             {
                 "service": "polymarket-token-api",
@@ -1683,6 +1790,24 @@ def _inject_missing_fields(rec: dict, request: str) -> dict:
                 "endpoint": "POST https://graphadvocate.com/polymarket/screen",
                 "price_usd": 0.02,
                 "for": "Top-N market holders with skill scores + ghost-fill risk per holder (size-the-room pre-trade)",
+            },
+            {
+                "service": "hyperliquid-token-api",
+                "endpoint": "POST https://graphadvocate.com/hyperliquid/score",
+                "price_usd": 0.02,
+                "for": "Score any Hyperliquid perps trader (skill, liquidation rate, funding burn) before mirroring or fading",
+            },
+            {
+                "service": "hyperliquid-token-api",
+                "endpoint": "POST https://graphadvocate.com/hyperliquid/vault",
+                "price_usd": 0.10,
+                "for": "Hyperliquid vault evaluator: leader skill + redemption pressure + commission. No equivalent on Hypurrscan/Hyperdash",
+            },
+            {
+                "service": "hyperliquid-token-api",
+                "endpoint": "POST https://graphadvocate.com/hyperliquid/screen",
+                "price_usd": 0.05,
+                "for": "Top traders of any Hyperliquid coin (BTC/ETH/SOL/etc.) ranked by skill — pre-trade for perps market-makers",
             },
         ])
 

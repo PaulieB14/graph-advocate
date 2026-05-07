@@ -899,6 +899,8 @@ _CANONICAL_SERVICES = {
     # GA-native paid endpoints layered on top of the Pinax Token API:
     # /polymarket/pnl-quick, /polymarket/pnl, /polymarket/screen, /polymarket/risk
     "polymarket-token-api",
+    # /hyperliquid/score, /hyperliquid/pnl, /hyperliquid/screen, /hyperliquid/vault, /hyperliquid/risk
+    "hyperliquid-token-api",
     # meta/operational buckets (kept so headline filter can target them)
     "introduction", "out-of-scope", "conformance", "cached", "unknown",
     "rate-limited", "x402-paid", "x402-failed", "x402-tip", "payment-required",
@@ -949,6 +951,17 @@ def _normalize_service(service: str | None) -> str:
     ):
         return "polymarket-token-api"
     if "polymarket" in s: return "graph-polymarket-mcp"
+    # GA-native paid /hyperliquid/* endpoints — match BEFORE generic "hyperliquid"
+    # / "hypercore" / "hyperevm" → token-api fallback in advocate.py.
+    if (
+        s == "hyperliquid-token-api"
+        or s.startswith("hyperliquid-score") or s.startswith("hyperliquid-pnl")
+        or s.startswith("hyperliquid-screen") or s.startswith("hyperliquid-vault")
+        or s.startswith("hyperliquid-risk") or s.startswith("hl-score")
+        or s.startswith("hl-pnl") or s.startswith("hl-screen")
+        or s.startswith("hl-vault") or s.startswith("hl-risk")
+    ):
+        return "hyperliquid-token-api"
     if "limitless" in s: return "graph-limitless-mcp"
     if "predict" in s and "fun" in s: return "predictfun-mcp"
     if "8004" in s and "scan" in s: return "8004scan"
@@ -1352,6 +1365,97 @@ SKILLS = [
         examples=[
             "Will this Polymarket maker's fill actually settle? 0x38e598...",
             "Is this wallet a deposit wallet or legacy EOA? 0xac5a07c4...",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="hyperliquid_score",
+        name="Hyperliquid trader skill score (perps)",
+        description=(
+            "POST /hyperliquid/score {user, coin?}. Composite skill_score (0-100) for any "
+            "Hyperliquid perps trader: 40% profitability (realized + funding) + 40% risk "
+            "(liquidation rate, drawdown proxy) + 20% efficiency (fees vs volume). Returns "
+            "classification (sharp/neutral/retail/insufficient_data), liquidation_rate, "
+            "funding_burn, sample_size_trades. Wraps Pinax /v1/hyperliquid/users with risk "
+            "signals Polymarket can't have (binary outcomes). $0.02 USDC per call on Base."
+        ),
+        tags=["hyperliquid", "perps", "trader-intelligence", "skill-score",
+              "liquidation", "funding", "x402"],
+        examples=[
+            "Score Hyperliquid trader 0xac5a07c4...",
+            "Is this Hyperliquid perps trader sharp or retail?",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="hyperliquid_pnl",
+        name="Hyperliquid full PnL (per-coin breakdown)",
+        description=(
+            "POST /hyperliquid/pnl {user}. Full per-coin breakdown: realized_pnl, "
+            "total_funding, total_fees, liquidation_fills, volume_bought/sold, first/last "
+            "trade timestamp per coin. For agents auditing a trader's exposure surface "
+            "or feeding deeper reputation signals. $0.05 USDC per call on Base."
+        ),
+        tags=["hyperliquid", "perps", "pnl", "funding", "liquidation", "x402"],
+        examples=[
+            "Full Hyperliquid PnL by coin for 0xac5a07c4...",
+            "Per-coin realized PnL + funding burn for Hyperliquid trader",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="hyperliquid_screen",
+        name="Hyperliquid top traders by coin (skill + risk)",
+        description=(
+            "POST /hyperliquid/screen {coin, n?}. Top N (default 10, max 25) traders of a "
+            "Hyperliquid coin (BTC, ETH, SOL, etc.), ranked by total_volume, each with "
+            "skill_score, sharp/retail/insufficient_data classification, liquidation_rate, "
+            "and funding burn. Pre-trade check for perps market-makers and copy-trade "
+            "scouting. $0.05 USDC per call on Base."
+        ),
+        tags=["hyperliquid", "perps", "pre-trade", "leaderboard", "screen",
+              "copy-trading", "x402"],
+        examples=[
+            "Top 10 Hyperliquid BTC traders ranked by skill",
+            "Who's the sharpest money trading ETH perps on Hyperliquid?",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="hyperliquid_vault",
+        name="Hyperliquid vault evaluator (copy-trading)",
+        description=(
+            "POST /hyperliquid/vault {vault}. Evaluates a Hyperliquid copy-trading vault: "
+            "leader skill_score, redemption pressure (withdrawals/deposits ratio), "
+            "depositor concentration, commission rate, last-activity recency. Hyperliquid "
+            "Vaults = native copy-trading; no Polymarket equivalent. Unique vs Hypurrscan "
+            "/ Hyperdash human dashboards. $0.10 USDC per call on Base."
+        ),
+        tags=["hyperliquid", "vault", "copy-trading", "leader", "redemption", "x402"],
+        examples=[
+            "Evaluate Hyperliquid vault 0x...",
+            "Should I deposit into this Hyperliquid vault?",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="hyperliquid_risk",
+        name="Hyperliquid liquidation + funding risk",
+        description=(
+            "POST /hyperliquid/risk {user}. Liquidation rate, funding burn rate, leverage "
+            "pattern indicator, and 24h activity flags for a Hyperliquid trader. For agents "
+            "evaluating counterparty perps exposure or building risk-aware copy-trade "
+            "filters. $0.02 USDC per call on Base."
+        ),
+        tags=["hyperliquid", "perps", "risk", "liquidation", "funding", "leverage", "x402"],
+        examples=[
+            "Liquidation + funding risk for Hyperliquid trader 0xac5a07c4...",
+            "How leveraged is this Hyperliquid wallet?",
         ],
         input_modes=["text"],
         output_modes=["text"],
@@ -5201,6 +5305,184 @@ def build_app():
                     "message": str(exc)[:200],
                 }, status_code=502)
 
+        # ── Hyperliquid trader-intelligence handlers (mirror polymarket pattern)
+        # ── Five paid endpoints over Pinax /v1/hyperliquid/* (prod since v3.17.0).
+        # Unique vs polymarket: liquidation tracking + vault evaluator.
+        from hyperliquid_intel import (
+            fetch_user as hl_fetch_user,
+            fetch_user_positions as hl_fetch_user_positions,
+            fetch_user_activity as hl_fetch_user_activity,
+            fetch_top_traders_by_coin as hl_fetch_top_traders,
+            fetch_vault as hl_fetch_vault,
+            fetch_vault_depositors as hl_fetch_vault_depositors,
+            compute_user_score as hl_compute_user_score,
+            compute_vault_score as hl_compute_vault_score,
+            compute_risk as hl_compute_risk,
+            normalize_user as hl_normalize_user,
+            normalize_vault as hl_normalize_vault,
+            normalize_coin as hl_normalize_coin,
+            _gather as _hl_gather,
+        )
+
+        async def _hl_score_handler(request):
+            """$0.02 — derived skill metrics for a Hyperliquid trader."""
+            data = await _pm_read_body(request)
+            user = hl_normalize_user(data.get("user") or data.get("wallet"))
+            if not user:
+                return _RouteJSON({"error": "invalid_user"}, status_code=400)
+            try:
+                stats = await hl_fetch_user(user)
+                score = hl_compute_user_score(stats)
+                _log_request("x402-paid", f"hl-score {user[:10]}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
+                return _RouteJSON({"user": user, **score,
+                                   "generated_at": datetime.now(timezone.utc).isoformat()})
+            except Exception as exc:
+                log.exception(f"hl-score crashed: {user}")
+                return _RouteJSON({"error": "upstream_error",
+                                   "exception_type": type(exc).__name__,
+                                   "message": str(exc)[:200]}, status_code=502)
+
+        async def _hl_pnl_handler(request):
+            """$0.05 — full Hyperliquid PnL: scores + open positions + recent activity."""
+            data = await _pm_read_body(request)
+            user = hl_normalize_user(data.get("user") or data.get("wallet"))
+            if not user:
+                return _RouteJSON({"error": "invalid_user"}, status_code=400)
+            try:
+                stats, positions, activity = await _hl_gather(
+                    hl_fetch_user(user),
+                    hl_fetch_user_positions(user),
+                    hl_fetch_user_activity(user, limit=20),
+                )
+                score = hl_compute_user_score(stats)
+                _log_request("x402-paid", f"hl-pnl {user[:10]}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
+                return _RouteJSON({
+                    "user": user,
+                    "scores": score,
+                    "open_positions": positions,
+                    "recent_activity": activity,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                log.exception(f"hl-pnl crashed: {user}")
+                return _RouteJSON({"error": "upstream_error",
+                                   "exception_type": type(exc).__name__,
+                                   "message": str(exc)[:200]}, status_code=502)
+
+        async def _hl_screen_handler(request):
+            """$0.05 — top N traders of a coin with per-trader skill scores."""
+            data = await _pm_read_body(request)
+            coin = hl_normalize_coin(data.get("coin"))
+            try: n = max(1, min(25, int(data.get("n") or 10)))
+            except (TypeError, ValueError): n = 10
+            if not coin:
+                return _RouteJSON({"error": "invalid_coin"}, status_code=400)
+            try:
+                top = await hl_fetch_top_traders(coin, n=n)
+                async def _score_one(idx_t):
+                    idx, t = idx_t
+                    addr = str(t.get("user") or "").lower()
+                    profile = await hl_fetch_user(addr) if addr else None
+                    score = hl_compute_user_score(profile or t)
+                    return {
+                        "rank": idx + 1,
+                        "user": addr,
+                        "coin_volume_usdc": float(t.get("total_volume") or 0),
+                        "coin_realized_pnl_usdc": float(t.get("realized_pnl") or 0),
+                        "skill_score": score.get("skill_score"),
+                        "classification": score.get("classification"),
+                        "liquidation_count": score.get("liquidation_count"),
+                        "sample_size_trades": score.get("sample_size_trades"),
+                    }
+                holders = await _hl_gather(*(_score_one((i, t)) for i, t in enumerate(top)))
+                from collections import Counter
+                cls = Counter(h.get("classification") or "?" for h in holders)
+                _log_request("x402-paid", f"hl-screen {coin} n={n}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
+                return _RouteJSON({
+                    "coin": coin, "traders_screened": len(holders),
+                    "sharp_count": cls.get("sharp", 0),
+                    "retail_count": cls.get("retail", 0),
+                    "neutral_count": cls.get("neutral", 0),
+                    "insufficient_data_count": cls.get("insufficient_data", 0),
+                    "traders": list(holders),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                log.exception(f"hl-screen crashed: {coin}")
+                return _RouteJSON({"error": "upstream_error",
+                                   "exception_type": type(exc).__name__,
+                                   "message": str(exc)[:200]}, status_code=502)
+
+        async def _hl_vault_handler(request):
+            """$0.10 — vault evaluator (leader skill + concentration + redemption pressure)."""
+            data = await _pm_read_body(request)
+            vault = hl_normalize_vault(data.get("vault"))
+            if not vault:
+                return _RouteJSON({"error": "invalid_vault"}, status_code=400)
+            try:
+                vault_data, depositors = await _hl_gather(
+                    hl_fetch_vault(vault),
+                    hl_fetch_vault_depositors(vault, limit=10),
+                )
+                # Score the leader's own trading skill if leader address is set
+                leader_score = None
+                if vault_data and vault_data.get("leader"):
+                    leader_addr = str(vault_data["leader"]).lower()
+                    try:
+                        leader_stats = await hl_fetch_user(leader_addr)
+                        if leader_stats:
+                            leader_score = hl_compute_user_score(leader_stats)
+                    except Exception as e:
+                        log.debug(f"leader score lookup failed: {e}")
+                vs = hl_compute_vault_score(vault_data, depositors, leader_score)
+                _log_request("x402-paid", f"hl-vault {vault[:10]}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
+                return _RouteJSON({
+                    "vault": vault,
+                    **vs,
+                    "leader_score": leader_score,
+                    "top_depositors": depositors[:5],
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                log.exception(f"hl-vault crashed: {vault}")
+                return _RouteJSON({"error": "upstream_error",
+                                   "exception_type": type(exc).__name__,
+                                   "message": str(exc)[:200]}, status_code=502)
+
+        async def _hl_risk_handler(request):
+            """$0.02 — Hyperliquid counterparty risk (liquidation rate + funding burn + outflow flag)."""
+            data = await _pm_read_body(request)
+            user = hl_normalize_user(data.get("user") or data.get("wallet"))
+            if not user:
+                return _RouteJSON({"error": "invalid_user"}, status_code=400)
+            try:
+                stats, activity = await _hl_gather(
+                    hl_fetch_user(user),
+                    hl_fetch_user_activity(user, limit=20),
+                )
+                risk = hl_compute_risk(stats or {"user": user}, activity or [])
+                _log_request("x402-paid", f"hl-risk {user[:10]}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
+                return _RouteJSON({
+                    **risk,
+                    "methodology": {
+                        "liquidation_rate": "liquidation_fills / transactions across full /users history",
+                        "funding_burn": "negative total_funding / total_volume — high values indicate consistent leverage paying funding",
+                        "recent_outflow": "withdrawals/transfer_out events from /users/activity in last 24h — paired with liquidation history flags potential ghost-fill candidates",
+                        "docs": "https://docs.hyperliquid.xyz",
+                    },
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                log.exception(f"hl-risk crashed: {user}")
+                return _RouteJSON({"error": "upstream_error",
+                                   "exception_type": type(exc).__name__,
+                                   "message": str(exc)[:200]}, status_code=502)
+
         # POST-only — GETs were hanging for ~10s on `await request.body()` because
         # the payment middleware only registers POST routes (per RouteConfig keys),
         # so GETs bypass payment and fall through to the inner handler which blocks
@@ -5212,6 +5494,11 @@ def build_app():
             _RouteRoute("/polymarket/pnl", _pm_pnl_handler, methods=["POST"]),
             _RouteRoute("/polymarket/screen", _pm_screen_handler, methods=["POST"]),
             _RouteRoute("/polymarket/risk", _pm_risk_handler, methods=["POST"]),
+            _RouteRoute("/hyperliquid/score", _hl_score_handler, methods=["POST"]),
+            _RouteRoute("/hyperliquid/pnl", _hl_pnl_handler, methods=["POST"]),
+            _RouteRoute("/hyperliquid/screen", _hl_screen_handler, methods=["POST"]),
+            _RouteRoute("/hyperliquid/vault", _hl_vault_handler, methods=["POST"]),
+            _RouteRoute("/hyperliquid/risk", _hl_risk_handler, methods=["POST"]),
         ])
 
         x402_server = _get_x402_server()
@@ -5507,6 +5794,102 @@ def build_app():
                             ),
                         },
                     ),
+                    # ── Hyperliquid trader-intelligence (5 endpoints) ──────
+                    "POST /hyperliquid/score": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.02",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Hyperliquid trader skill score. POST {user}. Returns derived "
+                            "metrics: skill_score (0-100), classification (sharp/neutral/retail), "
+                            "liquidation_count + rate, funding_paid_per_volume, profit_factor, "
+                            "sample_size_trades. Wraps Pinax /v1/hyperliquid/users with compute "
+                            "the upstream doesn't provide. For trading bots vetting copy-trade "
+                            "signals or sizing-the-room before entering a perp position."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"user": "0xecb63caa47c7c4e77f60f1ce858cf28dc2b82b00"},
+                            input_schema={"type":"object","properties":{"user":{"type":"string"}},"required":["user"]},
+                            body_type="json",
+                            output=OutputConfig(example={"user":"0xecb63caa…","skill_score":62.4,"classification":"neutral","liquidation_count":0,"sample_size_trades":14626475,"realized_pnl_usdc":11605542.69},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /hyperliquid/pnl": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Full Hyperliquid PnL report. POST {user}. Returns derived skill metrics + "
+                            "open positions (per-coin) + recent activity feed (deposits/withdrawals/"
+                            "funding/liquidations). For agents that need to inspect specific positions, "
+                            "audit a trader, or feed into deeper reputation scoring."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"user":"0xecb63caa47c7c4e77f60f1ce858cf28dc2b82b00"},
+                            input_schema={"type":"object","properties":{"user":{"type":"string"}},"required":["user"]},
+                            body_type="json",
+                            output=OutputConfig(example={"user":"0xecb63caa…","scores":{"skill_score":62.4,"classification":"neutral"},"open_positions":[{"coin":"PUMP","position_size":-1478968317}],"recent_activity":[]},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /hyperliquid/screen": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Size-the-room for a Hyperliquid market. POST {coin, n?}. Returns the "
+                            "top N (default 10, max 25) traders on a coin ranked by volume, each "
+                            "with skill_score + classification + liquidation_count. Pre-trade check "
+                            "for MM agents: 'who am I about to be against on this perp, and have "
+                            "they been liquidated before?' Coin format: BTC, @107 (spot), xyz:SILVER."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"coin":"BTC","n":10},
+                            input_schema={"type":"object","properties":{"coin":{"type":"string"},"n":{"type":"integer","minimum":1,"maximum":25,"default":10}},"required":["coin"]},
+                            body_type="json",
+                            output=OutputConfig(example={"coin":"BTC","traders_screened":10,"sharp_count":2,"retail_count":3,"neutral_count":5,"traders":[{"rank":1,"user":"0x…","skill_score":78.1}]},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /hyperliquid/vault": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.10",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Vault evaluator for Hyperliquid copy-trading vehicles. POST {vault}. "
+                            "Returns composite vault_quality_score (0-100) factoring: leader's own "
+                            "trading skill, depositor concentration (top-1 share = whale-dependent), "
+                            "redemption pressure (withdrawals/deposits ratio), commission rate. Plus "
+                            "lifetime stats and top 5 depositors. Built for copy-trade-vetting bots — "
+                            "NO equivalent service exists; vault data is unique to perps DEXs."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"vault":"0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"},
+                            input_schema={"type":"object","properties":{"vault":{"type":"string"}},"required":["vault"]},
+                            body_type="json",
+                            output=OutputConfig(example={"vault":"0xdfc24b…","vault_quality_score":56.8,"classification":"neutral","redemption_pressure":0.789,"top_depositor_share":0.06,"depositor_count":9524,"lifetime_deposits_usdc":482212104.29},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /hyperliquid/risk": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.02",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Hyperliquid counterparty risk. POST {user}. Returns risk_level "
+                            "(low/medium/high), liquidation_count + rate, funding_paid_per_volume "
+                            "(consistent leverage signal), and a recent_24h_outflow_flag (drained "
+                            "collateral). For MM/copy-trade agents pricing adverse selection."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"user":"0xecb63caa47c7c4e77f60f1ce858cf28dc2b82b00"},
+                            input_schema={"type":"object","properties":{"user":{"type":"string"}},"required":["user"]},
+                            body_type="json",
+                            output=OutputConfig(example={"user":"0xecb63caa…","risk_level":"low","liquidation_count":0,"funding_paid_per_volume_bps":-0.33,"skill_score":62.4,"recent_24h_outflow_flag":False},schema={"type":"object"}),
+                        )},
+                    ),
                 },
                 server=x402_server,
             )
@@ -5642,6 +6025,7 @@ def build_app():
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip")
             or scope["path"].startswith("/polymarket/")
+            or scope["path"].startswith("/hyperliquid/")
         ):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.
             # The middleware handles: 402 challenge, payment verification,

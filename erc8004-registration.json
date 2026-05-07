@@ -1,11 +1,11 @@
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Graph Advocate",
-  "description": "Onchain data routing + agent-priced trader intelligence. Find the right subgraph and get a ready-to-run GraphQL query for any onchain need (15,500+ subgraphs across 20+ chains). Live data via Token API (wallet balances, DEX swaps, NFTs, holder rankings) across EVM, Solana, and TON. Plus four x402-paid Polymarket trader endpoints designed for autonomous agents — skill scoring, ghost-fill counterparty risk, size-the-room pre-trade screening, full per-position PnL. Operates the x402-bazaar-intelligence service (the non-CDP view of the x402 economy on Base). Free entry tier, x402 micropayments after.",
+  "description": "Onchain data routing + agent-priced trader intelligence. Find the right subgraph and get a ready-to-run GraphQL query for any onchain need (15,500+ subgraphs across 20+ chains). Live data via Token API (wallet balances, DEX swaps, NFTs, holder rankings) across EVM, Solana, and TON. Plus x402-paid trader-intelligence endpoints designed for autonomous agents: four for Polymarket (skill score, full PnL, size-the-room screen, ghost-fill risk) and five for Hyperliquid perps (skill score, per-coin PnL, top-traders screen, vault evaluator, liquidation+funding risk). Operates the x402-bazaar-intelligence service (the non-CDP view of the x402 economy on Base). Free entry tier, x402 micropayments after.",
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-05-06T01:00:00Z",
+  "updatedAt": "2026-05-07T12:00:00Z",
   "mcpTools": ["find_subgraph", "write_query", "onchain_data"],
   "a2aSkills": [
     "find_subgraph",
@@ -15,7 +15,12 @@
     "polymarket_pnl_quick",
     "polymarket_pnl_full",
     "polymarket_screen",
-    "polymarket_risk"
+    "polymarket_risk",
+    "hyperliquid_score",
+    "hyperliquid_pnl",
+    "hyperliquid_screen",
+    "hyperliquid_vault",
+    "hyperliquid_risk"
   ],
   "services": [
     {
@@ -45,13 +50,20 @@
         "Counterparty Risk Assessment",
         "Pre-Trade Market Analysis",
         "Wallet Profiling",
-        "Ghost-Fill Detection"
+        "Ghost-Fill Detection",
+        "Perps Trader Skill Scoring",
+        "Liquidation Risk Profiling",
+        "Funding Burn Analysis",
+        "Vault Leader Evaluation",
+        "Copy-Trade Due Diligence"
       ],
       "domains": [
         "technology/blockchain",
         "technology/blockchain/defi",
         "technology/blockchain/smart_contracts",
         "technology/blockchain/prediction_markets",
+        "technology/blockchain/perpetuals",
+        "technology/blockchain/derivatives",
         "technology/software_engineering/apis_integration",
         "finance_and_business/investment_services",
         "finance_and_business/trading",
@@ -141,6 +153,28 @@
     {
       "name": "polymarket-risk",
       "endpoint": "https://graphadvocate.com/polymarket/risk"
+    },
+    {
+      "name": "hyperliquid-token-api",
+      "endpoint": "https://graphadvocate.com/hyperliquid/score",
+      "version": "0.1.0",
+      "description": "Agent-priced Hyperliquid perps trader intelligence over x402. Five endpoints: /hyperliquid/score ($0.02 composite skill score with liquidation rate + funding burn), /hyperliquid/pnl ($0.05 per-coin PnL breakdown), /hyperliquid/screen ($0.05 top traders by coin ranked by skill), /hyperliquid/vault ($0.10 vault evaluator: leader skill + redemption pressure + commission), /hyperliquid/risk ($0.02 liquidation + funding risk profile). Pure JSON for autonomous trading agents — built on top of the Pinax Hyperliquid REST API (token-api.thegraph.com /v1/hyperliquid/*, prod since v3.17.0)."
+    },
+    {
+      "name": "hyperliquid-pnl",
+      "endpoint": "https://graphadvocate.com/hyperliquid/pnl"
+    },
+    {
+      "name": "hyperliquid-screen",
+      "endpoint": "https://graphadvocate.com/hyperliquid/screen"
+    },
+    {
+      "name": "hyperliquid-vault",
+      "endpoint": "https://graphadvocate.com/hyperliquid/vault"
+    },
+    {
+      "name": "hyperliquid-risk",
+      "endpoint": "https://graphadvocate.com/hyperliquid/risk"
     }
   ],
   "registrations": [
