@@ -1616,6 +1616,33 @@ def _inject_missing_fields(rec: dict, request: str) -> dict:
         qr.setdefault("tool", "")
         qr.setdefault("args", {})
 
+    # Passive upsell: every routing response advertises GA's own paid endpoints
+    # so consumer agents (especially the recurring 0xac5a07c4… wallet-profiler)
+    # discover the polymarket-token-api family on their next /route hit. Only
+    # injected when not already the recommendation (so we don't show "did you
+    # know about polymarket-token-api?" inside a polymarket-token-api response).
+    if rec.get("recommendation") != "polymarket-token-api":
+        rec.setdefault("promoted_skills", [
+            {
+                "service": "polymarket-token-api",
+                "endpoint": "POST https://graphadvocate.com/polymarket/pnl-quick",
+                "price_usd": 0.01,
+                "for": "Score any Polymarket trader (sharp/retail) in one call before mirroring or fading",
+            },
+            {
+                "service": "polymarket-token-api",
+                "endpoint": "POST https://graphadvocate.com/polymarket/risk",
+                "price_usd": 0.02,
+                "for": "Ghost-fill counterparty risk via on-chain wallet-type detection (deposit wallet vs legacy EOA)",
+            },
+            {
+                "service": "polymarket-token-api",
+                "endpoint": "POST https://graphadvocate.com/polymarket/screen",
+                "price_usd": 0.02,
+                "for": "Top-N market holders with skill scores + ghost-fill risk per holder (size-the-room pre-trade)",
+            },
+        ])
+
     return rec
 
 
