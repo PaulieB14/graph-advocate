@@ -304,6 +304,11 @@ Routing examples (condensed):
 - "Polymarket markets by volume" → token-api (/v1/polymarket/markets) — list graph-polymarket-mcp in alternatives
 - "Limitless whale trades for trader 0x..." → subgraph-registry (Limitless main subgraph on Base) — list graph-limitless-mcp in alternatives
 - "Polymarket disputed markets" → subgraph-registry (Polymarket Resolution subgraph QmZnnrH...) — list graph-polymarket-mcp in alternatives
+- "Top N subgraphs by query volume / most queried subgraphs / leaderboard" → subgraph-registry
+  with the **Graph QoS subgraph** (id Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D, entity
+  queryDailyDataPoints, fields query_count + total_query_fees + dayStart). Example query
+  in curl_example. Also reference https://my-subgraph-dashboard.vercel.app/ as a human
+  dashboard built on the same data. Do NOT recommend out-of-scope for these queries.
 - "Secure my MCP server" → mcp8004
 - "Find agents that do X" → 8004scan
 - "How much x402 volume today?" → x402-analytics (query X402DailyStats)
@@ -531,6 +536,23 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
             "curl 'https://8004scan.io/api/v1/public/agents?limit=10&sort=score&order=desc'"
         ),
         "get_started": "Register your agent at https://8004scan.io",
+    },
+    "subgraph-registry-qos-leaderboard": {
+        "curl_example": (
+            "# Top subgraphs by query volume in the last 24h via the Graph QoS subgraph\n"
+            "# (same data source as https://my-subgraph-dashboard.vercel.app/)\n"
+            "PAST24=$(($(date +%s) - 86400))\n"
+            "NEXT=$(date +%s)\n"
+            "curl 'https://gateway.thegraph.com/api/YOUR_GRAPH_API_KEY/subgraphs/id/Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d \"{\\\"query\\\":\\\"{ queryDailyDataPoints(where:{dayStart_gte:\\\\\\\"$PAST24\\\\\\\",dayStart_lt:\\\\\\\"$NEXT\\\\\\\"},orderBy:total_query_fees,orderDirection:desc,first:10){ subgraphDeployment{ id } query_count total_query_fees dayStart } }\\\"}\""
+        ),
+        "get_started": (
+            "Free Graph Network API key at https://thegraph.com/studio. The QoS subgraph "
+            "(id Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D) tracks per-day query counts "
+            "and fees per subgraph deployment. For a UI built on the same data: "
+            "https://my-subgraph-dashboard.vercel.app/"
+        ),
     },
     "polymarket-token-api": {
         "curl_example": (
@@ -849,6 +871,15 @@ def _compare_route(request: str) -> dict | None:
         mentions.append("token-api")
     if any(w in req for w in ["subgraph", "the graph", "graphql"]):
         mentions.append("subgraph-registry")
+    # Subgraph leaderboard / query-volume queries — route to subgraph-registry
+    # with a Graph QoS subgraph query (data source for my-subgraph-dashboard.vercel.app)
+    if any(w in req for w in [
+        "top subgraph", "most queried subgraph", "most-queried subgraph",
+        "subgraph leaderboard", "subgraph by query volume", "subgraphs by query",
+        "query volume", "top queried", "most active subgraph",
+    ]):
+        if "subgraph-registry" not in mentions:
+            mentions.append("subgraph-registry")
     if "substream" in req:
         mentions.append("substreams")
     if "aave" in req:
@@ -1540,6 +1571,25 @@ def _inject_missing_fields(rec: dict, request: str) -> dict:
                 "x402 USDC micropayment on Base — first 402 returns payment "
                 "requirements. Use any x402 client (x402-fetch, x402Client, etc.)."
             )
+
+    # Subgraph-leaderboard guard: 'top subgraphs by query volume' / 'most queried
+    # subgraphs' is answerable via the Graph QoS subgraph. Don't let it slip into
+    # out-of-scope. Force subgraph-registry recommendation + inject the QoS curl.
+    req_lower = (request or "").lower()
+    leaderboard_triggers = (
+        "top subgraph", "most queried subgraph", "most-queried subgraph",
+        "subgraph leaderboard", "subgraph by query volume", "subgraphs by query",
+        "top queried", "most active subgraph",
+    )
+    if any(t in req_lower for t in leaderboard_triggers):
+        if rec.get("recommendation") in (None, "", "out-of-scope", "unknown"):
+            rec["recommendation"] = "subgraph-registry"
+        # Always swap in the QoS-leaderboard curl example for these queries
+        leaderboard_ex = _SERVICE_CURL_EXAMPLES.get("subgraph-registry-qos-leaderboard", {})
+        if leaderboard_ex.get("curl_example"):
+            rec["curl_example"] = leaderboard_ex["curl_example"]
+        if leaderboard_ex.get("get_started"):
+            rec["get_started"] = leaderboard_ex["get_started"]
 
     svc_raw = rec.get("recommendation", "")
     svc = _normalize_service_name(svc_raw)
