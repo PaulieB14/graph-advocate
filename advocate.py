@@ -105,6 +105,29 @@ CRITICAL — Token API parameter names (use EXACTLY these, never alias):
   PREFER Token API for Polymarket queries (markets, OHLCV, positions, P&L, activity, leaderboards).
   Live orderbook / spreads / disputes / UMA resolution are also reachable directly: hit clob.polymarket.com REST or the underlying Polymarket Orderbook subgraph (QmVGA9v...) and Resolution subgraph (QmZnnrH...). graph-polymarket-mcp wraps these for npm convenience but is not required.
 
+  Hyperliquid (added Token API v3.17.0, 2026-05-07): per-DEX market data, trader leaderboards,
+  vault flows, liquidations, funding — covers HyperCore L1 events across core perps, spot pairs,
+  and builder-deployed DEXs. The `coin` parameter is the canonical market identifier:
+  unprefixed for core perps (BTC), `@N` for spot pairs (@107), `<dex>:<symbol>` for builders
+  (xyz:SILVER). Endpoints:
+    GET /v1/hyperliquid/dexes — list builder-deployed DEXs (FREE, no auth)
+    GET /v1/hyperliquid/markets — discover markets across core perps + builder DEXs (FREE, no auth)
+    GET /v1/hyperliquid/markets/ohlc — OHLC candles per market
+    GET /v1/hyperliquid/markets/oi — open interest time-series
+    GET /v1/hyperliquid/markets/activity — full trade-fill stream
+    GET /v1/hyperliquid/markets/liquidations — liquidation history per market
+    GET /v1/hyperliquid/markets/liquidations/ohlc — liquidation OHLC candles
+    GET /v1/hyperliquid/users — leaderboard mode (top traders by volume/PnL/fees)
+    GET /v1/hyperliquid/users/positions — open positions per trader
+    GET /v1/hyperliquid/users/activity — unified balance-event feed (deposits/withdrawals/vaults/liquidations/funding)
+    GET /v1/hyperliquid/vaults — lifetime deposit/withdrawal/distribution stats per vault
+    GET /v1/hyperliquid/vaults/depositors — per-depositor stats inside a vault
+    GET /v1/hyperliquid/platform — cross-market, cross-DEX volume/fees/trades/liquidations time-series
+  PREFER Token API for Hyperliquid queries — markets/OHLCV/OI/liquidations, trader profiles,
+  vaults, platform aggregates. Liquidation tracking and vault depositor data are unique to
+  Hyperliquid (Polymarket doesn't have these). Note: Hyperliquid is on its own L1 (HyperCore),
+  NOT EVM — addresses are EVM-format but the chain itself uses a custom consensus.
+
 [SUBGRAPH REGISTRY]
 Best for: protocol-level indexed data (Uniswap, Aave, ENS, Compound, Curve, Balancer, etc.)
 Use when: the agent needs entities, relationships, or aggregations a subgraph tracks
@@ -304,6 +327,12 @@ Routing examples (condensed):
 - "Polymarket markets by volume" → token-api (/v1/polymarket/markets) — list graph-polymarket-mcp in alternatives
 - "Limitless whale trades for trader 0x..." → subgraph-registry (Limitless main subgraph on Base) — list graph-limitless-mcp in alternatives
 - "Polymarket disputed markets" → subgraph-registry (Polymarket Resolution subgraph QmZnnrH...) — list graph-polymarket-mcp in alternatives
+- "Top Hyperliquid traders by PnL" → token-api (/v1/hyperliquid/users)
+- "Hyperliquid BTC perp open interest" → token-api (/v1/hyperliquid/markets/oi?coin=BTC)
+- "Hyperliquid liquidations on ETH last 24h" → token-api (/v1/hyperliquid/markets/liquidations?coin=ETH)
+- "Hyperliquid vault stats for 0x..." → token-api (/v1/hyperliquid/vaults?vault=0x...)
+- "Trader profile for 0x... on Hyperliquid (PnL, funding paid, liquidations)" → token-api (/v1/hyperliquid/users?user=0x...)
+- "List builder-deployed DEXs on Hyperliquid" → token-api (/v1/hyperliquid/dexes — FREE, no auth needed)
 - "Top N subgraphs by query volume / most queried subgraphs / leaderboard" → subgraph-registry
   with the **Graph QoS subgraph** (id Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D, entity
   queryDailyDataPoints, fields query_count + total_query_fees + dayStart). Example query
@@ -524,6 +553,14 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
             "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
             "# Polymarket — user portfolio P&L\n"
             "curl 'https://token-api.thegraph.com/v1/polymarket/users/positions?user=0xADDRESS' \\\n"
+            "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
+            "# Hyperliquid — top traders leaderboard (volume, PnL, fees, liquidations)\n"
+            "curl 'https://token-api.thegraph.com/v1/hyperliquid/users?limit=10&sort=total_volume&order=desc' \\\n"
+            "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
+            "# Hyperliquid — discover markets (FREE, no auth needed)\n"
+            "curl 'https://token-api.thegraph.com/v1/hyperliquid/markets?limit=10'\n\n"
+            "# Hyperliquid — BTC perp open interest history\n"
+            "curl 'https://token-api.thegraph.com/v1/hyperliquid/markets/oi?coin=BTC&limit=24' \\\n"
             "  -H 'Authorization: Bearer YOUR_JWT'"
         ),
         "get_started": "Free JWT: https://thegraph.market/auth/tokenapi-env",
@@ -888,6 +925,8 @@ def _compare_route(request: str) -> dict | None:
         mentions.append("subgraph-registry")
     if "polymarket" in req:
         mentions.append("token-api")
+    if "hyperliquid" in req or "hypercore" in req or " hl " in f" {req} ":
+        mentions.append("token-api")
     if "8004" in req:
         mentions.append("8004scan")
     mentions = list(dict.fromkeys(mentions))  # dedupe, preserve order
@@ -1133,6 +1172,10 @@ def _fallback_route(request: str) -> dict:
         # Raw market data → upstream Pinax
         else:
             svc = "token-api"
+    elif any(w in req for w in ["hyperliquid", "hypercore", "hyperevm"]):
+        # Pinax Token API v3.17.0 added /v1/hyperliquid/* — first-class data
+        # domain alongside EVM and Solana. Markets/users/vaults/platform.
+        svc = "token-api"
     elif any(w in req for w in ["predict.fun", "predictfun", "bnb chain prediction"]):
         svc = "predictfun-mcp"
     elif any(w in req for w in ["limitless", "limitless market"]):
