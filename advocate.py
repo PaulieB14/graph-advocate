@@ -1262,7 +1262,9 @@ def _normalize_service_name(svc: str) -> str:
 
     # Canonical service names — first match wins (order matters)
     # Multi-service labels (combinations) collapse to the primary service
+    # IMPORTANT: 'polymarket-token-api' must match BEFORE 'token-api' (substring trap)
     CANONICAL = [
+        ("polymarket-token-api", "polymarket-token-api"),
         ("graph-aave-mcp", "graph-aave-mcp"),
         ("graph-polymarket-mcp", "graph-polymarket-mcp"),
         ("graph-lending-mcp", "graph-lending-mcp"),
