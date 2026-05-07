@@ -41,7 +41,7 @@ Complete reference for all endpoints, identity, integrations, and architecture. 
 | **ERC-8004 (Base)** | Agent #41,034 — [8004scan](https://www.8004scan.io/agents/base/41034) |
 | **A2A Registry** | [afd9b3bb-413c-41cf-9874-6361ea309e32](https://a2aregistry.org) |
 | **x402scan** | [Listed](https://www.x402scan.com) — v2, Utility tag |
-| **Agentverse** | [@graph-advocate](https://agentverse.ai) — 4.7 rating, 2,300+ interactions |
+| **Agentverse** | [graph-advocate](https://agentverse.ai/agents/details/agent1qfa8f2kzanmt4zqg35gvgk5lpkjev52f75duhdyl3tj6s0nn26466yu5c7a/profile) (`agent1qfa8f2k…6yu5c7a`) |
 | **Ampersend** | [Discover](https://app.ampersend.ai/discover/agent/8453:41034) |
 | **ClawHub** | [graph-advocate](https://clawhub.ai/paulieb14/graph-advocate) |
 | **Agent Wallet** | `0x575267eED09c338FAE5716A486A7B58A5749A292` |
