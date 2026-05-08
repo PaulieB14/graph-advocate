@@ -1,6 +1,6 @@
 # Aave MCP Reference
 
-`npx graph-aave-mcp` — 40 tools across 16 Graph subgraphs + Aave V4 API.
+`npx graph-aave-mcp@4.0.7` — 40 tools across 16 Graph subgraphs + Aave V4 API.
 
 ## V2/V3 Tools (Graph Subgraphs)
 Requires GRAPH_API_KEY. 16 tools covering 7 chains.
@@ -30,8 +30,16 @@ Requires GRAPH_API_KEY. 16 tools covering 7 chains.
 | get_v4_swap_quote | CoW Protocol swap pricing |
 | get_v4_claimable_rewards | Merkl and points rewards |
 
-## Install
+## Install (optional — review before running)
+
+This is an external npm package. Pin a known version, audit the source on GitHub,
+and only install if you trust the publisher (`paulieb` on npm).
+
 ```bash
-claude mcp add graph-aave -- npx -y graph-aave-mcp
+# Pinned to the version verified at the time this skill was published.
+# Bump intentionally after reviewing the changelog at:
+#   https://www.npmjs.com/package/graph-aave-mcp
+#   https://github.com/PaulieB14/graph-aave-mcp
+claude mcp add graph-aave -- npx -y graph-aave-mcp@4.0.7
 export GRAPH_API_KEY=your-key-here
 ```

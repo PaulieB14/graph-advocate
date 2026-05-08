@@ -1,6 +1,6 @@
 # Polymarket MCP Reference
 
-`npx graph-polymarket-mcp` — 31 tools combining 8 Graph subgraphs + REST APIs.
+`npx graph-polymarket-mcp@2.0.0` — 31 tools combining 8 Graph subgraphs + REST APIs.
 
 ## When to Use This vs Token API
 
@@ -37,9 +37,16 @@
 | get_trader_profile | Traders | Per-trader CTF events |
 | get_orderbook_trades | Orderbook | Order fills, volume |
 
-## Install
+## Install (optional — review before running)
+
+This is an external npm package. Pin a known version, audit the source on GitHub,
+and only install if you trust the publisher (`paulieb` on npm).
+
 ```bash
-claude mcp add graph-polymarket -- npx -y graph-polymarket-mcp
+# Pinned to the version verified at the time this skill was published.
+# Bump intentionally after reviewing the changelog at:
+#   https://www.npmjs.com/package/graph-polymarket-mcp
+claude mcp add graph-polymarket -- npx -y graph-polymarket-mcp@2.0.0
 export GRAPH_API_KEY=your-key-here
 ```
 

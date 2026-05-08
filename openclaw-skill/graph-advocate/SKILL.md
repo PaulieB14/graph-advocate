@@ -86,10 +86,43 @@ If the request spans two services, use both and combine results.
 | GET | `https://graphadvocate.com/dashboard` | Live monitoring |
 | POST | `https://graphadvocate.com/feedback` | Agent feedback |
 
-## x402 Payments
+## x402 Payments — Spend Controls (READ BEFORE INSTALLING)
 
-3 free queries/day per sender. After that, $0.01 USDC on Base per query.
-Payments go to Ampersend smart account. Agents with x402 wallets pay automatically.
+**Pricing:**
+- `/route` — 3 free queries/sender/day, then **$0.01 USDC** per call (Base mainnet)
+- `/polymarket/*` — paid from call 1 ($0.01 - $0.05 per call)
+- `/hyperliquid/*` — paid from call 1 ($0.02 - $0.10 per call)
+
+**This skill can trigger automatic USDC payments from a wallet-enabled agent.** If
+your agent runtime exposes an x402-capable wallet (e.g. Ampersend, x402-fetch with
+a private key, awal, CDP delegated wallet), each call past the free tier and every
+call to a paid endpoint will settle USDC on Base **without a per-call confirmation
+prompt** — that's the design of x402.
+
+**Required spend controls before autonomous use:**
+
+1. **Use a dedicated low-balance wallet.** Top up only what you're willing to spend
+   in a session — e.g. fund with $5 USDC, never your main treasury wallet.
+2. **Set a spend cap in your agent runtime.** Most x402 clients accept
+   `maxAmountPerCall` and `maxTotalSpend` parameters. If yours does not, wrap calls
+   to this skill in a counter that breaks after N invocations.
+3. **Stop conditions.** Add at least one of:
+   - Hard cap on call count per task (e.g. `max_calls_per_run = 5`)
+   - Time bound on the task (e.g. abort after 5 minutes)
+   - Cost ceiling check before each call (read wallet USDC balance; halt if below threshold)
+4. **Manual approval mode for the first run.** Treat the first agent execution as a
+   probe — log every call, inspect spend, then enable autonomous mode only after
+   confirming the per-task cost matches expectations.
+
+**Receipt trail:** every paid call returns an `x-payment-response` header with the
+on-chain settlement reference. Log it. If a call doesn't return that header but
+charged your wallet, file an issue — the contract is "no settlement, no charge."
+
+**No-charge endpoints:** `/.well-known/agent-card.json`, `/agents/capabilities.json`,
+`/mcp/catalog`, `/llms.txt`, `/dashboard`, `/chat`, `GET /` — these are free metadata/UI
+surfaces and never trigger payment.
+
+Payments are received by Ampersend smart account `0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86`.
 
 ## External Endpoints
 
@@ -115,7 +148,13 @@ Payments go to Ampersend smart account. Agents with x402 wallets pay automatical
 
 ## Trust Statement
 
-By using this skill, your plain-English data queries are sent to `graphadvocate.com` (hosted on Railway, operated by @paulieb14). The service returns structured JSON with live data. Only install if you trust this endpoint with your query text.
+By using this skill, your plain-English data queries are sent to `graphadvocate.com` (hosted on Railway, operated by @paulieb14). The service returns structured JSON with live data. Queries may include wallet addresses and protocol/trading intent — do not send sensitive private context (private keys, seed phrases, internal strategy details) and only install if you trust this endpoint operator.
+
+**Wallet authority disclaimer:** if your agent runtime has an attached x402 wallet,
+this skill *can* spend USDC from that wallet for any paid endpoint (see "Spend
+Controls" above). The skill does not need any credentials *from* you — but if your
+runtime auto-pays x402 challenges, paid calls will settle silently. Use a
+spend-limited wallet, not your main one.
 
 ## Links
 
