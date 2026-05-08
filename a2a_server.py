@@ -245,11 +245,31 @@ def _get_daily_count(task_id: str) -> int:
         return entry["count"] if entry["date"] == today else 0
 
 
-def _x402_payment_required_response() -> dict:
-    """Return a 402 Payment Required response with x402 v2 details."""
+def _x402_payment_required_response(*, anonymous: bool = False) -> dict:
+    """Return a 402 Payment Required response with x402 v2 details.
+
+    Two reason variants:
+      - identified sender over the daily cap → "you've exceeded N free/day"
+      - anonymous sender (no metadata) → "free tier requires sender metadata"
+    Both share the same x402 challenge — just different `reason` text so the
+    receiving agent knows whether to add metadata or send payment.
+    """
+    if anonymous:
+        reason = (
+            "Anonymous requests (no sender metadata) are not eligible for the "
+            f"free tier. Either include a `sender` (wallet address) or `name` "
+            "field in the A2A `metadata` to claim the "
+            f"{DAILY_FREE_QUERIES} free queries/day, or pay $0.01 USDC via x402 "
+            "for this single call."
+        )
+    else:
+        reason = (
+            f"You have exceeded the free tier of {DAILY_FREE_QUERIES} queries"
+            "/day. Additional queries require x402 payment."
+        )
     return {
         "recommendation": "payment-required",
-        "reason": f"You have exceeded the free tier of {DAILY_FREE_QUERIES} queries/day. Additional queries require x402 payment.",
+        "reason": reason,
         "confidence": "high",
         "x402Version": 2,
         "resource": {
@@ -1529,11 +1549,37 @@ class GraphAdvocateExecutor(AgentExecutor):
             )
             return
 
-        # ── Daily free tier check — x402 paywall after limit ────────────────
-        # Exempt health checks and conformance probes from daily limit
-        is_health_check = "conformance probe" in user_text.lower() or "please acknowledge" in user_text.lower()
+        # ── Free-tier gate — anonymous OR over-cap senders must pay ─────────
+        # Two-track free tier:
+        #   - Identified senders (wallet addr / agent name in metadata) get
+        #     DAILY_FREE_QUERIES free /day, then $0.01.
+        #   - Anonymous senders (no metadata) pay from call 1, no free tier —
+        #     because the rate limiter can't track them across requests
+        #     (every UUID task_id looks like a brand-new sender). Confirmed
+        #     2026-05-08: lifetime rate_limited=0 across 4.6K requests proved
+        #     anonymous probers were getting unlimited free queries.
+        # Canned-response paths (greetings, conformance probes, A2A registry
+        # checks, operational probes) stay free regardless of sender — they're
+        # how directories discover us and they don't cost a Claude call.
+        _text_lower = user_text.lower()
+        is_canned_path = (
+            "conformance probe" in _text_lower
+            or "please acknowledge" in _text_lower
+            or _is_greeting(user_text)
+            or ("openclaw" in _text_lower and (
+                "probe" in _text_lower or "operational" in _text_lower
+                or "confirm" in _text_lower))
+            or "a2aregistry" in _text_lower
+            or ("does http" in _text_lower and (
+                ".well-known" in _text_lower or "agent.json" in _text_lower))
+            or "are you operational" in _text_lower
+        )
+        # Treat the legacy variable name as the canned-path flag so the rest of
+        # the handler (which still references is_health_check) keeps working.
+        is_health_check = is_canned_path
+        sender_is_anonymous = not sender_address and not sender_name
         _is_paid_request = False  # flipped to True when x402 payment is verified
-        if not is_health_check and _check_daily_limit(sender_id):
+        if not is_canned_path and (sender_is_anonymous or _check_daily_limit(sender_id)):
             # Check if payment was included in the request context
             # A2A doesn't have HTTP headers, so check for payment in message text
             payment_header = None
@@ -1562,10 +1608,13 @@ class GraphAdvocateExecutor(AgentExecutor):
                     )
                     return
             else:
-                log.info(f"X402     task={task_id} | daily limit exceeded, payment required")
+                _why = "anonymous (no sender metadata)" if sender_is_anonymous else "daily limit exceeded"
+                log.info(f"X402     task={task_id} | {_why}, payment required")
                 _log_request(task_id, user_text, "payment-required", "high", "x402")
                 await event_queue.enqueue_event(
-                    new_agent_text_message(json.dumps(_x402_payment_required_response()))
+                    new_agent_text_message(json.dumps(
+                        _x402_payment_required_response(anonymous=sender_is_anonymous)
+                    ))
                 )
                 return
 
