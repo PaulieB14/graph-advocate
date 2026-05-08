@@ -8,7 +8,7 @@ Complete reference for all endpoints, identity, integrations, and architecture. 
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/` | POST | A2A JSON-RPC 2.0 routing (free tier, 10/day) |
+| `/` | POST | A2A JSON-RPC 2.0 routing (free tier, 3/day) |
 | `/` | GET | Landing page (HTML with OG meta tags) |
 | `/route` | POST | x402 paid endpoint ($0.01 USDC on Base) |
 | `/route` | GET | x402 v2 challenge (HTTP 402) |
@@ -61,7 +61,7 @@ Complete reference for all endpoints, identity, integrations, and architecture. 
 | **Facilitator** | Coinbase CDP (`api.cdp.coinbase.com/platform/v2/x402`) |
 | **Scheme** | `exact` |
 | **Max timeout** | 300 seconds |
-| **Free tier** | 10 queries/day per requesting agent (POST / only) |
+| **Free tier** | 3 queries/day per requesting agent (POST / only) |
 | **Discovery** | `/.well-known/x402` + `/openapi.json` |
 
 ---

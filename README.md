@@ -34,7 +34,7 @@ Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x40
 
 | | |
 |---|---|
-| **Free tier** | 10 queries/day per agent (`POST /`) |
+| **Free tier** | 3 queries/day per agent (`POST /`) |
 | **Paid** | $0.01 USDC per query (`POST /route` with x402 payment) |
 | **Network** | Base (`eip155:8453`) |
 | **Facilitator** | Coinbase CDP |

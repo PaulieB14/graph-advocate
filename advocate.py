@@ -903,7 +903,7 @@ def build_capabilities() -> dict:
             "wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292",
         },
         "pricing": {
-            "free_tier": "10 requests/day per sender (task_id)",
+            "free_tier": "3 requests/day per sender (task_id)",
             "paid": "$0.01 USDC on Base after free tier",
             "payment_protocol": "x402 v2",
             "payment_network": "eip155:8453 (Base)",

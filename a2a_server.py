@@ -51,7 +51,10 @@ _sender_timestamps: dict[str, list[float]] = {}
 _MAX_TRACKED_SENDERS = 500  # evict oldest when exceeded
 
 # Daily per-sender query cap (free tier)
-DAILY_FREE_QUERIES = 10
+# 2026-05-07: lowered from 10 → 3. The single recurring payer (0xac5a07c4…)
+# always crossed the cap anyway, so the change only affects first-time probers
+# — and 3 is enough for "test, refine, decide" before paying.
+DAILY_FREE_QUERIES = 3
 _daily_query_counts: dict[str, dict] = {}  # {sender: {"date": "2026-03-27", "count": 5}}
 
 X402_WALLET = os.environ.get("X402_PAY_TO", "0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86")  # Ampersend smart account
@@ -1933,7 +1936,9 @@ agent_card = AgentCard(
         "Compound, Curve, ENS, Lido) on Ethereum, Arbitrum, Base, Polygon, Optimism, "
         "Solana, BSC, TON. Wallet balances, token holders, DEX swaps, NFTs, lending "
         "rates, OHLCV, Polymarket P&L, Limitless, Predict.fun, ERC-8004 agent discovery. "
-        "10 free queries/day, $0.01 USDC after via x402 on Base."
+        "3 free queries/day, $0.01 USDC after via x402 on Base. Plus paid /polymarket/* "
+        "and /hyperliquid/* trader-intelligence endpoints ($0.01-$0.10) for autonomous "
+        "agents."
     ),
     url=f"{PUBLIC_URL}/",
     version="1.1.0",
@@ -2458,8 +2463,8 @@ Repository: https://github.com/PaulieB14/graph-advocate
 
 ## Pricing
 
-- 10 requests/day per sender — free
-- After 10/day — $0.01 USDC on Base via x402
+- 3 requests/day per sender — free
+- After 3/day — $0.01 USDC on Base via x402
 
 ## Routing services
 
@@ -4836,7 +4841,7 @@ def build_app():
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Graph Advocate — Onchain Data Routing Agent</title>
-  <meta name="description" content="Claude-powered routing agent for The Graph Protocol. Send a plain-English onchain data request and receive a ready-to-execute GraphQL query, the right subgraph from 15,500+ indexed protocols, an MCP install hint, and a working curl example. Free tier: 10 queries/day, then $0.01 USDC on Base via x402.">
+  <meta name="description" content="Claude-powered routing agent for The Graph Protocol. Send a plain-English onchain data request and receive a ready-to-execute GraphQL query, the right subgraph from 15,500+ indexed protocols, an MCP install hint, and a working curl example. Free tier: 3 queries/day, then $0.01 USDC on Base via x402.">
   <link rel="icon" type="image/png" href="/graphadvocate.png">
   <link rel="apple-touch-icon" href="/graphadvocate.png">
 
@@ -4897,7 +4902,7 @@ def build_app():
       <a class="link" href="https://github.com/PaulieB14/graph-advocate" target="_blank">⭐ GitHub</a>
     </div>
     <div class="footer">
-      Free tier: 10 queries/day · then $0.01 USDC/query on Base via x402<br>
+      Free tier: 3 queries/day · then $0.01 USDC/query on Base via x402<br>
       To call directly: <code>POST /route</code> with x402 payment header
     </div>
   </div>
@@ -5538,7 +5543,8 @@ def build_app():
                             "ENS, Lido) on Ethereum, Arbitrum, Base, Polygon, Optimism, Solana, "
                             "BSC, TON. Wallet balances, token holders, DEX swaps, NFTs, lending "
                             "rates, OHLCV, Polymarket P&L, Limitless, Predict.fun, ERC-8004 "
-                            "agents. 10 free/day, $0.01 USDC after."
+                            "agents. 3 free/day, $0.01 USDC after. Plus paid /polymarket "
+                            "+ /hyperliquid trader-intel ($0.01-$0.10 per call)."
                         ),
                         mime_type="application/json",
                         extensions={

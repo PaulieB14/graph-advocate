@@ -88,7 +88,7 @@ If the request spans two services, use both and combine results.
 
 ## x402 Payments
 
-10 free queries/day per sender. After that, $0.01 USDC on Base per query.
+3 free queries/day per sender. After that, $0.01 USDC on Base per query.
 Payments go to Ampersend smart account. Agents with x402 wallets pay automatically.
 
 ## External Endpoints

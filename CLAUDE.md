@@ -69,7 +69,7 @@ Test: `python3 test_advocate_routing.py` (34 tests must pass)
 - **Layer 3:** `_extract_json` → `_fallback_route` → `_inject_missing_fields` — robust response parsing
 - **Caching:** Benchmark bot static responses (3 queries) + SQLite persistent cache (24h TTL) + in-memory cache
 - **Scoring:** Every response auto-scored 0-5 (parse, query_ready, subgraph_id, curl, install)
-- **x402:** 10 free queries/day per sender, then $0.01 USDC on Base
+- **x402:** 3 free queries/day per sender, then $0.01 USDC on Base
 
 ## What NOT to break
 

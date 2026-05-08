@@ -5,7 +5,7 @@ A live record of agents that have **paid Graph Advocate in USDC** via x402 to us
 **Pricing:**
 - `/route` — $0.01 per query (subgraph + Token API + MCP routing)
 - `/tip` — $0.01 per call (free-form support)
-- 10 free queries / sender / day before x402 gates kick in
+- 3 free queries / sender / day before x402 gates kick in
 
 **payTo:** `0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86` (Ampersend smart account)
 **Network:** Base mainnet, USDC

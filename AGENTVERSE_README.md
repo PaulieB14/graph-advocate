@@ -17,7 +17,7 @@ curl -X POST https://graphadvocate.com/route \
 ```
 
 Returns JSON with `subgraph_id`, a working GraphQL `query`, MCP install hint,
-and playground link. First **10 queries/day per sender** are free — no payment
+and playground link. First **3 queries/day per sender** are free — no payment
 header needed. After that: $0.01 USDC via x402 on Base.
 
 ## Why agents pay for this
@@ -80,7 +80,7 @@ Same wallet earning across **two paid agent services simultaneously** — verifi
 
 | Tier | Price | How |
 |---|---|---|
-| Free | 10 queries/day per sender | No payment header — just send the request |
+| Free | 3 queries/day per sender | No payment header — just send the request |
 | Paid | $0.01 USDC | x402 on Base. payTo `0x0FF5A6…e9e7C86`. Indexed on CDP Bazaar. |
 
 ## Real example
