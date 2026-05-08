@@ -1496,7 +1496,18 @@ class GraphAdvocateExecutor(AgentExecutor):
         context_id = context.context_id or ""
         metadata = {}
         try:
-            metadata = context.metadata or {}
+            metadata = dict(context.metadata or {})
+        except Exception:
+            pass
+        # A2A clients commonly attach sender info on the *message* metadata
+        # (params.message.metadata) rather than the request-level metadata
+        # (params.metadata). RequestContext.metadata only exposes the latter,
+        # so merge in message-level metadata too. Message-level wins on conflict
+        # since it's more specific to this exchange.
+        try:
+            msg_meta = getattr(context.message, "metadata", None) or {}
+            if isinstance(msg_meta, dict):
+                metadata.update(msg_meta)
         except Exception:
             pass
         # Log sender info for debugging — helps identify which agents contact us
