@@ -1996,9 +1996,12 @@ agent_card = AgentCard(
         "Compound, Curve, ENS, Lido) on Ethereum, Arbitrum, Base, Polygon, Optimism, "
         "Solana, BSC, TON. Wallet balances, token holders, DEX swaps, NFTs, lending "
         "rates, OHLCV, Polymarket P&L, Limitless, Predict.fun, ERC-8004 agent discovery. "
-        "3 free queries/day, $0.01 USDC after via x402 on Base. Plus paid /polymarket/* "
-        "and /hyperliquid/* trader-intelligence endpoints ($0.01-$0.10) for autonomous "
-        "agents."
+        "Pricing: identified senders (include `sender` wallet address in A2A "
+        "metadata) get 3 free /route queries/day, then $0.01 USDC via x402 on Base. "
+        "Anonymous senders (no metadata) pay $0.01 from call 1. Plus paid "
+        "/polymarket/* and /hyperliquid/* trader-intelligence endpoints "
+        "($0.01-$0.10) — paid from call 1 regardless of metadata. Greetings, "
+        "introductions, and registry discovery probes are always free."
     ),
     url=f"{PUBLIC_URL}/",
     version="1.1.0",
@@ -5598,13 +5601,13 @@ def build_app():
                         # longer fails verify with "maximum string length is 500".
                         # Keep the BM25-friendly keyword density tight.
                         description=(
-                            "Onchain data router for AI agents. Plain-English queries → working "
-                            "GraphQL or REST. 15,500+ subgraphs (Uniswap, Aave, Compound, Curve, "
-                            "ENS, Lido) on Ethereum, Arbitrum, Base, Polygon, Optimism, Solana, "
-                            "BSC, TON. Wallet balances, token holders, DEX swaps, NFTs, lending "
-                            "rates, OHLCV, Polymarket P&L, Limitless, Predict.fun, ERC-8004 "
-                            "agents. 3 free/day, $0.01 USDC after. Plus paid /polymarket "
-                            "+ /hyperliquid trader-intel ($0.01-$0.10 per call)."
+                            "Onchain data router for AI agents. Plain-English → working GraphQL "
+                            "or REST. 15.5K+ subgraphs on 8 chains. Uniswap, Aave, Compound, ENS, "
+                            "Polymarket, Limitless, Predict.fun, ERC-8004 discovery. Identified "
+                            "senders (include `sender` wallet in A2A metadata): 3 free /route "
+                            "/day, then $0.01 USDC via x402 on Base. Anonymous senders pay $0.01 "
+                            "from call 1. /polymarket + /hyperliquid trader-intel paid from call "
+                            "1 ($0.01-$0.10)."
                         ),
                         mime_type="application/json",
                         extensions={
