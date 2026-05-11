@@ -2442,6 +2442,13 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
         REST_ONLY_SERVICES = {
             # REST APIs and non-subgraph services
             "token-api", "8004scan", "x402-analytics", "substreams",
+            # Chain-specific Token API surfaces (REST under /v1/<chain>/*).
+            # Added 2026-05-11 after these landed in the donut but were missing
+            # from the scorer — every Hyperliquid / Polymarket routing today
+            # was scoring 1.0 because the scorer expected a subgraph_id that
+            # REST endpoints don't carry. This is the source of the last-24h
+            # quality drop from 4.61 → 1.0.
+            "hyperliquid-token-api", "polymarket-token-api",
             # MCP tool servers — use the Model Context Protocol, not raw subgraph queries
             "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
             "graph-limitless-mcp", "predictfun-mcp", "mcp8004",
