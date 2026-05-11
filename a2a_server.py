@@ -5421,7 +5421,7 @@ def build_app():
                 stats, positions, activity = await _hl_gather(
                     hl_fetch_user(user),
                     hl_fetch_user_positions(user),
-                    hl_fetch_user_activity(user, limit=20),
+                    hl_fetch_user_activity(user, limit=10),
                 )
                 score = hl_compute_user_score(stats)
                 _log_request("x402-paid", f"hl-pnl {user[:10]}",
@@ -5530,7 +5530,7 @@ def build_app():
             try:
                 stats, activity = await _hl_gather(
                     hl_fetch_user(user),
-                    hl_fetch_user_activity(user, limit=20),
+                    hl_fetch_user_activity(user, limit=10),
                 )
                 risk = hl_compute_risk(stats or {"user": user}, activity or [])
                 _log_request("x402-paid", f"hl-risk {user[:10]}",
