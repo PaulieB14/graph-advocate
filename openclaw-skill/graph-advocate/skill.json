@@ -1,6 +1,6 @@
 {
   "name": "graph-advocate",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Ask any blockchain question in plain English — get token balances, DeFi analytics, NFT data, prediction market odds, and protocol stats instantly. Covers 15,500+ subgraphs across 20+ chains.",
   "author": "paulieb14",
   "license": "MIT-0",
