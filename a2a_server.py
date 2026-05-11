@@ -2747,6 +2747,62 @@ def _get_onchain_stats() -> dict:
     return out
 
 
+async def quota_endpoint(request: Request):
+    """GET /quota?sender=0x... — read the caller's remaining free-tier quota.
+
+    Free-tier visibility was flagged by ClawScan v2.0.0 as a gap in the spend-controls
+    surface: wallet-enabled agents could spend USDC without a clear signal that the
+    free quota was exhausted. This endpoint makes the state machine queryable so a
+    client can:
+
+      1. Display "N free queries remaining today" in a UI before the agent runs.
+      2. Halt autonomous loops once `remaining == 0` rather than implicitly accepting
+         the x402 challenge.
+      3. Audit per-sender spend by polling daily.
+
+    This endpoint is itself a no-charge metadata route (no x402 challenge).
+    """
+    sender = (request.query_params.get("sender") or "").strip().lower()
+    if not sender:
+        return JSONResponse(
+            {
+                "error": "missing sender",
+                "hint": "Pass ?sender=0x... or ?sender=<agent-name>. Use the same identifier "
+                "you send in the A2A `name`/`sender` metadata field on /route requests.",
+            },
+            status_code=400,
+        )
+
+    count_today = _get_daily_count(sender)
+    free_quota = DAILY_FREE_QUERIES
+    remaining = max(0, free_quota - count_today)
+    exhausted = remaining == 0
+
+    from datetime import date as _date
+
+    return JSONResponse(
+        {
+            "sender": sender,
+            "date_utc": _date.today().isoformat(),
+            "free_quota_daily": free_quota,
+            "used_today": count_today,
+            "remaining_today": remaining,
+            "free_tier_exhausted": exhausted,
+            "next_call_paid": exhausted,
+            "price_usdc_per_paid_call": round(X402_PRICE_CENTS / 100.0, 2),
+            "payment_required_when_exhausted": True,
+            "settlement_chain": "base",
+            "settlement_token": "USDC",
+            "anonymous_senders_pay_from_call_1": True,
+            "notes": (
+                "Free tier requires sender metadata (`name` / `sender` in the A2A "
+                "envelope, or `X-Agent-Id` header). Anonymous calls pay from the "
+                "first request. Quota resets at UTC midnight."
+            ),
+        }
+    )
+
+
 async def _log_settlement_outcome(pre_balance: float | None, wait_seconds: int = 90) -> None:
     """Background task: 90s after a tip handler runs, check if USDC balance
     actually increased. If not, log a WARNING — settle failed silently.
@@ -5980,6 +6036,7 @@ def build_app():
         Route("/feedback", feedback_endpoint, methods=["POST"]),
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
+        Route("/quota", quota_endpoint),
         Route("/bazaar/search", bazaar_search_endpoint),
         Route("/bazaar/active", bazaar_active_endpoint),
         Route("/claw/scout", claw_scout_endpoint),

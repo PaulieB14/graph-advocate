@@ -1,7 +1,7 @@
 ---
 name: graph-advocate
 description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 15,500+ subgraphs, Token API (EVM/Solana/TON + Polymarket), x402 payment analytics, and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, ENS, governance, x402, prediction market, onchain data, blockchain."
-version: 2.1.0
+version: 2.2.0
 homepage: https://github.com/PaulieB14/graph-advocate
 metadata:
   clawdbot:
@@ -83,6 +83,7 @@ If the request spans two services, use both and combine results.
 | GET | `https://graphadvocate.com/agents/capabilities.json` | Machine-readable capability list |
 | GET | `https://graphadvocate.com/mcp/catalog` | List of installable MCP servers |
 | GET | `https://graphadvocate.com/llms.txt` | LLM-friendly discovery file |
+| GET | `https://graphadvocate.com/quota?sender=0x...` | Free-tier quota remaining today (no charge) |
 | GET | `https://graphadvocate.com/dashboard` | Live monitoring |
 | POST | `https://graphadvocate.com/feedback` | Agent feedback |
 
@@ -98,6 +99,66 @@ your agent runtime exposes an x402-capable wallet (e.g. Ampersend, x402-fetch wi
 a private key, awal, CDP delegated wallet), each call past the free tier and every
 call to a paid endpoint will settle USDC on Base **without a per-call confirmation
 prompt** — that's the design of x402.
+
+### Per-call approval — the HTTP 402 gate
+
+x402's per-call approval mechanism is the HTTP 402 challenge itself. Every paid call
+returns `402 Payment Required` with the price and recipient before any USDC moves:
+
+```
+HTTP/1.1 402 Payment Required
+X-Payment: { "amount": "0.01", "currency": "USDC", "network": "base",
+             "recipient": "0x0FF5A6ec…7C86", "challenge": "<nonce>" }
+```
+
+Whether that becomes "automatic payment" or "explicit per-call approval" is a
+property of your **agent runtime**, not this skill:
+
+- **Auto-pay runtimes** (default for most x402 clients including `x402-fetch`,
+  CDP delegated wallets, Ampersend agents): the runtime intercepts the 402,
+  signs the payment, retries. No user prompt.
+- **Interactive runtimes** can be configured to surface the 402 to the user
+  before signing — e.g. `x402-fetch` with `confirmBeforePay: true`, Claude
+  Code with the wallet skill prompting for approval, or any custom wrapper
+  that reads the 402 challenge and asks the user "approve $0.01 USDC to
+  graphadvocate.com? [y/N]".
+
+If you want explicit per-call approval, configure your runtime accordingly
+**before** enabling the wallet for this skill. The 402 challenge surfaces the
+amount, the recipient, and the network — that's enough to make an informed
+yes/no decision per call.
+
+### Free-quota visibility
+
+Before triggering a paid call, check the caller's remaining free-tier quota:
+
+```
+GET https://graphadvocate.com/quota?sender=0x<your-agent-address>
+```
+
+Returns:
+
+```json
+{
+  "sender": "0x…",
+  "date_utc": "2026-05-11",
+  "free_quota_daily": 3,
+  "used_today": 1,
+  "remaining_today": 2,
+  "free_tier_exhausted": false,
+  "next_call_paid": false,
+  "price_usdc_per_paid_call": 0.01,
+  "payment_required_when_exhausted": true,
+  "anonymous_senders_pay_from_call_1": true
+}
+```
+
+`/quota` is itself a no-charge metadata route. Use it to:
+
+1. Display "N free queries remaining today" in your UI before the agent runs.
+2. Halt autonomous loops when `remaining_today` hits 0 instead of implicitly
+   accepting the x402 challenge.
+3. Audit per-sender spend by polling daily.
 
 **Required spend controls before autonomous use:**
 
@@ -119,8 +180,8 @@ on-chain settlement reference. Log it. If a call doesn't return that header but
 charged your wallet, file an issue — the contract is "no settlement, no charge."
 
 **No-charge endpoints:** `/.well-known/agent-card.json`, `/agents/capabilities.json`,
-`/mcp/catalog`, `/llms.txt`, `/dashboard`, `/chat`, `GET /` — these are free metadata/UI
-surfaces and never trigger payment.
+`/mcp/catalog`, `/llms.txt`, `/dashboard`, `/chat`, `/quota`, `GET /` — these are
+free metadata/UI surfaces and never trigger payment.
 
 Payments are received by Ampersend smart account `0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86`.
 
