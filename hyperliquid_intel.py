@@ -34,9 +34,15 @@ _HTTP_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 # Free-tier-safe limits. Hyperliquid endpoints generally allow more rows than
 # Polymarket's per-page caps, but stay conservative.
+# Pinax free-tier hard caps: most /v1/hyperliquid/* endpoints reject
+# limit > 10 with HTTP 403 "Parameter 'limit' exceeds maximum of 10 items."
+# Verified 2026-05-11 — /hyperliquid/pnl and /hyperliquid/risk were 502ing on
+# self-pay validation because _ACTIVITY_LIMIT=20 and _POSITIONS_LIMIT=50
+# exceeded the free-tier cap. Both defaulted down to 10. Override via env if
+# you upgrade to Pinax Pro.
 _USERS_LIMIT = int(os.getenv("PINAX_HL_USERS_LIMIT", "10"))
-_POSITIONS_LIMIT = int(os.getenv("PINAX_HL_POSITIONS_LIMIT", "50"))
-_ACTIVITY_LIMIT = int(os.getenv("PINAX_HL_ACTIVITY_LIMIT", "20"))
+_POSITIONS_LIMIT = int(os.getenv("PINAX_HL_POSITIONS_LIMIT", "10"))
+_ACTIVITY_LIMIT = int(os.getenv("PINAX_HL_ACTIVITY_LIMIT", "10"))
 _DEPOSITORS_LIMIT = int(os.getenv("PINAX_HL_DEPOSITORS_LIMIT", "10"))
 
 
