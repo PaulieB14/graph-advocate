@@ -1,6 +1,7 @@
 # Aave MCP Reference
 
-`npx graph-aave-mcp@4.0.7` — 40 tools across 16 Graph subgraphs + Aave V4 API.
+`graph-aave-mcp` — 40 tools across 16 Graph subgraphs + Aave V4 API. Distributed
+as a separate npm package; this skill only references it for routing.
 
 ## V2/V3 Tools (Graph Subgraphs)
 Requires GRAPH_API_KEY. 16 tools covering 7 chains.
@@ -30,16 +31,16 @@ Requires GRAPH_API_KEY. 16 tools covering 7 chains.
 | get_v4_swap_quote | CoW Protocol swap pricing |
 | get_v4_claimable_rewards | Merkl and points rewards |
 
-## Install (optional — review before running)
+## Install (separate package, optional)
 
-This is an external npm package. Pin a known version, audit the source on GitHub,
-and only install if you trust the publisher (`paulieb` on npm).
+`graph-aave-mcp` is published as an independent npm package on a separate
+release schedule. This skill does **not** install it — installation lives
+entirely upstream, where the maintainer publishes pinned versions, a
+changelog, and audit instructions:
 
-```bash
-# Pinned to the version verified at the time this skill was published.
-# Bump intentionally after reviewing the changelog at:
-#   https://www.npmjs.com/package/graph-aave-mcp
-#   https://github.com/PaulieB14/graph-aave-mcp
-claude mcp add graph-aave -- npx -y graph-aave-mcp@4.0.7
-export GRAPH_API_KEY=your-key-here
-```
+- npm: https://www.npmjs.com/package/graph-aave-mcp
+- GitHub: https://github.com/PaulieB14/graph-aave-mcp
+
+The upstream README describes how to register it with your MCP runtime and
+how to provide a `GRAPH_API_KEY`. Audit the package, pin a known version,
+and only run it if you trust the publisher.

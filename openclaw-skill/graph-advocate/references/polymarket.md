@@ -1,6 +1,7 @@
 # Polymarket MCP Reference
 
-`npx graph-polymarket-mcp@2.0.0` — 31 tools combining 8 Graph subgraphs + REST APIs.
+`graph-polymarket-mcp` — 31 tools combining 8 Graph subgraphs + REST APIs.
+Distributed as a separate npm package; this skill only references it for routing.
 
 ## When to Use This vs Token API
 
@@ -37,18 +38,19 @@
 | get_trader_profile | Traders | Per-trader CTF events |
 | get_orderbook_trades | Orderbook | Order fills, volume |
 
-## Install (optional — review before running)
+## Install (separate package, optional)
 
-This is an external npm package. Pin a known version, audit the source on GitHub,
-and only install if you trust the publisher (`paulieb` on npm).
+`graph-polymarket-mcp` is published as an independent npm package on a
+separate release schedule. This skill does **not** install it —
+installation lives entirely upstream, where the maintainer publishes
+pinned versions, a changelog, and audit instructions:
 
-```bash
-# Pinned to the version verified at the time this skill was published.
-# Bump intentionally after reviewing the changelog at:
-#   https://www.npmjs.com/package/graph-polymarket-mcp
-claude mcp add graph-polymarket -- npx -y graph-polymarket-mcp@2.0.0
-export GRAPH_API_KEY=your-key-here
-```
+- npm: https://www.npmjs.com/package/graph-polymarket-mcp
+- GitHub: https://github.com/PaulieB14/graph-polymarket-mcp
+
+The upstream README describes how to register it with your MCP runtime and
+how to provide a `GRAPH_API_KEY`. Audit the package, pin a known version,
+and only run it if you trust the publisher.
 
 ## Note
 Polymarket is migrating to CTF Exchange V2 + new collateral token (Polymarket USD).
