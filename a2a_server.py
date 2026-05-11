@@ -2470,16 +2470,39 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
         has_install = bool(rec.get("install"))
         parse_ok = rec.get("recommendation", "unknown") != "unknown"
 
+        # MCP tool servers don't use curl; their install is the implicit
+        # `npx <pkg>` that the advocate prompt constructs. Auto-crediting
+        # those two points fixes the chronic 2/5 ceiling on these services
+        # (graph-aave-mcp hit 2.05 lifetime against 880 calls before this).
+        MCP_SERVICES = {
+            "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
+            "graph-limitless-mcp", "predictfun-mcp", "mcp8004",
+        }
+        # REST-only Token API and analytics surfaces also have no curl
+        # outside the canonical example, so they get the curl point
+        # auto-credited too.
+        NO_CURL_NEEDED = {
+            "token-api", "8004scan", "x402-analytics", "substreams",
+            "hyperliquid-token-api", "polymarket-token-api",
+        }
+
         # Score: 0-5 points (service-aware)
         # For REST-only services, the "subgraph_id" point is auto-credited since
         # it's not applicable, and "install" point is auto-credited if no install needed.
         if is_rest_only:
+            curl_credit = 1 if (has_curl or service in NO_CURL_NEEDED or service in MCP_SERVICES) else 0
+            install_credit = 1 if (
+                has_install
+                or service in {"token-api", "8004scan", "x402-analytics", "substreams",
+                               "hyperliquid-token-api", "polymarket-token-api"}
+                or service in MCP_SERVICES
+            ) else 0
             score = sum([
                 1 if parse_ok else 0,
                 1 if (has_query_ready or has_curl) else 0,  # either is fine
                 1,  # subgraph_id N/A — auto-credit
-                1 if has_curl else 0,
-                1 if (has_install or service in {"token-api", "8004scan", "x402-analytics", "substreams"}) else 0,
+                curl_credit,
+                install_credit,
             ])
             # Mark has_subgraph_id as True for REST services so analytics aren't skewed
             has_subgraph_id = True
@@ -2940,7 +2963,11 @@ def _build_dashboard_data() -> dict:
             "SELECT service, tool, COUNT(*) as cnt FROM activity GROUP BY service, tool"
         ):
             svc, tool_val, cnt = row[0] or "unknown", row[1] or "", row[2]
-            service_counts[svc] += cnt
+            # Normalize compound labels ("graph-aave-mcp (easiest) OR direct Aave
+            # V3 subgraph query", "Subgraph Registry + Token API", etc.) to a
+            # canonical token. Without this, the donut splinters across 25+
+            # prose variants of the same handful of services.
+            service_counts[_normalize_service(svc)] += cnt
             if svc == "rate-limited":
                 rate_limited += cnt; spam += cnt
             elif tool_val == "fast-reject":
@@ -2955,7 +2982,7 @@ def _build_dashboard_data() -> dict:
     except Exception:
         total = len(logs)
         for r in logs:
-            service_counts[r.get("service", "unknown")] += 1
+            service_counts[_normalize_service(r.get("service", "unknown"))] += 1
 
     reject_pct = int(fast_rejected / total * 100) if total else 0
     legit_pct  = int(legit / total * 100) if total else 0
