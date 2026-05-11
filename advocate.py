@@ -1089,6 +1089,50 @@ def _wants_query(request: str) -> bool:
     return any(n in r for n in needles)
 
 
+_HL_EQUITY_TICKERS = {
+    # US large-caps with verified Hyperliquid xyz:/cash: listings (2026-05-11).
+    "tsla", "aapl", "nvda", "amzn", "googl", "goog", "mstr", "meta",
+    "msft", "coin", "pltr", "hood", "nflx", "amd", "intc", "baba",
+    "spy", "qqq",
+    # Index futures + commodities (xyz:* group).
+    "sp500", "nasdaq", "ndx", "xyz100",
+    "brent", "brentoil", "wti", "silver", "gold",
+}
+_HL_EQUITY_VERBS = {
+    "price", "prices", "perp", "perps", "spot", "stock", "stocks", "equity", "equities",
+    "long", "short", "open interest", "funding", "volume", "ticker",
+    "tokenized stock", "tokenized stocks", "tokenized equity",
+}
+
+
+def _matches_hl_equity(req: str) -> bool:
+    """Return True if the request is a Hyperliquid equity / commodity market-data ask.
+
+    Fires only when BOTH (a) a known equity / commodity ticker AND (b) a market-data
+    verb appear, AND the request doesn't carry an explicit competing protocol
+    keyword (polymarket, predict.fun, etc.) — those should route to the named
+    protocol even when an equity ticker also appears (e.g. "Polymarket TSLA
+    prediction market").
+
+    Verified empirically 2026-05-11 by querying Pinax's public
+    /v1/hyperliquid/markets endpoint: all tickers in _HL_EQUITY_TICKERS resolve
+    to live xyz:* perps and (for most) cash:* spot markets indexed by Pinax.
+    """
+    import re
+    # Bail if another protocol owns this request — that protocol's branch will
+    # handle it after we return False.
+    if any(p in req for p in ("polymarket", "predict.fun", "predictfun", "limitless")):
+        return False
+    has_ticker = False
+    for t in _HL_EQUITY_TICKERS:
+        if re.search(r'\b' + re.escape(t) + r'\b', req):
+            has_ticker = True
+            break
+    if not has_ticker:
+        return False
+    return any(v in req for v in _HL_EQUITY_VERBS)
+
+
 def _template_query(request: str) -> dict | None:
     """Return a pre-built subgraph query response for common request patterns.
 
@@ -1273,6 +1317,17 @@ def _fallback_route(request: str) -> dict:
         # Raw market data → upstream Pinax
         else:
             svc = "token-api"
+    # Equity / commodity tickers listed on Hyperliquid via the `xyz:` perp DEX
+    # and the `cash:` spot DEX. Verified live 2026-05-11: TSLA, NVDA, COIN, HOOD,
+    # MSTR, AAPL, AMZN, GOOGL, META, MSFT, PLTR, plus index futures (SP500,
+    # XYZ100/Nasdaq100) and commodities (oil, brent, silver). Pinax's
+    # /v1/hyperliquid/markets returns all of them publicly, no auth needed.
+    #
+    # We route on (ticker AND market-data verb) so that a question like
+    # "Is TSLA a good stock to buy" doesn't get redirected (that's not data
+    # routing — falls through to introduction / clarification).
+    elif _matches_hl_equity(req):
+        svc = "token-api"  # uses /v1/hyperliquid/markets (free, public)
     elif any(w in req for w in ["predict.fun", "predictfun", "bnb chain prediction"]):
         svc = "predictfun-mcp"
     elif any(w in req for w in ["limitless", "limitless market"]):
