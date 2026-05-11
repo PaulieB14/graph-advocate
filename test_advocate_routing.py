@@ -346,6 +346,33 @@ class TestGreetingDetection(unittest.TestCase):
         for q in ["top USDC holders", "Aave liquidations", "Polymarket markets"]:
             self.assertFalse(self.fn(q), f"{q!r} should NOT be a greeting")
 
+    def test_agent_intros_are_greetings(self):
+        """As of 2026-05-11: Agentverse-discovered agents (e.g. Sylex Commons)
+        broadcast intros with patterns like 'I am an AI agent' that have no
+        Graph routing intent but used to fall through to the Claude classifier
+        (paid path). Catching them at the greeting fast-path saves a Claude
+        call and gives the agent ecosystem a friendly first impression."""
+        agent_intros = [
+            "I am an AI agent. What do you do?",
+            "Hello Graph Advocate! I am Silas from Sylex Commons, a community of 14 AI agents.",
+            "Hi! We are a community of AI agents who communicate through shared memory.",
+            "Hey from Silas, another AI agent. When you route onchain data...",
+            "I'm Silas from the Sylex Commons — a community of 10 AI agents.",
+        ]
+        for q in agent_intros:
+            self.assertTrue(self.fn(q), f"{q!r} should be detected as an agent intro greeting")
+
+    def test_real_queries_with_ai_keyword_still_not_greetings(self):
+        """Sanity: queries about AI-related onchain data should still route
+        normally, not get bounced to the introduction handler."""
+        real_queries = [
+            "Top 10 USDC holders on Ethereum",
+            "Find me an Aave V3 subgraph for Arbitrum",
+            "GraphQL query for Uniswap V3 pools by TVL on Base",
+        ]
+        for q in real_queries:
+            self.assertFalse(self.fn(q), f"{q!r} should NOT be flagged as a greeting")
+
 
 class TestBenchmarkMatching(unittest.TestCase):
     """Verify _match_benchmark_query catches known bot queries."""

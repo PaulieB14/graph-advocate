@@ -342,6 +342,22 @@ _GREETING_PHRASES = (
     "test",
     "testing",
     "ping",
+    # Agent-ecosystem intro patterns. As of 2026-05-11, observed in the
+    # Sylex Commons broadcast wave: 4 of 7 of their messages used patterns
+    # like "I am an AI agent", "AI agents who...", "we are a community of
+    # AI agents". They have no data-query intent but were being routed
+    # through the Claude classifier (and falling to payment-required).
+    # Catching them at the greeting fast-path saves a Claude call and
+    # leaves a friendly impression on the Agentverse / ERC-8004 ecosystem
+    # that's discovering us through registry probes.
+    "ai agent",
+    "ai agents",
+    "fellow agent",
+    "another agent",
+    "we are a community",
+    "community of agents",
+    "from the sylex commons",
+    "from sylex commons",
 )
 
 # Global greeting rate limit (across ALL senders)
@@ -1837,6 +1853,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                         "What subgraphs exist for NFT sales on Base?",
                         "Compare lending rates across Aave, Compound, and Morpho",
                         "How do I query Lido withdrawal requests from The Graph?",
+                        "Find ERC-8004 agents on Base by capability",
                     ],
                     "query_ready": None,
                     "alternatives": [],
