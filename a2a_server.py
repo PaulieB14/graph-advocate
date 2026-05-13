@@ -2775,7 +2775,18 @@ def _get_onchain_stats() -> dict:
     try:
         conn = _sq.connect(str(DB_PATH))
         row = conn.execute(
-            "SELECT COUNT(*) FROM activity WHERE service IN ('x402-tip', 'x402-paid', 'tip')"
+            # Every service value that corresponds to a settled x402 payment.
+            # Originally just ('x402-tip', 'x402-paid', 'tip') — extended
+            # 2026-05-12 after an onchain audit showed 10 USDC transfers to the
+            # X402 wallet but only 4 logged. Root cause: the chain-specific
+            # paid handlers (hl-score/pnl/screen/vault/risk and pm-pnl/screen/risk)
+            # write service='hyperliquid-token-api' / 'polymarket-token-api'
+            # via _normalize_service, not 'x402-paid'. Adding them here makes
+            # the dashboard's pending_settlements heuristic accurate again.
+            "SELECT COUNT(*) FROM activity WHERE service IN ("
+            "'x402-tip', 'x402-paid', 'tip', "
+            "'hyperliquid-token-api', 'polymarket-token-api'"
+            ")"
         ).fetchone()
         out["x402_log_count"] = row[0] if row else 0
         conn.close()
