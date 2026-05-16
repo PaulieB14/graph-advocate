@@ -1686,6 +1686,88 @@ def _dry_run_query(subgraph_id: str, gql: str, api_key: str) -> dict:
         return {"ok": None, "errors": [f"network: {str(e)[:80]}"]}
 
 
+def _ground_subgraph_id(rec: dict, search_context: str) -> dict:
+    """Replace hallucinated subgraph IDs with the top served result from search.
+
+    Claude occasionally invents 46-char subgraph IDs from training memory
+    (e.g. real prefix + made-up suffix), even when explicitly told not to.
+    The customer ends up with an invalid ID that 404s on the gateway. This
+    runs after Claude responds: if rec.subgraph_id isn't in search_context,
+    swap it for the first ID that IS, and record the substitution under
+    rec.grounded_correction for transparency.
+
+    No-ops when search_context is empty (Claude has no grounded options
+    to fall back on) or when the recommendation isn't subgraph-registry.
+    """
+    if rec.get("recommendation") != "subgraph-registry":
+        return rec
+    if not search_context:
+        return rec
+    qr = rec.get("query_ready") or {}
+    # query_ready can be a list (multi-chain) or dict — handle both
+    targets = qr if isinstance(qr, list) else [qr]
+    if not any(isinstance(t, dict) for t in targets):
+        return rec
+
+    # Extract base58 subgraph IDs from search context. Subgraph IDs are
+    # base58(32-byte hash) = 44 chars; range is permissive in case the
+    # encoding ever shifts.
+    valid_ids = set(re.findall(r"[1-9A-HJ-NP-Za-km-z]{43,46}", search_context))
+    if not valid_ids:
+        return rec
+
+    # Find first served subgraph ID in the search context to use as fallback.
+    # We trust _search_subgraphs to have already ordered by reliability/volume.
+    fallback_id = None
+    try:
+        sc = json.loads(search_context) if search_context.lstrip().startswith("{") else None
+        if isinstance(sc, dict) and isinstance(sc.get("results"), list):
+            for entry in sc["results"]:
+                cand = entry.get("subgraph_id") if isinstance(entry, dict) else None
+                if cand and cand in valid_ids:
+                    fallback_id = cand
+                    break
+    except Exception:
+        pass
+    if not fallback_id:
+        # search_context wasn't JSON or didn't have parseable results — just
+        # use the first ID we matched, which preserves the "served" filter
+        fallback_id = next(iter(valid_ids))
+
+    swapped = False
+    for t in targets:
+        if not isinstance(t, dict):
+            continue
+        args = t.get("args") or {}
+        present_id = args.get("subgraph_id") or t.get("subgraph_id")
+        if not present_id or present_id in valid_ids:
+            continue
+        # Hallucinated ID — replace
+        if isinstance(t.get("args"), dict) and "subgraph_id" in t["args"]:
+            t["args"]["subgraph_id"] = fallback_id
+        else:
+            t["subgraph_id"] = fallback_id
+        rec.setdefault("grounded_correction", []).append({
+            "original": present_id,
+            "replaced_with": fallback_id,
+            "reason": "id_not_in_search_results",
+        })
+        swapped = True
+
+    # Also rewrite a curl_example that embeds the bad ID
+    if swapped:
+        curl = rec.get("curl_example") or ""
+        for entry in rec.get("grounded_correction", []):
+            bad = entry["original"]
+            good = entry["replaced_with"]
+            if bad and bad in curl:
+                curl = curl.replace(bad, good)
+        if curl:
+            rec["curl_example"] = curl
+
+    return rec
+
+
 def _validate_and_fix_query(rec: dict) -> dict:
     """Inject `_meta` and dry-run any subgraph query in the recommendation.
 
@@ -2206,6 +2288,12 @@ def ask_graph_advocate(
     # Inject working curl/npx example when query_ready is absent
     if not rec.get("parse_error"):
         rec = _inject_missing_fields(rec, request)
+        # Ground subgraph_id against search context — Claude sometimes invents
+        # IDs even with explicit instructions ("Do NOT make up subgraph IDs").
+        # If the recommendation cites an ID not in the search results, replace
+        # it with the top-ranked search hit. Cheaper than paying $0.01 to find
+        # out the ID is junk.
+        rec = _ground_subgraph_id(rec, search_context)
         # Inject _meta and dry-run the generated query so we don't hand back
         # broken GraphQL. Adds rec["query_validation"] = {ok, errors, ...}.
         rec = _validate_and_fix_query(rec)
