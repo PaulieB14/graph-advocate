@@ -2819,16 +2819,35 @@ def _search_subgraphs(keyword: str) -> str:
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """SELECT id, display_name, description, network, query_volume_30d,
-                      domain, protocol_type, reliability_score, query_hint
-               FROM subgraphs
-               WHERE (display_name LIKE ? OR description LIKE ? OR domain LIKE ?
-                      OR categories LIKE ? OR auto_description LIKE ?)
-               ORDER BY query_volume_30d DESC
-               LIMIT 8""",
-            tuple(f"%{keyword}%" for _ in range(5)),
-        ).fetchall()
+        # active_allocation_count > 0 hides deployments no indexer is currently
+        # serving — paying for those returns "no allocations" (the customer eats
+        # the $0.01). Column may not exist on older registry DBs; fall back
+        # gracefully via try/except below.
+        try:
+            rows = conn.execute(
+                """SELECT id, display_name, description, network, query_volume_30d,
+                          domain, protocol_type, reliability_score, query_hint,
+                          active_allocation_count
+                   FROM subgraphs
+                   WHERE active_allocation_count > 0
+                     AND (display_name LIKE ? OR description LIKE ? OR domain LIKE ?
+                          OR categories LIKE ? OR auto_description LIKE ?)
+                   ORDER BY query_volume_30d DESC
+                   LIMIT 8""",
+                tuple(f"%{keyword}%" for _ in range(5)),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # Column missing on older DB — fall back to legacy query
+            rows = conn.execute(
+                """SELECT id, display_name, description, network, query_volume_30d,
+                          domain, protocol_type, reliability_score, query_hint
+                   FROM subgraphs
+                   WHERE (display_name LIKE ? OR description LIKE ? OR domain LIKE ?
+                          OR categories LIKE ? OR auto_description LIKE ?)
+                   ORDER BY query_volume_30d DESC
+                   LIMIT 8""",
+                tuple(f"%{keyword}%" for _ in range(5)),
+            ).fetchall()
         conn.close()
 
         if not rows:
@@ -2856,6 +2875,13 @@ def _search_subgraphs(keyword: str) -> str:
                 hint = r["query_hint"]
                 if hint:
                     entry["query_hint"] = hint
+            except (IndexError, KeyError):
+                pass
+            # Surface allocation count so Claude understands what "served" means
+            try:
+                ac = r["active_allocation_count"]
+                if ac is not None:
+                    entry["active_indexers"] = ac
             except (IndexError, KeyError):
                 pass
             results.append(entry)
