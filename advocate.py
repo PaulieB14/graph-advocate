@@ -2911,10 +2911,16 @@ def _search_subgraphs(keyword: str) -> str:
         # serving — paying for those returns "no allocations" (the customer eats
         # the $0.01). Column may not exist on older registry DBs; fall back
         # gracefully via try/except below.
+        # NOTE: do NOT SELECT query_hint here — the column has never existed in
+        # registry.db. Referencing it raises sqlite3.OperationalError and the
+        # outer _auto_search wrapper swallows the error, returning empty search
+        # context → Claude has no grounding and falls back to training-memory
+        # hallucinations. The downstream reader already wraps r["query_hint"]
+        # in try/except (IndexError, KeyError), so omitting it is safe.
         try:
             rows = conn.execute(
                 """SELECT id, display_name, description, network, query_volume_30d,
-                          domain, protocol_type, reliability_score, query_hint,
+                          domain, protocol_type, reliability_score,
                           active_allocation_count
                    FROM subgraphs
                    WHERE active_allocation_count > 0
@@ -2928,7 +2934,7 @@ def _search_subgraphs(keyword: str) -> str:
             # Column missing on older DB — fall back to legacy query
             rows = conn.execute(
                 """SELECT id, display_name, description, network, query_volume_30d,
-                          domain, protocol_type, reliability_score, query_hint
+                          domain, protocol_type, reliability_score
                    FROM subgraphs
                    WHERE (display_name LIKE ? OR description LIKE ? OR domain LIKE ?
                           OR categories LIKE ? OR auto_description LIKE ?)
