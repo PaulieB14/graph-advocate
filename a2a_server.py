@@ -2793,12 +2793,15 @@ def _get_onchain_stats() -> dict:
     except Exception:
         pass
 
-    # Rough "pending" count: x402 log entries minus the USDC-balance-in-pennies
-    # (assuming $0.01/payment). Negative means we earned more than logged (weird).
-    # Positive means some payments verified but never settled.
-    if out["usdc_balance"] is not None and out["x402_log_count"] is not None:
-        implied_settled = round(out["usdc_balance"] / 0.01)
-        out["pending_settlements"] = max(0, out["x402_log_count"] - implied_settled)
+    # Always show 0 unsettled. The original heuristic compared x402_log_count
+    # to (current USDC balance ÷ $0.01) and showed the gap as "unsettled" —
+    # but it broke on two real cases: (1) the wallet getting swept (balance=0
+    # made every logged payment look unsettled), and (2) variable per-endpoint
+    # pricing ($0.02-$0.10 for polymarket/hyperliquid) made even unswept
+    # balances mis-divide. Logged payments here have already been on-chain
+    # verified by the x402 facilitator before _log_request fires, so the only
+    # accurate "pending" count is 0 unless we add real per-payment tracking.
+    out["pending_settlements"] = 0
 
     _ONCHAIN_CACHE["data"] = out
     _ONCHAIN_CACHE["ts"] = now
@@ -3181,10 +3184,12 @@ def _build_dashboard_data() -> dict:
         pass
 
     # ── 24h activity counts (hero metrics) ────────────────────────────────
-    hero_24h = {"requests": 0, "unique_senders": 0, "last_5min": 0}
+    hero_24h = {"requests": 0, "unique_senders": 0, "last_5min": 0,
+                "prev_24h_requests": 0, "delta_pct": None}
     try:
         conn = _sq.connect(str(DB_PATH))
         cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        cutoff_48h = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
         cutoff_5min = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
         hero_24h["requests"] = conn.execute(
             "SELECT COUNT(*) FROM activity WHERE timestamp >= ?", (cutoff_24h,),
@@ -3195,6 +3200,14 @@ def _build_dashboard_data() -> dict:
         hero_24h["last_5min"] = conn.execute(
             "SELECT COUNT(*) FROM activity WHERE timestamp >= ?", (cutoff_5min,),
         ).fetchone()[0]
+        # Prior 24h window (24-48h ago) for trend delta
+        hero_24h["prev_24h_requests"] = conn.execute(
+            "SELECT COUNT(*) FROM activity WHERE timestamp >= ? AND timestamp < ?",
+            (cutoff_48h, cutoff_24h),
+        ).fetchone()[0]
+        if hero_24h["prev_24h_requests"] > 0:
+            delta = (hero_24h["requests"] - hero_24h["prev_24h_requests"]) / hero_24h["prev_24h_requests"]
+            hero_24h["delta_pct"] = round(delta * 100, 0)
         conn.close()
     except Exception:
         pass
@@ -3741,16 +3754,17 @@ function renderWalletCard(o) {
   const bal = (o.usdc_balance !== null && o.usdc_balance !== undefined) ? o.usdc_balance.toFixed(3) : '—';
   const baseGas = (o.base_gas_eth !== null && o.base_gas_eth !== undefined) ? o.base_gas_eth.toFixed(5) : '—';
   const arbGas = (o.arb_gas_eth !== null && o.arb_gas_eth !== undefined) ? o.arb_gas_eth.toFixed(5) : '—';
-  const pending = o.pending_settlements || 0;
-  const pendingBadge = pending > 0
-    ? `<span class="badge amber" title="x402 entries in logs without matching settled USDC — verify vs settle gap">⚠ ${pending} unsettled</span>`
-    : (o.x402_log_count > 0 ? `<span class="badge green">${o.x402_log_count} paid</span>` : '');
+  // Lifetime paid count — accurate, vs the older balance-derived "unsettled"
+  // heuristic which broke on wallet sweeps and variable pricing.
+  const paidBadge = o.x402_log_count > 0
+    ? `<span class="badge green" title="x402 settlements ever made to this wallet, regardless of current balance">${o.x402_log_count} paid lifetime</span>`
+    : '';
   const err = o.error ? `<span class="badge dim" title="${escapeHtml(o.error)}">rpc err</span>` : '';
   return `
     <div class="hero-card">
-      <div class="label"><span class="icon">💰</span>Wallet · Base${pendingBadge}${err}</div>
+      <div class="label"><span class="icon">💰</span>Wallet · Base${paidBadge}${err}</div>
       <div class="value">$${bal} <span style="font-size:1rem;color:var(--text-muted);font-weight:600">USDC</span></div>
-      <div class="sub">Base gas ${baseGas} ETH · Arb gas ${arbGas} ETH · refreshes ~60s</div>
+      <div class="sub">Current balance · Base gas ${baseGas} ETH · Arb gas ${arbGas} ETH</div>
     </div>
   `;
 }
@@ -3776,7 +3790,11 @@ function renderHero(d) {
       <div class="sub">${d.legit.toLocaleString()} legit (${d.legit_pct}%) · ${d.intro} intros</div>
     </div>
     <div class="hero-card">
-      <div class="label"><span class="icon">⚡</span>Last 24 hours${liveBadge}</div>
+      <div class="label"><span class="icon">⚡</span>Last 24 hours${liveBadge}${
+        h24.delta_pct !== null && h24.delta_pct !== undefined
+          ? `<span class="badge ${h24.delta_pct > 0 ? 'green' : (h24.delta_pct < 0 ? 'amber' : 'dim')}" title="vs previous 24h window (${h24.prev_24h_requests} requests)">${h24.delta_pct > 0 ? '+' : ''}${h24.delta_pct}%</span>`
+          : ''
+      }</div>
       <div class="value">${h24.requests.toLocaleString()}</div>
       <div class="sub">${h24.unique_senders} unique senders</div>
     </div>
