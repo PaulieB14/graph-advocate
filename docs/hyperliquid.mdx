@@ -1,0 +1,106 @@
+---
+title: "Hyperliquid trader intelligence"
+description: "Skill-score any Hyperliquid perps trader, evaluate vaults, and screen top traders of a coin — all derived from on-chain ledger events via The Graph's Hyperliquid Token API."
+---
+
+Five paid x402 endpoints that turn raw Hyperliquid fills, positions, and vault flows into agent-ready intelligence. Every score is derived — never returned by the upstream — so your agent can decide instead of parse.
+
+## What you get
+
+| Endpoint | Cost | Returns |
+|---|---:|---|
+| `POST /hyperliquid/score` | $0.02 | Composite `skill_score` (0–100), classification (`sharp` / `neutral` / `retail`), liquidation rate, funding burn, profit factor, sample-size confidence |
+| `POST /hyperliquid/pnl` | $0.05 | Everything `/score` returns + open positions + last 10 fills |
+| `POST /hyperliquid/screen` | $0.05 | Top N traders of a coin, each one scored. Use for "who are the sharps on HYPE right now?" |
+| `POST /hyperliquid/vault` | $0.10 | Vault evaluator: leader's own trading skill, top-depositor concentration, redemption pressure, distribution rate |
+| `POST /hyperliquid/risk` | $0.02 | Counterparty risk: liquidation rate, funding burn, outflow flag — for agents about to take the other side of a trade |
+
+Per-call payment in USDC on Base via x402. No subscription, no API key, no rate limit beyond the facilitator.
+
+## Why derived over raw
+
+Raw Hyperliquid endpoints return fills, positions, and vault ledger events. Useful — but every consuming agent then has to re-implement the same normalisations: PnL as bps of volume, liquidation rate as fraction of fills, funding paid normalised to volume, confidence shrinkage for small samples. Graph Advocate does it once, exposes the answer.
+
+The scoring formula (see [`hyperliquid_intel.py`](https://github.com/PaulieB14/graph-advocate/blob/main/hyperliquid_intel.py) for source):
+
+- **40%** profitability — PnL as bps of volume, clamped at ±100 bps
+- **40%** risk control — liquidation rate, 1 bp loss per liquidation
+- **20%** efficiency — profit factor (PnL / fees), normalised
+- Confidence-weighted by `log10(transactions) / 6` — so a 50-trade wallet's score gets shrunk toward neutral
+
+`sharp` ≥ 70, `retail` ≤ 35, anything in between is `neutral`. Under 100 trades returns `insufficient_data` regardless of score.
+
+## Sample: score a trader
+
+```bash
+curl -X POST 'https://graphadvocate.com/hyperliquid/score' \
+  -H 'Content-Type: application/json' \
+  -d '{"user": "0x2fc3195efbf91ad90854bc3c02fe739895c23460"}'
+```
+
+Response:
+
+```json
+{
+  "user": "0x2fc3195efbf91ad90854bc3c02fe739895c23460",
+  "skill_score": 78.4,
+  "classification": "sharp",
+  "sharpe_like": 0.0214,
+  "pnl_bps_of_volume": 42.1,
+  "liquidation_count": 1,
+  "liquidation_rate_bps": 0.8,
+  "funding_paid_per_volume_bps": 3.2,
+  "profit_factor": 4.18,
+  "sample_size_trades": 1247,
+  "coins_traded": 14,
+  "confidence": 0.52,
+  "realized_pnl_usdc": 184230.55,
+  "total_volume_usdc": 43712044.10,
+  "total_fees_usdc": 44081.20,
+  "first_trade": "2025-11-04T22:17:33Z",
+  "last_trade": "2026-05-17T19:08:11Z"
+}
+```
+
+## Sample: screen the sharps on a coin
+
+```bash
+curl -X POST 'https://graphadvocate.com/hyperliquid/screen' \
+  -H 'Content-Type: application/json' \
+  -d '{"coin": "HYPE", "n": 10}'
+```
+
+Returns ranked top-N traders by volume on that coin, each one scored against their full Hyperliquid history (not just this coin). The `sharp_count` / `retail_count` headline tells you whether smart money is currently the dominant side.
+
+## Sample: vault evaluator
+
+```bash
+curl -X POST 'https://graphadvocate.com/hyperliquid/vault' \
+  -H 'Content-Type: application/json' \
+  -d '{"vault": "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"}'
+```
+
+Returns a composite `vault_score` plus the leader's individual skill score, top-5 depositors with stake share, redemption ratio, and a `last_activity_at` timestamp so you know whether the vault is still live or stale.
+
+## Coin identifiers
+
+- Core perps: bare symbol — `BTC`, `ETH`, `HYPE`, `SOL`
+- Spot pairs: `@N` form — `@107`
+- Builder DEX markets: `dex:symbol` — `xyz:SP500`, `xyz:BRENTOIL`, `cash:TSLA`
+
+The same set the upstream Hyperliquid Token API uses. Call [`/v1/hyperliquid/markets`](https://thegraph.market) to enumerate live coins.
+
+## Free tier
+
+There is no free tier for these endpoints — they each fan out 2–10 upstream calls and synthesise the result. If you want to inspect the routing for free, send a plain-English question to `POST /` (A2A JSON-RPC) and Graph Advocate will recommend the right `hyperliquid/*` endpoint without charging.
+
+```bash
+curl -X POST 'https://graphadvocate.com/' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0", "id": 1, "method": "message/send",
+    "params": {"message": {"parts": [{"text": "score Hyperliquid trader 0x2fc3...3460"}]}}
+  }'
+```
+
+The recommendation comes back with the exact curl command to run for paid execution.

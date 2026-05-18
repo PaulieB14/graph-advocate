@@ -23,6 +23,10 @@
             "pages": ["route", "examples"]
           },
           {
+            "group": "Trader intelligence",
+            "pages": ["hyperliquid"]
+          },
+          {
             "group": "Discovery",
             "pages": ["bazaar-active", "bazaar-search", "claw-scout"]
           },
