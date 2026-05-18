@@ -4889,15 +4889,33 @@ def build_app():
         """
         return JSONResponse({
             "version": 1,
-            "resources": [BASE_URL + "/route", BASE_URL + "/tip"],
+            "resources": [
+                BASE_URL + "/route",
+                BASE_URL + "/tip",
+                BASE_URL + "/hyperliquid/score",
+                BASE_URL + "/hyperliquid/pnl",
+                BASE_URL + "/hyperliquid/screen",
+                BASE_URL + "/hyperliquid/vault",
+                BASE_URL + "/hyperliquid/risk",
+                BASE_URL + "/polymarket/pnl-quick",
+                BASE_URL + "/polymarket/pnl",
+                BASE_URL + "/polymarket/screen",
+                BASE_URL + "/polymarket/risk",
+            ],
             "instructions": (
                 "POST a plain-English onchain data request and receive a "
                 "ready-to-execute query, the right subgraph ID, and an MCP install hint. "
                 "Free tier: " + str(DAILY_FREE_QUERIES) + " queries/day per requesting "
-                "agent. After that, $0.01 USDC on Base via x402."
+                "agent. After that, $0.01 USDC on Base via x402. "
+                "Hyperliquid + Polymarket trader-intelligence endpoints ($0.01–$0.10/call) "
+                "are documented at " + BASE_URL + "/hyperliquid and " + BASE_URL + "/polymarket."
             ),
             "documentation": BASE_URL + "/llms.txt",
             "capabilities": BASE_URL + "/agents/capabilities.json",
+            "catalogs": {
+                "hyperliquid": BASE_URL + "/hyperliquid",
+                "polymarket": BASE_URL + "/polymarket",
+            },
         }, headers={"Access-Control-Allow-Origin": "*"})
 
     async def openapi_endpoint(request):
@@ -5125,6 +5143,143 @@ def build_app():
     async def landing_endpoint(request):
         """GET / — HTML landing page with OG meta tags for x402scan listing."""
         return HTMLResponse(LANDING_HTML, headers={
+            "cache-control": "public, max-age=300",
+        })
+
+    # ── Agent-discoverable catalogs ───────────────────────────────────────────
+    # GET /hyperliquid and GET /polymarket return pure-JSON endpoint catalogs
+    # so other agents can introspect what's available without scraping the
+    # human docs. Browsers render the JSON; agents parse it.
+    _HL_CATALOG = {
+        "agent": "graphadvocate.eth",
+        "namespace": "hyperliquid",
+        "description": (
+            "Trader intelligence and vault evaluator for Hyperliquid perps. "
+            "Composite skill scores, classification, risk metrics — all derived from "
+            "on-chain ledger events via The Graph Token API."
+        ),
+        "data_source": "The Graph Token API (Hyperliquid)",
+        "payment": {"scheme": "x402", "chain": "base", "currency": "USDC"},
+        "agent_card": BASE_URL + "/.well-known/agent-card.json",
+        "docs": "https://docs.graphadvocate.com/hyperliquid",
+        "endpoints": [
+            {
+                "id": "score", "method": "POST", "url": BASE_URL + "/hyperliquid/score",
+                "price_usdc": 0.02,
+                "input": {"user": "0xEvmAddress"},
+                "returns": [
+                    "skill_score (0-100)", "classification (sharp|neutral|retail|insufficient_data)",
+                    "liquidation_rate_bps", "funding_paid_per_volume_bps", "profit_factor",
+                    "sample_size_trades", "confidence", "realized_pnl_usdc", "total_volume_usdc",
+                ],
+                "use_when": "you need to assess if a Hyperliquid trader is sharp before mirroring or counter-trading",
+            },
+            {
+                "id": "pnl", "method": "POST", "url": BASE_URL + "/hyperliquid/pnl",
+                "price_usdc": 0.05,
+                "input": {"user": "0xEvmAddress"},
+                "returns": ["scores (everything /score returns)", "open_positions[]", "recent_activity[]"],
+                "use_when": "you need a full trader dossier: skill + current exposure + recent fills",
+            },
+            {
+                "id": "screen", "method": "POST", "url": BASE_URL + "/hyperliquid/screen",
+                "price_usdc": 0.05,
+                "input": {"coin": "BTC|ETH|HYPE|@N|dex:symbol", "n": "1-25 (default 10)"},
+                "returns": [
+                    "traders[] ranked by coin volume with skill_score and classification",
+                    "sharp_count / retail_count / neutral_count headline",
+                ],
+                "use_when": "you need to know whether smart or dumb money dominates a coin right now",
+            },
+            {
+                "id": "vault", "method": "POST", "url": BASE_URL + "/hyperliquid/vault",
+                "price_usdc": 0.10,
+                "input": {"vault": "0xEvmAddress"},
+                "returns": [
+                    "vault_score", "leader_score (the leader's own trading skill)",
+                    "top_depositors[5]", "redemption_pressure", "last_activity_at",
+                ],
+                "use_when": "you're evaluating a copy-trade vault for deposit or due-diligence",
+            },
+            {
+                "id": "risk", "method": "POST", "url": BASE_URL + "/hyperliquid/risk",
+                "price_usdc": 0.02,
+                "input": {"user": "0xEvmAddress"},
+                "returns": [
+                    "liquidation_rate_bps", "funding_burn_signal",
+                    "recent_outflow_flag", "risk_classification",
+                ],
+                "use_when": "you're about to take the other side of a trade and want counterparty risk",
+            },
+        ],
+        "free_alternative": {
+            "method": "POST", "url": BASE_URL + "/",
+            "format": "A2A JSON-RPC 2.0 (message/send)",
+            "note": "Send 'score hyperliquid trader 0x...' to get a free recommendation with the exact curl for paid execution.",
+        },
+    }
+
+    _PM_CATALOG = {
+        "agent": "graphadvocate.eth",
+        "namespace": "polymarket",
+        "description": (
+            "Trader intelligence and ghost-fill risk scoring for Polymarket. "
+            "Derived skill metrics and wallet-type detection for counterparty assessment."
+        ),
+        "data_source": "The Graph Token API (Polymarket) + Pinax Polymarket REST",
+        "payment": {"scheme": "x402", "chain": "base", "currency": "USDC"},
+        "agent_card": BASE_URL + "/.well-known/agent-card.json",
+        "endpoints": [
+            {
+                "id": "pnl-quick", "method": "POST", "url": BASE_URL + "/polymarket/pnl-quick",
+                "price_usdc": 0.01,
+                "input": {"wallet": "0xEvmAddress"},
+                "returns": ["skill_score", "classification", "realized_pnl_usdc", "win_rate"],
+                "use_when": "you need a fast skill read on a Polymarket wallet for under a cent",
+            },
+            {
+                "id": "pnl", "method": "POST", "url": BASE_URL + "/polymarket/pnl",
+                "price_usdc": 0.05,
+                "input": {"wallet": "0xEvmAddress"},
+                "returns": ["scores", "per_market_records[]", "open_positions[]"],
+                "use_when": "you need a full Polymarket trader dossier with per-market PnL",
+            },
+            {
+                "id": "screen", "method": "POST", "url": BASE_URL + "/polymarket/screen",
+                "price_usdc": 0.02,
+                "input": {"market": "<market_slug or condition_id>"},
+                "returns": ["top_holders[] with skill_score + ghost_fill_risk per holder"],
+                "use_when": "you want to size the room on a market before entering",
+            },
+            {
+                "id": "risk", "method": "POST", "url": BASE_URL + "/polymarket/risk",
+                "price_usdc": 0.02,
+                "input": {"wallet": "0xEvmAddress"},
+                "returns": [
+                    "wallet_type (eoa|new_api_user_smart_account|other)",
+                    "ghost_fill_risk_score", "risk_classification",
+                ],
+                "use_when": "you're about to fill against this wallet and need ghost-fill probability",
+            },
+        ],
+        "free_alternative": {
+            "method": "POST", "url": BASE_URL + "/",
+            "format": "A2A JSON-RPC 2.0 (message/send)",
+            "note": "Send 'screen polymarket market X' to get a free recommendation with the exact curl for paid execution.",
+        },
+    }
+
+    async def hyperliquid_catalog_endpoint(request):
+        """GET /hyperliquid — agent-discoverable JSON catalog of the 5 paid endpoints."""
+        return JSONResponse(_HL_CATALOG, headers={
+            "Access-Control-Allow-Origin": "*",
+            "cache-control": "public, max-age=300",
+        })
+
+    async def polymarket_catalog_endpoint(request):
+        """GET /polymarket — agent-discoverable JSON catalog of the 4 paid endpoints."""
+        return JSONResponse(_PM_CATALOG, headers={
+            "Access-Control-Allow-Origin": "*",
             "cache-control": "public, max-age=300",
         })
 
@@ -6146,6 +6301,8 @@ def build_app():
         Route("/openapi.json", openapi_endpoint),
         # Landing page + static assets (for x402scan listing card)
         Route("/", landing_endpoint, methods=["GET"]),
+        Route("/hyperliquid", hyperliquid_catalog_endpoint, methods=["GET"]),
+        Route("/polymarket", polymarket_catalog_endpoint, methods=["GET"]),
         Route("/graphadvocate.png", graphadvocate_png_endpoint),
         Route("/favicon.ico", favicon_endpoint),
         Route("/favicon.png", graphadvocate_png_endpoint),
