@@ -3026,8 +3026,21 @@ def _build_dashboard_data() -> dict:
         donut_labels, donut_values, donut_colors = ["no legit queries yet"], [1], ["#334155"]
 
     # ── Recent rows for table (serialisable — strip non-JSON-safe objects) ─
+    # Collapse identical-body repeats (e.g. Sylex Commons intro broadcast)
+    # into a single row carrying a `dup_count` so the dashboard reflects
+    # real traffic shape instead of being flooded by one bot's polling.
     recent = []
-    for r in logs[:50]:
+    seen_keys: dict = {}
+    for r in logs:
+        if len(recent) >= 50:
+            break
+        ts = r.get("ts", "")
+        req = r.get("request", "")[:200]
+        service = r.get("service", "unknown")
+        dedup_key = (service, req.strip().lower())
+        if dedup_key in seen_keys:
+            recent[seen_keys[dedup_key]]["dup_count"] += 1
+            continue
         resp = r.get("response") or {}
         reason = ""
         subgraphs = []
@@ -3041,18 +3054,19 @@ def _build_dashboard_data() -> dict:
             for alt in (resp.get("alternatives") or [])[:2]:
                 if isinstance(alt, dict):
                     alternatives.append(f'{alt.get("service","?")} ({alt.get("confidence","?")})')
-        ts = r.get("ts", "")
+        seen_keys[dedup_key] = len(recent)
         recent.append({
             "ts": ts,
             "time": ts[11:19] if len(ts) >= 19 else ts,
-            "request": r.get("request", "")[:200],
-            "service": r.get("service", "unknown"),
+            "request": req,
+            "service": service,
             "tool": r.get("tool", "?"),
             "task_id": r.get("task_id", "?"),
             "reason": reason,
             "subgraphs": subgraphs,
             "alternatives": alternatives,
             "query_tool": query_tool,
+            "dup_count": 1,
         })
 
     fetch_addr = ""
