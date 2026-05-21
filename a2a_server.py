@@ -5377,6 +5377,25 @@ def build_app():
         """GET /favicon.ico — same PNG as graphadvocate.png (browsers accept PNG)."""
         return await graphadvocate_png_endpoint(request)
 
+    # Copy-trade demo — static showcase page for the Hyperliquid Token API.
+    _COPYTRADE_HTML = None
+    try:
+        _ct_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "demo", "copytrade-demo.html")
+        with open(_ct_path, "r", encoding="utf-8") as f:
+            _COPYTRADE_HTML = f.read()
+    except Exception as e:
+        log.warning(f"copytrade-demo.html not found: {e}")
+
+    async def copytrade_endpoint(request):
+        """GET /copytrade — Hyperliquid copy-trade display demo (no execution)."""
+        if _COPYTRADE_HTML is None:
+            return JSONResponse({"error": "demo not available"}, status_code=404)
+        return HTMLResponse(_COPYTRADE_HTML, headers={
+            "cache-control": "public, max-age=300",
+            "access-control-allow-origin": "*",
+        })
+
     # ── x402-protected /route endpoint via PaymentMiddlewareASGI ────────────
     # This is the OFFICIAL way to accept x402 payments per the SDK docs.
     # The middleware handles: 402 challenge → verify → settle → respond.
@@ -6387,6 +6406,7 @@ def build_app():
         Route("/graphadvocate.png", graphadvocate_png_endpoint),
         Route("/favicon.ico", favicon_endpoint),
         Route("/favicon.png", graphadvocate_png_endpoint),
+        Route("/copytrade", copytrade_endpoint, methods=["GET"]),
     ])
 
     # ── Remote MCP endpoint (Claude.ai + any MCP client) ─────────────────────
@@ -6478,7 +6498,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/hyperliquid", "/polymarket") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/hyperliquid", "/polymarket", "/copytrade") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip")

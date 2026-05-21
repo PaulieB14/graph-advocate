@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperliquid Copy-Trade — powered by The Graph Token API</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+    background:radial-gradient(ellipse at top,#15132e 0%,#0a0e1a 55%);
+    color:#e2e8f0;min-height:100vh;padding:32px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  .demo-tag{display:inline-block;font-size:.68rem;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;color:#fbbf24;border:1px solid rgba(251,191,36,.4);
+    background:rgba(251,191,36,.08);padding:3px 9px;border-radius:5px;margin-bottom:14px}
+  h1{font-size:1.6rem;font-weight:800;letter-spacing:-.02em;margin-bottom:4px;
+    background:linear-gradient(135deg,#fff,#a5b4fc);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent}
+  .sub{color:#8b93b8;font-size:.9rem;margin-bottom:24px}
+  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);
+    border-radius:14px;padding:20px;margin-bottom:16px}
+  .trader-head{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px}
+  .addr{font-family:'JetBrains Mono',monospace;font-size:.82rem;color:#a5b4fc}
+  .sharp{font-size:.7rem;font-weight:700;letter-spacing:.06em;color:#34d399;
+    border:1px solid rgba(52,211,153,.4);background:rgba(52,211,153,.1);
+    padding:3px 9px;border-radius:999px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px}
+  .stat .v{font-size:1.25rem;font-weight:800}
+  .stat .l{font-size:.7rem;color:#8b93b8;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+  .green{color:#34d399}.red{color:#f87171}
+  .bankroll{display:flex;align-items:center;gap:14px;margin:6px 0 4px}
+  .bankroll input[type=range]{flex:1;accent-color:#6747ED}
+  .bankroll .amt{font-size:1.3rem;font-weight:800;color:#fff;min-width:96px;text-align:right}
+  .section-t{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+    color:#8b93b8;margin:22px 0 10px}
+  .pos-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .pos{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
+    border-radius:10px;padding:13px 15px}
+  .pos .coin{font-weight:700;font-size:.95rem}
+  .pos .dir{font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:7px}
+  .long{background:rgba(52,211,153,.13);color:#34d399}
+  .short{background:rgba(248,113,113,.13);color:#f87171}
+  .pos .row{display:flex;justify-content:space-between;font-size:.8rem;margin-top:7px;color:#aab2d0}
+  .pos .mirror{color:#fff;font-weight:700}
+  .feed{display:flex;flex-direction:column;gap:7px}
+  .fill{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.03);
+    border:1px solid rgba(255,255,255,.06);border-radius:9px;padding:10px 14px;font-size:.83rem}
+  .fill .time{font-family:'JetBrains Mono',monospace;font-size:.72rem;color:#6b7394;min-width:62px}
+  .fill .act{font-weight:700;min-width:120px}
+  .fill .det{color:#aab2d0;flex:1}
+  .fill .you{text-align:right;color:#a5b4fc;font-weight:700;white-space:nowrap}
+  .fill .pnl{min-width:74px;text-align:right;font-weight:700;font-size:.8rem}
+  .foot{margin-top:24px;font-size:.74rem;color:#6b7394;line-height:1.6;
+    border-top:1px solid rgba(255,255,255,.06);padding-top:16px}
+  .foot b{color:#8b93b8}
+  code{background:rgba(255,255,255,.07);padding:1px 6px;border-radius:4px;
+    font-family:'JetBrains Mono',monospace;font-size:.78rem;color:#a5b4fc}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="demo-tag">● Demo — display only, no execution</span>
+  <h1>Hyperliquid Copy-Trade</h1>
+  <p class="sub">Mirror a top trader's book in real time. Powered by The Graph Token API — every number below is live on-chain Hyperliquid data.</p>
+
+  <!-- Trader -->
+  <div class="card">
+    <div class="trader-head">
+      <div>
+        <div style="font-weight:700;font-size:1.05rem">Tracked trader <span class="sharp">SHARP</span></div>
+        <div class="addr">0x469e9a7f624b04c24f0e64edf8d8a277e6bf58a5</div>
+      </div>
+      <div style="text-align:right">
+        <div class="green" style="font-size:1.5rem;font-weight:800">+$897,881</div>
+        <div class="l" style="font-size:.7rem;color:#8b93b8">realized PnL · last 7 days</div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="v">2,469</div><div class="l">Trades 7d</div></div>
+      <div class="stat"><div class="v">$55.3M</div><div class="l">Volume 7d</div></div>
+      <div class="stat"><div class="v green">0</div><div class="l">Liquidations</div></div>
+      <div class="stat"><div class="v">$5,541</div><div class="l">Fees paid 7d</div></div>
+    </div>
+  </div>
+
+  <!-- Bankroll -->
+  <div class="card">
+    <div class="section-t" style="margin-top:0">Your copy bankroll</div>
+    <div class="bankroll">
+      <input type="range" id="bank" min="100" max="25000" step="100" value="1000">
+      <span class="amt" id="bankAmt">$1,000</span>
+    </div>
+    <div style="font-size:.78rem;color:#8b93b8">Your bankroll is spread across the trader's open positions in the same proportions. Copy ratio: <span id="ratio" style="color:#a5b4fc;font-weight:700"></span></div>
+  </div>
+
+  <!-- Mirrored positions -->
+  <div class="section-t">Your mirrored book — what you'd be holding right now</div>
+  <div class="pos-grid" id="positions"></div>
+
+  <!-- Live moves -->
+  <div class="section-t">Live moves — the trader's recent fills, mirrored to your size</div>
+  <div class="feed" id="feed"></div>
+
+  <div class="foot">
+    <b>Data source:</b> The Graph Token API — Hyperliquid endpoints (<code>/v1/hyperliquid/markets/activity</code>, <code>/users</code>, <code>/users/positions</code>, <code>/markets</code>). Trader surfaced via Graph Advocate's <code>/hyperliquid/screen</code>.<br>
+    <b>This is a display demo.</b> It computes what mirroring would look like — it does not place, sign, or execute any order. Not financial advice. Prices snapshotted 2026-05-21 15:00 UTC.
+  </div>
+</div>
+
+<script>
+const TRADER_BOOK_USD = 17309634; // sum of position notionals at snapshot
+const PRICES = {BTC:77262, XRP:1.3644, HYPE:62.166, ZEC:660.36};
+const POSITIONS = [
+  {coin:"BTC",  size:-6.50196},
+  {coin:"XRP",  size:-5000000},
+  {coin:"HYPE", size:-150000},
+  {coin:"ZEC",  size:1000},
+];
+const FILLS = [
+  {ts:"14:21:31", date:"05-21", dir:"CLOSE_SHORT", coin:"BTC", size:0.15109, price:76764, pnl:96.09},
+  {ts:"14:21:31", date:"05-21", dir:"CLOSE_SHORT", coin:"BTC", size:0.01361, price:76764, pnl:8.66},
+  {ts:"19:01:09", date:"05-20", dir:"OPEN_SHORT",  coin:"BTC", size:1.03493, price:77400, pnl:0},
+  {ts:"19:00:58", date:"05-20", dir:"OPEN_SHORT",  coin:"BTC", size:0.03940, price:77400, pnl:0},
+  {ts:"19:00:54", date:"05-20", dir:"OPEN_SHORT",  coin:"BTC", size:0.20000, price:77400, pnl:0},
+  {ts:"19:00:54", date:"05-20", dir:"OPEN_SHORT",  coin:"BTC", size:0.00592, price:77400, pnl:0},
+];
+
+const fmt = n => n.toLocaleString('en-US',{maximumFractionDigits:0});
+const fmt2 = n => n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+function render(){
+  const bank = +document.getElementById('bank').value;
+  const ratio = bank / TRADER_BOOK_USD;
+  document.getElementById('bankAmt').textContent = '$'+fmt(bank);
+  document.getElementById('ratio').textContent = (ratio*100).toFixed(4)+'%  of their book';
+
+  // positions
+  document.getElementById('positions').innerHTML = POSITIONS.map(p=>{
+    const px = PRICES[p.coin];
+    const notional = Math.abs(p.size)*px;
+    const isLong = p.size>0;
+    const yourUsd = notional*ratio;
+    const yourUnits = Math.abs(p.size)*ratio;
+    return `<div class="pos">
+      <div><span class="coin">${p.coin}</span>
+        <span class="dir ${isLong?'long':'short'}">${isLong?'LONG':'SHORT'}</span></div>
+      <div class="row"><span>Trader notional</span><span>$${fmt(notional)}</span></div>
+      <div class="row"><span>Your mirror</span>
+        <span class="mirror">$${fmt2(yourUsd)} · ${yourUnits<1?yourUnits.toPrecision(3):fmt2(yourUnits)} ${p.coin}</span></div>
+    </div>`;
+  }).join('');
+
+  // feed
+  document.getElementById('feed').innerHTML = FILLS.map(f=>{
+    const notional = f.size*f.price;
+    const yourUsd = notional*ratio;
+    const isClose = f.dir.startsWith('CLOSE');
+    const dirColor = f.dir.includes('SHORT')&&!isClose ? 'red' : (isClose?'green':'green');
+    const pnlHtml = f.pnl>0
+      ? `<span class="pnl green">+$${fmt2(f.pnl*ratio)}</span>`
+      : `<span class="pnl" style="color:#6b7394">—</span>`;
+    return `<div class="fill">
+      <span class="time">${f.date}<br>${f.ts}</span>
+      <span class="act ${dirColor}">${f.dir.replace('_',' ')}</span>
+      <span class="det">${fmt2(f.size)} ${f.coin} @ $${fmt(f.price)} · $${fmt(notional)}</span>
+      <span class="you">→ you $${fmt2(yourUsd)}</span>
+      ${pnlHtml}
+    </div>`;
+  }).join('');
+}
+document.getElementById('bank').addEventListener('input', render);
+render();
+</script>
+</body>
+</html>
