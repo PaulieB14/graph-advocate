@@ -1077,6 +1077,30 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         log.warning(f"Auto-score failed: {e}")
 
 
+def _log_paid_failure(descriptor: str, exc: Exception) -> None:
+    """Record a paid x402 request that crashed inside its handler.
+
+    Paid handlers log success via _log_request, but historically returned
+    their 5xx error with no activity-DB write — so a paying caller's failed
+    request left zero trace on the dashboard. (The x402 middleware does not
+    settle on a >=400 response, so the caller is not charged; but the
+    operator still needs to see that a paid attempt failed.) This closes
+    that gap: failed paid traffic is logged under service 'x402-failed'.
+    """
+    try:
+        _log_request(
+            "x402-paid", descriptor, "x402-failed", "high",
+            type(exc).__name__,
+            response={
+                "error": "handler_failed",
+                "exception_type": type(exc).__name__,
+                "message": str(exc)[:200],
+            },
+        )
+    except Exception as log_exc:
+        log.warning(f"could not log paid failure: {log_exc}")
+
+
 # Load existing log on startup
 _load_log()
 _init_activity_db()
@@ -5425,6 +5449,7 @@ def build_app():
                 # (and Railway logs) can act on it. Keep the message short to
                 # avoid leaking internals; the full traceback goes to logs.
                 log.exception(f"X402-ROUTE handler crashed for: {user_text[:60]}")
+                _log_paid_failure(user_text, exc)
                 return _RouteJSON({
                     "error": "internal_error",
                     "exception_type": type(exc).__name__,
@@ -5515,6 +5540,7 @@ def build_app():
                 })
             except Exception as exc:
                 log.exception(f"pm-pnl-quick crashed: {wallet}")
+                _log_paid_failure(f"pm-pnl-quick {wallet[:10]}", exc)
                 return _RouteJSON({
                     "error": "upstream_error",
                     "exception_type": type(exc).__name__,
@@ -5569,6 +5595,7 @@ def build_app():
                 })
             except Exception as exc:
                 log.exception(f"pm-pnl crashed: {wallet}")
+                _log_paid_failure(f"pm-pnl {wallet[:10]}", exc)
                 return _RouteJSON({
                     "error": "upstream_error",
                     "exception_type": type(exc).__name__,
@@ -5678,6 +5705,7 @@ def build_app():
                 })
             except Exception as exc:
                 log.exception(f"pm-screen crashed: {condition_id}")
+                _log_paid_failure(f"pm-screen {str(condition_id)[:10]}", exc)
                 return _RouteJSON({
                     "error": "upstream_error",
                     "exception_type": type(exc).__name__,
@@ -5719,6 +5747,7 @@ def build_app():
                 })
             except Exception as exc:
                 log.exception(f"pm-risk crashed: {wallet}")
+                _log_paid_failure(f"pm-risk {wallet[:10]}", exc)
                 return _RouteJSON({
                     "error": "upstream_error",
                     "exception_type": type(exc).__name__,
@@ -5759,6 +5788,7 @@ def build_app():
                                    "generated_at": datetime.now(timezone.utc).isoformat()})
             except Exception as exc:
                 log.exception(f"hl-score crashed: {user}")
+                _log_paid_failure(f"hl-score {user[:10]}", exc)
                 return _RouteJSON({"error": "upstream_error",
                                    "exception_type": type(exc).__name__,
                                    "message": str(exc)[:200]}, status_code=502)
@@ -5787,6 +5817,7 @@ def build_app():
                 })
             except Exception as exc:
                 log.exception(f"hl-pnl crashed: {user}")
+                _log_paid_failure(f"hl-pnl {user[:10]}", exc)
                 return _RouteJSON({"error": "upstream_error",
                                    "exception_type": type(exc).__name__,
                                    "message": str(exc)[:200]}, status_code=502)
@@ -5832,6 +5863,7 @@ def build_app():
                 })
             except Exception as exc:
                 log.exception(f"hl-screen crashed: {coin}")
+                _log_paid_failure(f"hl-screen {coin}", exc)
                 return _RouteJSON({"error": "upstream_error",
                                    "exception_type": type(exc).__name__,
                                    "message": str(exc)[:200]}, status_code=502)
@@ -5869,6 +5901,7 @@ def build_app():
                 })
             except Exception as exc:
                 log.exception(f"hl-vault crashed: {vault}")
+                _log_paid_failure(f"hl-vault {vault[:10]}", exc)
                 return _RouteJSON({"error": "upstream_error",
                                    "exception_type": type(exc).__name__,
                                    "message": str(exc)[:200]}, status_code=502)
@@ -5899,6 +5932,7 @@ def build_app():
                 })
             except Exception as exc:
                 log.exception(f"hl-risk crashed: {user}")
+                _log_paid_failure(f"hl-risk {user[:10]}", exc)
                 return _RouteJSON({"error": "upstream_error",
                                    "exception_type": type(exc).__name__,
                                    "message": str(exc)[:200]}, status_code=502)
