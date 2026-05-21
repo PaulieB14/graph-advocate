@@ -1,7 +1,7 @@
 {
   "name": "graph-advocate",
-  "version": "2.4.0",
-  "description": "Ask any blockchain question in plain English — get token balances, DeFi analytics, NFT data, prediction market odds, and protocol stats instantly. Covers 15,500+ subgraphs across 20+ chains.",
+  "version": "2.5.0",
+  "description": "Ask any blockchain question in plain English — get token balances, DeFi analytics, NFT data, prediction market odds, Hyperliquid perps trader intelligence, and protocol stats instantly. Covers 15,500+ subgraphs across 20+ chains.",
   "author": "paulieb14",
   "license": "MIT-0",
   "homepage": "https://github.com/PaulieB14/graph-advocate",
@@ -19,7 +19,9 @@
     "solana",
     "aave",
     "uniswap",
-    "polymarket"
+    "polymarket",
+    "hyperliquid",
+    "perps"
   ],
   "categories": ["Web", "Finance", "AI/ML"],
   "mcp": {

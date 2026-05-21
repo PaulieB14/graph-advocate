@@ -1,7 +1,7 @@
 ---
 name: graph-advocate
-description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 15,500+ subgraphs, Token API (EVM/Solana/TON + Polymarket), x402 payment analytics, and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, ENS, governance, x402, prediction market, onchain data, blockchain."
-version: 2.4.0
+description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 15,500+ subgraphs, Token API (EVM/Solana/TON + Polymarket + Hyperliquid), x402 payment analytics, and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, Hyperliquid, perps, ENS, governance, x402, prediction market, onchain data, blockchain."
+version: 2.5.0
 homepage: https://github.com/PaulieB14/graph-advocate
 metadata:
   clawdbot:
@@ -23,6 +23,7 @@ Match the user's intent to the right service. Load only the reference you need.
 | **Find a subgraph for a protocol** | subgraph-registry | [subgraph-registry.md](references/subgraph-registry.md) | Search 15,500+ subgraphs by protocol/chain |
 | **Aave lending data** | graph-aave-mcp | [aave.md](references/aave.md) | 40 tools — V2/V3/V4, liquidations, rates |
 | **Polymarket advanced (orderbook, disputes, trader winrate/drawdown)** | graph-polymarket-mcp | [polymarket.md](references/polymarket.md) | 31 tools — live CLOB, UMA resolution, subgraph-specific P&L stats |
+| **Hyperliquid perps — trader skill, vaults, liquidations** | token-api + `/hyperliquid/*` | [hyperliquid.md](references/hyperliquid.md) | Raw markets/users/vaults via token-api; derived skill scores via GA's paid `/hyperliquid/*` endpoints |
 | **Cross-protocol lending** | graph-lending-mcp | — | Messari standardized — 40+ protocols on 15 chains |
 | **Limitless prediction markets** | graph-limitless-mcp | — | Markets on Base |
 | **Predict.fun prediction markets** | predictfun-mcp | — | BNB Chain prediction markets |
@@ -46,6 +47,9 @@ If the request spans two services, use both and combine results.
 "Polymarket trader P&L for 0x..."           → token-api (/v1/polymarket/users/positions)
 "Polymarket live orderbook depth"           → graph-polymarket-mcp (advanced)
 "Polymarket trader winrate/drawdown"        → graph-polymarket-mcp (subgraph P&L stats)
+"Score Hyperliquid trader 0x..."            → /hyperliquid/score (paid)
+"Hyperliquid top traders for HYPE"          → /hyperliquid/screen (paid)
+"Evaluate Hyperliquid vault 0x..."          → /hyperliquid/vault (paid)
 "Compare Aave vs Compound TVL"              → graph-lending-mcp
 "x402 payment volume on Base today"         → x402-analytics
 "Find agents that do trading"               → 8004scan
