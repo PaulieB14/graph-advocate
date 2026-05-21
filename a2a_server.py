@@ -5060,6 +5060,53 @@ def build_app():
                 },
             },
         }
+
+        # Trader-intelligence endpoints — paid x402 services. Documented here
+        # so x402scan and other OpenAPI crawlers discover the full surface,
+        # not just /route. Prices mirror /.well-known/x402 and the catalogs.
+        _paid_endpoints = [
+            ("/hyperliquid/score", "hyperliquidScore", "0.02",
+             "Composite skill_score 0-100 for a Hyperliquid perps trader: classification, liquidation rate, funding burn, profit factor."),
+            ("/hyperliquid/pnl", "hyperliquidPnl", "0.05",
+             "Full Hyperliquid trader dossier: skill metrics plus open positions and recent fills."),
+            ("/hyperliquid/screen", "hyperliquidScreen", "0.05",
+             "Top N traders of a Hyperliquid coin, each scored sharp/neutral/retail."),
+            ("/hyperliquid/vault", "hyperliquidVault", "0.10",
+             "Hyperliquid vault evaluator: leader skill, depositor concentration, redemption pressure."),
+            ("/hyperliquid/risk", "hyperliquidRisk", "0.02",
+             "Hyperliquid counterparty risk: liquidation rate, funding burn, recent-outflow flag."),
+            ("/polymarket/pnl-quick", "polymarketPnlQuick", "0.01",
+             "Fast derived skill metrics for a Polymarket wallet: skill score, classification, realized PnL, win rate."),
+            ("/polymarket/pnl", "polymarketPnl", "0.05",
+             "Full Polymarket trader dossier: scores plus per-market PnL records and open positions."),
+            ("/polymarket/screen", "polymarketScreen", "0.02",
+             "Top holders of a Polymarket market, each with skill score and ghost-fill risk."),
+            ("/polymarket/risk", "polymarketRisk", "0.02",
+             "Polymarket ghost-fill risk: wallet-type detection plus risk score for counterparty assessment."),
+        ]
+        for _path, _opid, _price, _desc in _paid_endpoints:
+            spec["paths"][_path] = {
+                "post": {
+                    "operationId": _opid,
+                    "summary": _desc.split(":")[0],
+                    "description": _desc,
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    },
+                    "responses": {
+                        "200": {"description": "Result",
+                                "content": {"application/json": {"schema": {"type": "object"}}}},
+                        "402": {"description": "Payment required",
+                                "content": {"application/json": {"schema": {"type": "object"}}}},
+                    },
+                    "x-payment-info": {
+                        "protocols": [{"x402": {}}],
+                        "price": {"mode": "fixed", "currency": "USD", "amount": _price},
+                    },
+                },
+            }
+
         return JSONResponse(spec, headers={"Access-Control-Allow-Origin": "*"})
 
     # ── Landing page with OG meta tags (for x402scan listing card) ────────────
