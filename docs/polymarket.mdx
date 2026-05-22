@@ -1,0 +1,78 @@
+---
+title: "Polymarket trader intelligence"
+description: "Skill-score any Polymarket wallet, screen a market's holders, and assess ghost-fill counterparty risk — derived from on-chain trade history via The Graph Token API and Pinax's Polymarket REST."
+---
+
+Four paid x402 endpoints that turn raw Polymarket trade history into agent-ready intelligence. Every score is derived — your agent gets a decision, not a pile of fills to parse.
+
+## What you get
+
+| Endpoint | Cost | Returns |
+|---|---:|---|
+| `POST /polymarket/pnl-quick` | $0.01 | Fast read — `skill_score`, classification, realized PnL, win rate. No lot reconstruction. |
+| `POST /polymarket/pnl` | $0.05 | Full dossier — scores + per-market position records + open positions. |
+| `POST /polymarket/screen` | $0.02 | Size the room — top holders of a market, each with skill score + ghost-fill risk. |
+| `POST /polymarket/risk` | $0.02 | Ghost-fill counterparty risk — wallet-type detection for the wallet you're about to fill against. |
+
+Per-call payment in USDC on Base via x402. No subscription, no API key, no rate limit beyond the facilitator.
+
+## Why derived over raw
+
+Raw Polymarket data is now commoditised — Pinax's Token API, Polymarket's own CLI, and Polymarket's REST all hand you markets, prices, and positions for free. What none of them give you is a *judgement*: is this wallet sharp, and is it safe to fill against?
+
+Graph Advocate does that synthesis once. `pnl-quick` and `pnl` reconstruct realized/unrealized PnL, win rate, and a sample-size-weighted `skill_score` from the wallet's full trade history (see [`polymarket_intel.py`](https://github.com/PaulieB14/graph-advocate/blob/main/polymarket_intel.py) for the formula). A small sample is shrunk toward neutral so a 3-trade wallet can't fake a 100.
+
+## Ghost-fill risk — the distinctive one
+
+Polymarket's newer API-user accounts are **smart-contract wallets** (ERC-1967 proxies that sign with `POLY_1271`, deployed by a known factory on Polygon), not plain EOAs. An order resting against one of those carries different settlement behaviour than one against an EOA — the source of "ghost fills."
+
+`POST /polymarket/risk` detects the wallet type and returns it directly:
+
+```json
+{
+  "wallet": "0x…",
+  "wallet_type": "new_api_user_smart_account",
+  "ghost_fill_risk_score": 72,
+  "risk_classification": "elevated"
+}
+```
+
+`wallet_type` is one of `eoa`, `new_api_user_smart_account`, or `other`. For an agent about to take the other side of an order, that one field is the highest-signal input it can get.
+
+## Sample: quick skill read
+
+```bash
+curl -X POST 'https://graphadvocate.com/polymarket/pnl-quick' \
+  -H 'Content-Type: application/json' \
+  -d '{"wallet": "0x…"}'
+```
+
+Returns `skill_score` (0–100), classification, realized PnL in USDC, and win rate — for a tenth of a cent. Use it as a cheap pre-filter before paying for the full `pnl` dossier.
+
+## Sample: size the room
+
+```bash
+curl -X POST 'https://graphadvocate.com/polymarket/screen' \
+  -H 'Content-Type: application/json' \
+  -d '{"market": "<market-slug-or-condition-id>"}'
+```
+
+Returns the market's top holders, each carrying a `skill_score` and a `ghost_fill_risk` flag. Before you enter a market, this tells you whether the existing position is held by sharps or by retail — and which holders are risky to trade against.
+
+## Identifiers
+
+- **Wallet** — a standard `0x…` address. For `pnl-quick`, `pnl`, and `risk`.
+- **Market** — a Polymarket `market_slug` or a `condition_id`. For `screen`.
+
+## Free tier
+
+There is no free tier for these endpoints — each fans out multiple upstream calls and synthesises the result. To inspect the routing for free, send a plain-English question to `POST /` (A2A JSON-RPC) and Graph Advocate will name the right `polymarket/*` endpoint and hand back the exact paid curl — without charging.
+
+```bash
+curl -X POST 'https://graphadvocate.com/' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0", "id": 1, "method": "message/send",
+    "params": {"message": {"parts": [{"text": "screen Polymarket wallet 0x… skill"}]}}
+  }'
+```

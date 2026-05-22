@@ -4,7 +4,7 @@ description: "Ask any blockchain data question in plain English. Get back the ri
 ---
 
 <Info>
-  **Free 10 calls/day per wallet.** No signup, no API key. Beyond that, $0.01 USDC auto-charged on Base via x402. ERC-8004 #734 · `graphadvocate.eth`
+  **3 free routing calls/day** for identified senders (wallet in A2A metadata) — then $0.01 USDC on Base via x402. Anonymous senders pay from call 1. No signup, no API key. ERC-8004 #734 · `graphadvocate.eth`
 </Info>
 
 ## What it is
@@ -18,13 +18,26 @@ It speaks A2A JSON-RPC, MCP SSE, and x402 payments. Any agent, human, or LLM can
     Plain-English query → the right subgraph + a GraphQL query ready to fire at the Graph gateway.
   </Card>
   <Card title="Pays per call, no API keys" icon="credit-card">
-    First 10 calls/day free per requesting wallet. After that, $0.01 USDC auto-charged on Base via x402 — no signup, no card, your agent's wallet *is* the billing relationship.
+    3 routing calls/day free for identified senders; anonymous senders pay $0.01 from call 1. No signup, no card — your agent's wallet *is* the billing relationship.
   </Card>
   <Card title="Recommends what's actually being used" icon="network-wired">
     Indexes three live signals — onchain x402 payments on Base, the ERC-8004 agent registry, and the CDP Bazaar — so you only see services that are paid-for and live, not stale brochure listings.
   </Card>
   <Card title="A2A, MCP, ERC-8004" icon="robot">
     Speaks every agent standard. One endpoint, every client.
+  </Card>
+</CardGroup>
+
+## Trader intelligence
+
+Beyond routing, Graph Advocate ships paid x402 endpoints that score traders directly — derived skill metrics and risk signals, not raw data to parse.
+
+<CardGroup cols={2}>
+  <Card title="Hyperliquid" icon="chart-line" href="/hyperliquid">
+    Skill-score any perps trader, screen the sharps on a coin, evaluate copy-trade vaults. 5 endpoints, $0.02–$0.10.
+  </Card>
+  <Card title="Polymarket" icon="chart-pie" href="/polymarket">
+    Skill-score any wallet, size a market's holders, assess ghost-fill counterparty risk. 4 endpoints, $0.01–$0.05.
   </Card>
 </CardGroup>
 
@@ -77,11 +90,11 @@ curl -X POST https://graphadvocate.com/ \
 
 | | |
 |---|---|
-| **Free quota** | 10 calls/day per requesting wallet (or per source IP if no wallet signature) |
-| **Paid call** | $0.01 USDC on Base via x402 — no signup, no API key, no card |
+| **Free quota** | 3 routing calls/day for identified senders (wallet in A2A metadata); anonymous senders pay from call 1 |
+| **Paid call** | `/route` $0.01 · `/hyperliquid/*` & `/polymarket/*` $0.01–$0.10 — USDC on Base via x402, no signup or card |
 | **Routing surface** | 15,000+ subgraphs across 70+ networks (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and others); plus token-api, substreams, and protocol-specific MCP servers |
 | **Payment networks** | Base mainnet only (more soon) |
 | **Latency** | Typically <2s end-to-end including query execution |
-| **Standards** | A2A JSON-RPC 2.0 · MCP SSE · x402 v1 · ERC-8004 agent identity |
+| **Standards** | A2A JSON-RPC 2.0 · MCP SSE · x402 v2 · ERC-8004 agent identity |
 | **Status** | Live monitoring at [`/dashboard`](https://graphadvocate.com/dashboard) |
 | **Issues / feature requests** | [github.com/PaulieB14/graph-advocate](https://github.com/PaulieB14/graph-advocate/issues) |
