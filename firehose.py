@@ -137,6 +137,12 @@ def _handle(payload: dict) -> None:
 async def run() -> None:
     """Background task — connect, consume, reconnect forever. Never raises."""
     global _status, _last_error
+    # Kill switch — set FIREHOSE_ENABLED=1 in Railway to turn the stream on.
+    # Default off so the JWT doesn't burn streaming fees 24/7.
+    if os.environ.get("FIREHOSE_ENABLED", "").strip() not in ("1", "true", "yes"):
+        _status = "disabled"
+        log.info("firehose: disabled (set FIREHOSE_ENABLED=1 to start)")
+        return
     _status = "starting"
     jwt = _jwt()
     if not jwt:
