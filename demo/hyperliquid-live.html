@@ -4,86 +4,127 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hyperliquid Live — perp markets, real-time</title>
-<meta name="description" content="Live Hyperliquid perpetual markets — price, charts, volume, open interest, funding. Powered by The Graph Token API.">
+<meta name="description" content="Live Hyperliquid perp markets — heatmap, charts, ticker. Powered by The Graph Token API.">
 <meta property="og:title" content="Hyperliquid Live">
-<meta property="og:description" content="Every Hyperliquid perp market with live-building charts. Powered by The Graph Token API.">
+<meta property="og:description" content="Live Hyperliquid perp-market heatmap with self-drawing charts. Powered by The Graph Token API.">
 <meta name="twitter:card" content="summary_large_image">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
   body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
-    background:radial-gradient(ellipse at top,#0c2a26 0%,#070b14 62%);
-    color:#e6edf3;min-height:100vh;padding:30px 16px}
-  .wrap{max-width:940px;margin:0 auto}
-  .tag{display:inline-flex;align-items:center;gap:7px;font-size:.7rem;font-weight:700;
-    letter-spacing:.08em;text-transform:uppercase;color:#34d399;
-    border:1px solid rgba(52,211,153,.35);background:rgba(52,211,153,.08);
-    padding:4px 10px;border-radius:6px;margin-bottom:14px}
+    background:#05070d;color:#e6edf3;overflow-x:hidden}
+  #bg{position:fixed;inset:0;z-index:0}
+  .wrap{position:relative;z-index:1;max-width:1040px;margin:0 auto;padding:0 16px 40px}
+
+  /* ticker tape */
+  .tape{position:relative;z-index:2;border-bottom:1px solid rgba(52,211,153,.18);
+    background:rgba(5,10,16,.85);backdrop-filter:blur(6px);overflow:hidden;height:38px;
+    display:flex;align-items:center;margin-bottom:26px}
+  .tape .run{display:inline-flex;gap:30px;white-space:nowrap;
+    animation:slide 70s linear infinite;padding-left:30px}
+  .tape:hover .run{animation-play-state:paused}
+  @keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+  .tk{font-size:.82rem;font-variant-numeric:tabular-nums}
+  .tk b{font-weight:700;color:#fff}
+
+  .head{padding-top:8px}
+  .tag{display:inline-flex;align-items:center;gap:7px;font-size:.68rem;font-weight:700;
+    letter-spacing:.09em;text-transform:uppercase;color:#34d399;
+    border:1px solid rgba(52,211,153,.35);background:rgba(52,211,153,.07);
+    padding:4px 10px;border-radius:6px;margin-bottom:13px}
   .dot{width:7px;height:7px;border-radius:50%;background:#34d399;animation:pulse 1.6s infinite}
-  @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(52,211,153,.5)}
-    50%{opacity:.4;box-shadow:0 0 0 6px rgba(52,211,153,0)}}
-  h1{font-size:2rem;font-weight:800;letter-spacing:-.02em;
-    background:linear-gradient(135deg,#fff,#6ee7b7);-webkit-background-clip:text;
-    -webkit-text-fill-color:transparent;background-clip:text}
-  .sub{color:#7d8aa0;font-size:.9rem;margin:4px 0 22px}
+  @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(52,211,153,.55)}
+    50%{opacity:.35;box-shadow:0 0 0 7px rgba(52,211,153,0)}}
+  h1{font-size:2.6rem;font-weight:900;letter-spacing:-.03em;line-height:1;
+    background:linear-gradient(120deg,#fff 10%,#6ee7b7 55%,#22d3ee 95%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+    filter:drop-shadow(0 0 26px rgba(52,211,153,.25))}
+  .sub{color:#7d8aa0;font-size:.92rem;margin:7px 0 22px}
 
-  /* hero */
-  .hero{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;gap:12px;margin-bottom:24px}
+  .hero{display:grid;grid-template-columns:1.7fr 1fr 1fr 1fr;gap:12px;margin-bottom:24px}
   .hero .box{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
-    border-radius:14px;padding:16px 18px;position:relative;overflow:hidden}
-  .hero .box.big{background:linear-gradient(135deg,rgba(52,211,153,.12),rgba(255,255,255,.03))}
+    border-radius:14px;padding:15px 18px}
+  .hero .box.big{background:linear-gradient(135deg,rgba(52,211,153,.14),rgba(255,255,255,.02));
+    border-color:rgba(52,211,153,.3)}
   .hero .v{font-size:1.5rem;font-weight:800;font-variant-numeric:tabular-nums}
-  .hero .box.big .v{font-size:2.1rem;background:linear-gradient(135deg,#fff,#6ee7b7);
+  .hero .box.big .v{font-size:2.2rem;background:linear-gradient(120deg,#fff,#6ee7b7);
     -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-  .hero .l{font-size:.66rem;color:#7d8aa0;text-transform:uppercase;letter-spacing:.05em;margin-top:4px}
+  .hero .l{font-size:.64rem;color:#7d8aa0;text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
 
-  /* volume bar chart */
-  .panel{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);
-    border-radius:14px;padding:18px;margin-bottom:22px}
-  .panel h2{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
-    color:#7d8aa0;margin-bottom:14px}
+  .panel{background:rgba(255,255,255,.022);border:1px solid rgba(255,255,255,.07);
+    border-radius:16px;padding:18px;margin-bottom:20px}
+  .panel h2{font-size:.76rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+    color:#7d8aa0;margin-bottom:14px;display:flex;justify-content:space-between}
+
+  /* heatmap */
+  #heat{display:grid;grid-template-columns:repeat(8,1fr);grid-auto-rows:54px;
+    grid-auto-flow:dense;gap:6px}
+  .cell{border-radius:9px;padding:7px 9px;display:flex;flex-direction:column;
+    justify-content:space-between;overflow:hidden;position:relative;
+    transition:background .9s ease, transform .25s ease;cursor:default}
+  .cell:hover{transform:scale(1.04);z-index:3;box-shadow:0 6px 22px rgba(0,0,0,.5)}
+  .cell.xl{grid-column:span 2;grid-row:span 2}
+  .cell.lg{grid-column:span 2;grid-row:span 1}
+  .cell .c{font-weight:800;font-size:.82rem;letter-spacing:-.01em}
+  .cell.xl .c{font-size:1.15rem}
+  .cell .p{font-size:.66rem;opacity:.85;font-variant-numeric:tabular-nums}
+  .cell .ch{font-weight:800;font-size:.74rem;font-variant-numeric:tabular-nums}
+  .cell.xl .ch{font-size:1.05rem}
+  .cell.tickup{animation:tu .8s ease-out}
+  .cell.tickdn{animation:td .8s ease-out}
+  @keyframes tu{0%{box-shadow:0 0 0 2px #34d399 inset}100%{box-shadow:none}}
+  @keyframes td{0%{box-shadow:0 0 0 2px #f87171 inset}100%{box-shadow:none}}
+
   .vbar{display:flex;align-items:center;gap:10px;margin-bottom:7px;font-size:.82rem}
-  .vbar .nm{width:64px;font-weight:700;text-align:right;flex-shrink:0}
-  .vbar .track{flex:1;height:18px;background:rgba(255,255,255,.04);border-radius:5px;overflow:hidden}
-  .vbar .fill{height:100%;border-radius:5px;
-    background:linear-gradient(90deg,#0f766e,#34d399);
-    transition:width 1s cubic-bezier(.4,0,.2,1)}
-  .vbar .amt{width:74px;text-align:right;color:#aab2c8;flex-shrink:0;font-variant-numeric:tabular-nums}
+  .vbar .nm{width:62px;font-weight:700;text-align:right;flex-shrink:0}
+  .vbar .track{flex:1;height:16px;background:rgba(255,255,255,.04);border-radius:5px;overflow:hidden}
+  .vbar .fill{height:100%;border-radius:5px;background:linear-gradient(90deg,#0f766e,#34d399);
+    transition:width 1s cubic-bezier(.4,0,.2,1);box-shadow:0 0 12px rgba(52,211,153,.4)}
+  .vbar .amt{width:72px;text-align:right;color:#aab2c8;flex-shrink:0;font-variant-numeric:tabular-nums}
 
-  /* table */
-  table{width:100%;border-collapse:collapse;font-size:.85rem}
-  th{text-align:right;font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;
-    color:#7d8aa0;font-weight:600;padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.08)}
+  table{width:100%;border-collapse:collapse;font-size:.84rem}
+  th{text-align:right;font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;
+    color:#7d8aa0;font-weight:600;padding:7px 9px;border-bottom:1px solid rgba(255,255,255,.08)}
   th:first-child,td:first-child{text-align:left}
-  td{padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.05);text-align:right;
-    vertical-align:middle}
+  td{padding:7px 9px;border-bottom:1px solid rgba(255,255,255,.05);text-align:right;vertical-align:middle}
   tr:hover td{background:rgba(255,255,255,.025)}
-  .coin{font-weight:700;font-size:.92rem}
+  .coin{font-weight:700;font-size:.9rem}
   .px{font-variant-numeric:tabular-nums;font-weight:600}
   .up{color:#34d399}.down{color:#f87171}
   .fund-pos{color:#fbbf24}.fund-neg{color:#60a5fa}
-  .spark{vertical-align:middle}
-  .pressure{display:inline-block;width:62px;height:7px;border-radius:4px;overflow:hidden;
+  .pressure{display:inline-block;width:58px;height:7px;border-radius:4px;overflow:hidden;
     background:#f87171;vertical-align:middle}
-  .pressure i{display:block;height:100%;background:#34d399;border-radius:4px 0 0 4px}
-  .flash-up td{animation:fu .9s ease-out}
-  .flash-down td{animation:fd .9s ease-out}
-  @keyframes fu{0%{background:rgba(52,211,153,.20)}100%{background:transparent}}
-  @keyframes fd{0%{background:rgba(248,113,113,.20)}100%{background:transparent}}
-  .foot{margin-top:20px;font-size:.74rem;color:#5d6b82;line-height:1.6;
-    border-top:1px solid rgba(255,255,255,.06);padding-top:14px}
+  .pressure i{display:block;height:100%;background:#34d399}
+  .foot{margin-top:18px;font-size:.73rem;color:#5d6b82;line-height:1.6;
+    border-top:1px solid rgba(255,255,255,.06);padding-top:13px}
   .foot a{color:#6ee7b7;text-decoration:none}
   code{background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px;
-    font-family:'JetBrains Mono',monospace;font-size:.77rem;color:#6ee7b7}
-  @media(max-width:640px){.hero{grid-template-columns:1fr 1fr}.spark{display:none}}
+    font-family:'JetBrains Mono',monospace;font-size:.76rem;color:#6ee7b7}
+  @media(max-width:680px){
+    .hero{grid-template-columns:1fr 1fr}
+    #heat{grid-template-columns:repeat(4,1fr)}
+    h1{font-size:2rem}.spark{display:none}
+  }
 </style>
 </head>
 <body>
+<canvas id="bg"></canvas>
+
+<div class="tape"><div class="run" id="tape"></div></div>
+
 <div class="wrap">
-  <span class="tag"><span class="dot"></span> Live · sparklines build as you watch</span>
-  <h1>Hyperliquid Live</h1>
-  <p class="sub">Every Hyperliquid perpetual market, real-time — with charts that draw themselves. Powered by The Graph Token API. No wallet, no key.</p>
+  <div class="head">
+    <span class="tag"><span class="dot"></span> Live heatmap · charts draw themselves</span>
+    <h1>Hyperliquid Live</h1>
+    <p class="sub">Every Hyperliquid perpetual market — a live heatmap, self-building charts, and a running tape. Powered by The Graph Token API. No wallet, no key.</p>
+  </div>
 
   <div class="hero" id="hero"></div>
+
+  <div class="panel">
+    <h2><span>Market heatmap · tile size = 24h volume · color = 24h move</span><span id="heatclock"></span></h2>
+    <div id="heat"></div>
+  </div>
 
   <div class="panel">
     <h2>Volume leaders · 24h</h2>
@@ -103,126 +144,143 @@
 
   <div class="foot">
     Data: <code>token-api.thegraph.com/v1/hyperliquid/markets</code> — The Graph's free,
-    unauthenticated Hyperliquid endpoint, polled client-side every 10s. Sparklines
-    accumulate live while the page is open. Built by
-    <a href="https://graphadvocate.com">Graph Advocate</a>. <span id="status"></span>
+    unauthenticated Hyperliquid endpoint, polled client-side every 10s. Sparklines build
+    live while the page is open. Built by <a href="https://graphadvocate.com">Graph Advocate</a>.
+    <span id="status"></span>
   </div>
 </div>
 
 <script>
-const API = "https://token-api.thegraph.com/v1/hyperliquid/markets"
-const hist = {}           // coin -> [prices]   (live-built sparkline series)
-const last = {}           // coin -> last price (flash)
-let heroVol = 0           // for count-up animation
-
-const fmtUsd = n => n>=1e9?"$"+(n/1e9).toFixed(2)+"B":n>=1e6?"$"+(n/1e6).toFixed(1)+"M":n>=1e3?"$"+(n/1e3).toFixed(1)+"K":"$"+(n||0).toFixed(0)
-const fmtNum = n => n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?(n/1e3).toFixed(1)+"K":String(Math.round(n||0))
-const fmtPx  = p => p>=1000?p.toLocaleString("en-US",{maximumFractionDigits:0}):p>=1?p.toLocaleString("en-US",{maximumFractionDigits:2}):p.toLocaleString("en-US",{maximumFractionDigits:6})
-
-// inline SVG sparkline from a series of numbers
-function sparkline(series){
-  if(!series || series.length<2) return `<svg class="spark" width="78" height="22"></svg>`
-  const w=78,h=22,pad=2
-  const min=Math.min(...series),max=Math.max(...series),rng=(max-min)||1
-  const pts=series.map((v,i)=>{
-    const x=pad+(w-2*pad)*i/(series.length-1)
-    const y=pad+(h-2*pad)*(1-(v-min)/rng)
-    return x.toFixed(1)+","+y.toFixed(1)
-  }).join(" ")
-  const rising=series[series.length-1]>=series[0]
-  const col=rising?"#34d399":"#f87171"
-  return `<svg class="spark" width="${w}" height="${h}">
-    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6"
-      stroke-linejoin="round" stroke-linecap="round"/></svg>`
-}
-
-function countUp(el,to){
-  const from=heroVol||to, t0=performance.now(), dur=900
-  function step(t){
-    const k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3)
-    el.textContent=fmtUsd(from+(to-from)*e)
-    if(k<1) requestAnimationFrame(step)
+/* ── animated backdrop ───────────────────────────────────────────── */
+const cv=document.getElementById("bg"),cx=cv.getContext("2d")
+let pts=[]
+function sizeBg(){cv.width=innerWidth;cv.height=innerHeight
+  pts=Array.from({length:54},()=>({x:Math.random()*cv.width,y:Math.random()*cv.height,
+    vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,r:Math.random()*1.8+.4}))}
+sizeBg();addEventListener("resize",sizeBg)
+function drawBg(){
+  cx.clearRect(0,0,cv.width,cv.height)
+  const g=cx.createRadialGradient(cv.width*.5,0,0,cv.width*.5,0,cv.height)
+  g.addColorStop(0,"#0c2a26");g.addColorStop(1,"#05070d")
+  cx.fillStyle=g;cx.fillRect(0,0,cv.width,cv.height)
+  for(const p of pts){
+    p.x+=p.vx;p.y+=p.vy
+    if(p.x<0||p.x>cv.width)p.vx*=-1
+    if(p.y<0||p.y>cv.height)p.vy*=-1
+    cx.beginPath();cx.arc(p.x,p.y,p.r,0,7)
+    cx.fillStyle="rgba(52,211,153,.22)";cx.fill()
   }
-  requestAnimationFrame(step); heroVol=to
+  requestAnimationFrame(drawBg)
+}
+drawBg()
+
+/* ── data ────────────────────────────────────────────────────────── */
+const API="https://token-api.thegraph.com/v1/hyperliquid/markets"
+const hist={},last={};let heroVol=0
+
+const fmtUsd=n=>n>=1e9?"$"+(n/1e9).toFixed(2)+"B":n>=1e6?"$"+(n/1e6).toFixed(1)+"M":n>=1e3?"$"+(n/1e3).toFixed(1)+"K":"$"+(n||0).toFixed(0)
+const fmtNum=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?(n/1e3).toFixed(1)+"K":String(Math.round(n||0))
+const fmtPx=p=>p>=1000?p.toLocaleString("en-US",{maximumFractionDigits:0}):p>=1?p.toLocaleString("en-US",{maximumFractionDigits:2}):p.toLocaleString("en-US",{maximumFractionDigits:6})
+
+function heatColor(chg){            // chg in percent
+  const m=Math.max(-8,Math.min(8,chg))/8          // -1..1
+  const hue=m>=0?150:0
+  const sat=18+Math.abs(m)*55
+  const lit=11+Math.abs(m)*16
+  return `hsl(${hue},${sat}%,${lit}%)`
+}
+function sparkline(s){
+  if(!s||s.length<2) return `<svg class="spark" width="78" height="22"></svg>`
+  const w=78,h=22,pad=2,mn=Math.min(...s),mx=Math.max(...s),r=(mx-mn)||1
+  const pts=s.map((v,i)=>(pad+(w-2*pad)*i/(s.length-1)).toFixed(1)+","+(pad+(h-2*pad)*(1-(v-mn)/r)).toFixed(1)).join(" ")
+  const col=s[s.length-1]>=s[0]?"#34d399":"#f87171"
+  return `<svg class="spark" width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`
+}
+function countUp(el,to){
+  const from=heroVol||to,t0=performance.now()
+  function step(t){const k=Math.min(1,(t-t0)/900),e=1-Math.pow(1-k,3)
+    el.textContent=fmtUsd(from+(to-from)*e);if(k<1)requestAnimationFrame(step)}
+  requestAnimationFrame(step);heroVol=to
 }
 
 async function load(){
-  let markets=[]
+  let M=[]
   try{
-    for(let page=1;page<=3;page++){
-      const r=await fetch(`${API}?limit=20&page=${page}`)
-      if(!r.ok) break
-      const d=(await r.json()).data||[]
-      if(!d.length) break
-      markets=markets.concat(d)
+    for(let pg=1;pg<=3;pg++){
+      const r=await fetch(`${API}?limit=20&page=${pg}`)
+      if(!r.ok)break
+      const d=(await r.json()).data||[];if(!d.length)break;M=M.concat(d)
     }
-  }catch(e){
-    document.getElementById("status").textContent=" · fetch error — retrying"
-    return
-  }
-  if(!markets.length) return
-  markets.sort((a,b)=>(b.volume_24h||0)-(a.volume_24h||0))
+  }catch(e){document.getElementById("status").textContent=" · fetch error — retrying";return}
+  if(!M.length)return
+  M.sort((a,b)=>(b.volume_24h||0)-(a.volume_24h||0))
 
-  // accumulate sparkline history
-  for(const m of markets){
-    if(!hist[m.coin]) hist[m.coin]=[m.price_24h||m.price]
-    const s=hist[m.coin]
-    if(s[s.length-1]!==m.price) s.push(m.price)
-    if(s.length>60) s.shift()
+  for(const m of M){
+    if(!hist[m.coin])hist[m.coin]=[m.price_24h||m.price]
+    const s=hist[m.coin];if(s[s.length-1]!==m.price)s.push(m.price);if(s.length>60)s.shift()
   }
 
-  // hero
-  const totVol=markets.reduce((s,m)=>s+(m.volume_24h||0),0)
-  const totTrades=markets.reduce((s,m)=>s+(m.trades_24h||0),0)
-  const totUsers=markets.reduce((s,m)=>s+(m.unique_users_24h||0),0)
+  /* ticker */
+  const tk=M.map(m=>{const c=(m.price_24h_change||0)*100
+    return `<span class="tk"><b>${m.coin}</b> ${fmtPx(m.price||0)} <span class="${c>=0?'up':'down'}">${c>=0?'▲':'▼'}${Math.abs(c).toFixed(1)}%</span></span>`}).join("")
+  document.getElementById("tape").innerHTML=tk+tk
+
+  /* hero */
+  const tv=M.reduce((s,m)=>s+(m.volume_24h||0),0)
+  const tt=M.reduce((s,m)=>s+(m.trades_24h||0),0)
+  const tu=M.reduce((s,m)=>s+(m.unique_users_24h||0),0)
   const hero=document.getElementById("hero")
-  if(!hero.children.length){
-    hero.innerHTML=`
-      <div class="box big"><div class="v" id="hv"></div><div class="l">24h Volume · all markets</div></div>
-      <div class="box"><div class="v" id="hm"></div><div class="l">Markets</div></div>
-      <div class="box"><div class="v" id="ht"></div><div class="l">24h Trades</div></div>
-      <div class="box"><div class="v" id="hu"></div><div class="l">24h Traders</div></div>`
-  }
-  countUp(document.getElementById("hv"),totVol)
-  document.getElementById("hm").textContent=markets.length
-  document.getElementById("ht").textContent=fmtNum(totTrades)
-  document.getElementById("hu").textContent=fmtNum(totUsers)
+  if(!hero.children.length)hero.innerHTML=`
+    <div class="box big"><div class="v" id="hv"></div><div class="l">24h Volume · all markets</div></div>
+    <div class="box"><div class="v" id="hm"></div><div class="l">Markets</div></div>
+    <div class="box"><div class="v" id="ht"></div><div class="l">24h Trades</div></div>
+    <div class="box"><div class="v" id="hu"></div><div class="l">24h Traders</div></div>`
+  countUp(document.getElementById("hv"),tv)
+  document.getElementById("hm").textContent=M.length
+  document.getElementById("ht").textContent=fmtNum(tt)
+  document.getElementById("hu").textContent=fmtNum(tu)
 
-  // volume bars (top 10)
-  const top=markets.slice(0,10), vmax=top[0]?.volume_24h||1
-  document.getElementById("vbars").innerHTML=top.map(m=>`
-    <div class="vbar">
-      <span class="nm">${m.coin}</span>
-      <span class="track"><span class="fill" style="width:${(100*(m.volume_24h||0)/vmax).toFixed(1)}%"></span></span>
-      <span class="amt">${fmtUsd(m.volume_24h||0)}</span>
-    </div>`).join("")
-
-  // table
-  document.getElementById("rows").innerHTML=markets.slice(0,40).map(m=>{
+  /* heatmap — top 36, sized by volume rank */
+  document.getElementById("heat").innerHTML=M.slice(0,36).map((m,i)=>{
     const chg=(m.price_24h_change||0)*100
-    const cls=chg>=0?"up":"down", arrow=chg>=0?"▲":"▼"
-    const fr=(m.funding_rate||0)*100, frCls=fr>=0?"fund-pos":"fund-neg"
-    const bv=m.buy_volume_24h||0, sv=m.sell_volume_24h||0, buyPct=bv+sv>0?100*bv/(bv+sv):50
-    let flash=""
-    if(last[m.coin]!=null&&last[m.coin]!==m.price) flash=m.price>last[m.coin]?"flash-up":"flash-down"
+    const cls=i<2?"xl":i<8?"lg":""
+    let tick=""
+    if(last[m.coin]!=null&&last[m.coin]!==m.price)tick=m.price>last[m.coin]?"tickup":"tickdn"
+    return `<div class="cell ${cls} ${tick}" style="background:${heatColor(chg)}">
+      <div class="c">${m.coin}</div>
+      <div><div class="p">${fmtPx(m.price||0)}</div>
+      <div class="ch ${chg>=0?'up':'down'}">${chg>=0?'+':''}${chg.toFixed(2)}%</div></div>
+    </div>`
+  }).join("")
+  document.getElementById("heatclock").textContent=new Date().toLocaleTimeString()
+
+  /* volume bars */
+  const top=M.slice(0,10),vmax=top[0]?.volume_24h||1
+  document.getElementById("vbars").innerHTML=top.map(m=>`
+    <div class="vbar"><span class="nm">${m.coin}</span>
+      <span class="track"><span class="fill" style="width:${(100*(m.volume_24h||0)/vmax).toFixed(1)}%"></span></span>
+      <span class="amt">${fmtUsd(m.volume_24h||0)}</span></div>`).join("")
+
+  /* table */
+  document.getElementById("rows").innerHTML=M.slice(0,40).map(m=>{
+    const chg=(m.price_24h_change||0)*100,cl=chg>=0?"up":"down",ar=chg>=0?"▲":"▼"
+    const fr=(m.funding_rate||0)*100,frC=fr>=0?"fund-pos":"fund-neg"
+    const bv=m.buy_volume_24h||0,sv=m.sell_volume_24h||0,bp=bv+sv>0?100*bv/(bv+sv):50
     last[m.coin]=m.price
-    return `<tr class="${flash}">
+    return `<tr>
       <td><span class="coin">${m.coin}</span></td>
       <td class="px">${fmtPx(m.price||0)}</td>
       <td>${sparkline(hist[m.coin])}</td>
-      <td class="${cls}">${arrow} ${Math.abs(chg).toFixed(2)}%</td>
-      <td><span class="pressure" title="buy ${buyPct.toFixed(0)}%"><i style="width:${buyPct.toFixed(0)}%"></i></span></td>
+      <td class="${cl}">${ar} ${Math.abs(chg).toFixed(2)}%</td>
+      <td><span class="pressure"><i style="width:${bp.toFixed(0)}%"></i></span></td>
       <td>${fmtUsd(m.volume_24h||0)}</td>
       <td>${fmtNum(m.open_interest||0)}</td>
-      <td class="${frCls}">${fr>=0?"+":""}${fr.toFixed(4)}%</td>
-    </tr>`
+      <td class="${frC}">${fr>=0?'+':''}${fr.toFixed(4)}%</td></tr>`
   }).join("")
 
   document.getElementById("status").textContent=" · updated "+new Date().toLocaleTimeString()
 }
-
-load()
-setInterval(load,10000)
+load();setInterval(load,10000)
 </script>
 </body>
 </html>
