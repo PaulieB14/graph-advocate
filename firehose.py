@@ -123,16 +123,22 @@ async def run() -> None:
         log.warning("firehose: websockets not installed — consumer not started")
         return
 
+    hdr = {"Authorization": f"Bearer {jwt}"}
     backoff = 2
     while True:
         try:
-            async with websockets.connect(
-                WS_URL,
-                additional_headers={"Authorization": f"Bearer {jwt}"},
-                open_timeout=20,
-                ping_interval=30,
-                max_queue=2048,
-            ) as ws:
+            # websockets >=14 uses additional_headers; older uses extra_headers
+            try:
+                conn = websockets.connect(
+                    WS_URL, additional_headers=hdr,
+                    open_timeout=20, ping_interval=30, max_queue=2048,
+                )
+            except TypeError:
+                conn = websockets.connect(
+                    WS_URL, extra_headers=hdr,
+                    open_timeout=20, ping_interval=30, max_queue=2048,
+                )
+            async with conn as ws:
                 _S.connected = True
                 backoff = 2
                 log.info("firehose: connected to Pinax Streams")

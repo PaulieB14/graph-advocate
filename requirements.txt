@@ -16,3 +16,9 @@ mcp>=1.0.0,<2.0
 x402[evm,fastapi]>=2.8.0,<2.9.0
 cdp-sdk>=1.40.0,<2.0
 fastapi>=0.115.0,<1.0
+
+# Firehose consumer (firehose.py) — server-side WebSocket to Pinax Streams.
+# Plain uvicorn doesn't pull this in; firehose.py handles both the old
+# (extra_headers) and new (additional_headers) connect APIs, so the pin
+# is intentionally loose to avoid resolver conflicts.
+websockets>=12.0
