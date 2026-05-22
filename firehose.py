@@ -174,10 +174,27 @@ def snapshot() -> dict:
     proto = Counter(p for (_n, p) in recent)
     chain = Counter(n for (n, _p) in recent)
     swaps_per_sec = round(len(recent) / TREND_WINDOW, 1)
+    # Env diagnostic — presence + length only, never the secret values.
+    def _envinfo(k: str) -> str:
+        v = os.environ.get(k)
+        if v is None:
+            return "missing"
+        return f"present({len(v)} chars)" if v else "empty"
+
     return {
         "connected": _S.connected,
         "status": _status,
         "last_error": _last_error,
+        "env": {
+            "TOKEN_API_JWT": _envinfo("TOKEN_API_JWT"),
+            "TOKEN_API_ACCESS_TOKEN": _envinfo("TOKEN_API_ACCESS_TOKEN"),
+            "other_known_vars_present": [
+                k for k in ("ANTHROPIC_API_KEY", "GRAPH_API_KEY",
+                            "GATEWAY_API_KEY", "GA_BASE_WALLET_PK")
+                if os.environ.get(k)
+            ],
+            "total_env_vars": len(os.environ),
+        },
         "uptime_seconds": int(now - _S.started),
         "totals": {
             "swaps": _S.total_swaps,
