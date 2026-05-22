@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperliquid Live — perp markets, real-time</title>
+<meta name="description" content="Live Hyperliquid perpetual markets — price, 24h move, volume, open interest, funding. Powered by The Graph Token API.">
+<meta property="og:title" content="Hyperliquid Live">
+<meta property="og:description" content="Every Hyperliquid perp market, updating live. Powered by The Graph Token API.">
+<meta name="twitter:card" content="summary">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+    background:radial-gradient(ellipse at top,#0c2a26 0%,#070b14 60%);
+    color:#e6edf3;min-height:100vh;padding:30px 18px}
+  .wrap{max-width:900px;margin:0 auto}
+  .tag{display:inline-flex;align-items:center;gap:7px;font-size:.7rem;font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase;color:#34d399;
+    border:1px solid rgba(52,211,153,.35);background:rgba(52,211,153,.08);
+    padding:4px 10px;border-radius:6px;margin-bottom:14px}
+  .dot{width:7px;height:7px;border-radius:50%;background:#34d399;animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  h1{font-size:1.9rem;font-weight:800;letter-spacing:-.02em;
+    background:linear-gradient(135deg,#fff,#6ee7b7);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;background-clip:text}
+  .sub{color:#7d8aa0;font-size:.9rem;margin:4px 0 22px}
+  .agg{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+  .agg .box{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);
+    border-radius:12px;padding:14px 16px}
+  .agg .v{font-size:1.35rem;font-weight:800}
+  .agg .l{font-size:.66rem;color:#7d8aa0;text-transform:uppercase;letter-spacing:.05em;margin-top:3px}
+  table{width:100%;border-collapse:collapse;font-size:.86rem}
+  th{text-align:right;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;
+    color:#7d8aa0;font-weight:600;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
+  th:first-child,td:first-child{text-align:left}
+  td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.05);text-align:right}
+  tr:hover td{background:rgba(255,255,255,.025)}
+  .coin{font-weight:700;font-size:.92rem}
+  .px{font-variant-numeric:tabular-nums;font-weight:600}
+  .up{color:#34d399}.down{color:#f87171}
+  .fund-pos{color:#fbbf24}.fund-neg{color:#60a5fa}
+  .flash{animation:flash .9s ease-out}
+  @keyframes flash{0%{background:rgba(52,211,153,.22)}100%{background:transparent}}
+  .foot{margin-top:20px;font-size:.74rem;color:#5d6b82;line-height:1.6;
+    border-top:1px solid rgba(255,255,255,.06);padding-top:14px}
+  .foot a{color:#6ee7b7;text-decoration:none}
+  code{background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px;
+    font-family:'JetBrains Mono',monospace;font-size:.78rem;color:#6ee7b7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="tag"><span class="dot"></span> Live · updates every 12s</span>
+  <h1>Hyperliquid Live</h1>
+  <p class="sub">Every Hyperliquid perpetual market, real-time — powered by The Graph Token API. No wallet, no key.</p>
+
+  <div class="agg" id="agg"></div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Market</th>
+        <th>Price</th>
+        <th>24h</th>
+        <th>24h Volume</th>
+        <th>Open Interest</th>
+        <th>Funding</th>
+        <th>Trades 24h</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <div class="foot">
+    Data: <code>token-api.thegraph.com/v1/hyperliquid/markets</code> — The Graph's free,
+    unauthenticated Hyperliquid endpoint. Open interest in contracts; funding is the
+    hourly rate at last snapshot. Built by <a href="https://graphadvocate.com">Graph Advocate</a>.
+    <span id="status"></span>
+  </div>
+</div>
+
+<script>
+const API = "https://token-api.thegraph.com/v1/hyperliquid/markets"
+const prev = {}   // coin -> last price, for flash
+
+function fmtUsd(n){
+  if(n>=1e9) return "$"+(n/1e9).toFixed(2)+"B"
+  if(n>=1e6) return "$"+(n/1e6).toFixed(1)+"M"
+  if(n>=1e3) return "$"+(n/1e3).toFixed(1)+"K"
+  return "$"+(n||0).toFixed(0)
+}
+function fmtNum(n){
+  if(n>=1e6) return (n/1e6).toFixed(1)+"M"
+  if(n>=1e3) return (n/1e3).toFixed(1)+"K"
+  return String(Math.round(n||0))
+}
+function fmtPx(p){
+  if(p>=1000) return p.toLocaleString("en-US",{maximumFractionDigits:0})
+  if(p>=1) return p.toLocaleString("en-US",{maximumFractionDigits:2})
+  return p.toLocaleString("en-US",{maximumFractionDigits:6})
+}
+
+async function load(){
+  let markets = []
+  try{
+    // pull a few pages of the volume-sorted listing
+    for(let page=1; page<=3; page++){
+      const r = await fetch(`${API}?limit=20&page=${page}`)
+      if(!r.ok) break
+      const j = await r.json()
+      const d = j.data || []
+      if(!d.length) break
+      markets = markets.concat(d)
+    }
+  }catch(e){
+    document.getElementById("status").textContent = " · fetch error — retrying"
+    return
+  }
+  if(!markets.length) return
+
+  markets.sort((a,b)=>(b.volume_24h||0)-(a.volume_24h||0))
+
+  // aggregates across everything fetched
+  const totVol = markets.reduce((s,m)=>s+(m.volume_24h||0),0)
+  const totTrades = markets.reduce((s,m)=>s+(m.trades_24h||0),0)
+  const totUsers = markets.reduce((s,m)=>s+(m.unique_users_24h||0),0)
+  document.getElementById("agg").innerHTML = [
+    ["24h Volume", fmtUsd(totVol)],
+    ["Markets", markets.length],
+    ["24h Trades", fmtNum(totTrades)],
+    ["24h Traders", fmtNum(totUsers)],
+  ].map(([l,v])=>`<div class="box"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("")
+
+  document.getElementById("rows").innerHTML = markets.slice(0,40).map(m=>{
+    const chg = (m.price_24h_change||0)*100
+    const cls = chg>=0 ? "up" : "down"
+    const arrow = chg>=0 ? "▲" : "▼"
+    const fr = (m.funding_rate||0)*100
+    const frCls = fr>=0 ? "fund-pos" : "fund-neg"
+    const flash = (prev[m.coin]!=null && prev[m.coin]!==m.price) ? "flash" : ""
+    prev[m.coin] = m.price
+    return `<tr class="${flash}">
+      <td><span class="coin">${m.coin}</span></td>
+      <td class="px">${fmtPx(m.price||0)}</td>
+      <td class="${cls}">${arrow} ${Math.abs(chg).toFixed(2)}%</td>
+      <td>${fmtUsd(m.volume_24h||0)}</td>
+      <td>${fmtNum(m.open_interest||0)}</td>
+      <td class="${frCls}">${fr>=0?"+":""}${fr.toFixed(4)}%</td>
+      <td>${fmtNum(m.trades_24h||0)}</td>
+    </tr>`
+  }).join("")
+
+  document.getElementById("status").textContent =
+    " · updated " + new Date().toLocaleTimeString()
+}
+
+load()
+setInterval(load, 12000)
+</script>
+</body>
+</html>
