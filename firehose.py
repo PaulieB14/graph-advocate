@@ -45,6 +45,10 @@ class _State:
         self.whales: deque = deque(maxlen=30)
         self.feed: deque = deque(maxlen=40)
         self.window: deque = deque(maxlen=8000)   # (ts, network, protocol)
+        # Bounded LRU of recently-seen whale tx hashes — multi-leg txs and
+        # reconnect-replay both surface the same tx_hash multiple times.
+        self.whale_seen: deque = deque(maxlen=500)
+        self.whale_seen_set: set = set()
         self.total_swaps = 0
         self.total_whale_usd = 0.0
         self.whale_count = 0
@@ -108,6 +112,16 @@ def _handle(payload: dict) -> None:
                 continue
             if usd < WHALE_USD:
                 continue
+            tx = ev.get("tx_hash", "")
+            # Dedupe: same tx can have multiple USDC legs (router → pool → user)
+            # and reconnect can replay events. One row per tx.
+            if tx and tx in _S.whale_seen_set:
+                continue
+            if tx:
+                if len(_S.whale_seen) == _S.whale_seen.maxlen:
+                    _S.whale_seen_set.discard(_S.whale_seen[0])
+                _S.whale_seen.append(tx)
+                _S.whale_seen_set.add(tx)
             _S.total_whale_usd += usd
             _S.whale_count += 1
             _S.whales.appendleft({
@@ -116,7 +130,7 @@ def _handle(payload: dict) -> None:
                 "usd": round(usd, 2),
                 "from": ev.get("from", ""),
                 "to": ev.get("to", ""),
-                "tx": ev.get("tx_hash", ""),
+                "tx": tx,
             })
 
 
