@@ -5,7 +5,7 @@
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-05-07T12:00:00Z",
+  "updatedAt": "2026-05-22T00:00:00Z",
   "mcpTools": ["find_subgraph", "write_query", "onchain_data"],
   "a2aSkills": [
     "find_subgraph",
@@ -122,19 +122,9 @@
       "endpoint": "https://www.x402scan.com"
     },
     {
-      "name": "x402-bazaar-intelligence",
-      "endpoint": "https://x402-bazaar-intelligence-production.up.railway.app",
-      "version": "0.1.0",
-      "description": "Paid x402 API operated by Graph Advocate. The non-CDP view of the x402 economy on Base — sees every USDC settlement across ~96 facilitators by joining the x402 Base subgraph with the CDP Bazaar discovery API. First settlements landed 2026-04-28."
-    },
-    {
-      "name": "x402-bazaar-intelligence-card",
-      "endpoint": "https://x402-bazaar-intelligence-production.up.railway.app/.well-known/agent-card.json",
-      "version": "0.1.0"
-    },
-    {
-      "name": "x402-bazaar-intelligence-github",
-      "endpoint": "https://github.com/PaulieB14/x402-bazaar-intelligence"
+      "name": "x402-payments-dashboard",
+      "endpoint": "https://dune.com/paulieb/x402-payments-to-the-graph-e7ab",
+      "description": "Public Dune dashboard tracking every USDC x402 settlement to The Graph's gateway on Base. Successor to the x402-bazaar-intelligence service (decommissioned 2026-05-14, rebuilt as a zero-cost Dune dashboard)."
     },
     {
       "name": "polymarket-token-api",
