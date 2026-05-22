@@ -22,7 +22,6 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, HTMLResponse, PlainTextResponse
 from starlette.routing import Mount, Route
 
-import firehose  # Pinax Streams firehose consumer (background task + snapshot)
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -5418,17 +5417,6 @@ def build_app():
             "access-control-allow-origin": "*",
         })
 
-    async def firehose_data_endpoint(request):
-        """GET /firehose/data — live multi-chain swap + whale snapshot.
-
-        Served from the in-memory state of the firehose background task,
-        which holds a real WebSocket to Pinax Streams. Always fast.
-        """
-        return JSONResponse(firehose.snapshot(), headers={
-            "cache-control": "no-store",
-            "access-control-allow-origin": "*",
-        })
-
     # ── x402-protected /route endpoint via PaymentMiddlewareASGI ────────────
     # This is the OFFICIAL way to accept x402 payments per the SDK docs.
     # The middleware handles: 402 challenge → verify → settle → respond.
@@ -6441,7 +6429,6 @@ def build_app():
         Route("/favicon.png", graphadvocate_png_endpoint),
         Route("/copytrade", copytrade_endpoint, methods=["GET"]),
         Route("/hyperliquid-live", hyperliquid_live_endpoint, methods=["GET"]),
-        Route("/firehose/data", firehose_data_endpoint, methods=["GET"]),
     ])
 
     # ── Remote MCP endpoint (Claude.ai + any MCP client) ─────────────────────
@@ -6494,11 +6481,6 @@ def build_app():
                         t.start()
                         state["fetch_thread"] = t
                         log.info("Fetch.ai uAgent background task started")
-                    try:
-                        asyncio.create_task(firehose.run())
-                        log.info("firehose: background consumer task started")
-                    except Exception as e:
-                        log.warning(f"firehose: could not start consumer: {e}")
                     await send({"type": "lifespan.startup.complete"})
                 elif message["type"] == "lifespan.shutdown":
                     # daemon thread will die with the process
@@ -6538,7 +6520,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live") or scope["path"].startswith("/firehose") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip")

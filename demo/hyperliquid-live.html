@@ -115,27 +115,6 @@
     #heat{grid-template-columns:repeat(4,1fr)}
     h1{font-size:2rem}.spark{display:none}
   }
-  /* firehose sections */
-  .fh-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:20px}
-  @media(max-width:680px){.fh-grid{grid-template-columns:1fr}}
-  .fh-empty{color:#5d6b82;font-size:.84rem;padding:18px 4px;text-align:center}
-  .whale{display:flex;align-items:center;gap:10px;padding:8px 6px;font-size:.84rem;
-    border-bottom:1px solid rgba(255,255,255,.05)}
-  .whale .t{color:#5d6b82;font-size:.7rem;font-variant-numeric:tabular-nums;width:58px;flex-shrink:0}
-  .whale .net{font-weight:700;width:74px;flex-shrink:0;font-size:.74rem}
-  .whale .amt{font-weight:800;color:#6ee7b7;font-variant-numeric:tabular-nums;
-    margin-left:auto;text-shadow:0 0 12px rgba(110,231,183,.4)}
-  .whale.fresh{animation:wf 1s ease-out}
-  @keyframes wf{0%{background:rgba(110,231,183,.16)}100%{background:transparent}}
-  .swap-row{display:flex;align-items:center;gap:9px;padding:5px 6px;font-size:.8rem;
-    border-bottom:1px solid rgba(255,255,255,.04)}
-  .swap-row .t{color:#5d6b82;font-size:.68rem;width:54px;flex-shrink:0}
-  .tr-bar{display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:.78rem}
-  .tr-bar .nm{width:96px;text-align:right;flex-shrink:0;color:#aab2c8}
-  .tr-bar .track{flex:1;height:13px;background:rgba(255,255,255,.04);border-radius:4px;overflow:hidden}
-  .tr-bar .fill{display:block;height:100%;border-radius:4px;
-    background:linear-gradient(90deg,#0e7490,#22d3ee);transition:width .8s ease}
-  .tr-bar .n{width:42px;text-align:right;flex-shrink:0;font-weight:700;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -160,30 +139,6 @@
   <div class="panel">
     <h2>Volume leaders · 24h</h2>
     <div id="vbars"></div>
-  </div>
-
-  <div style="margin:34px 0 12px;padding:14px 18px;border-left:3px solid #22d3ee;
-    background:rgba(34,211,238,.06);border-radius:0 10px 10px 0">
-    <div style="font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-      color:#22d3ee;margin-bottom:5px">🌐 Beyond Hyperliquid · live cross-chain stream</div>
-    <div style="font-size:.85rem;color:#aab2c8;line-height:1.55">
-      Everything above is Hyperliquid perp-market data. Everything below comes from
-      <b style="color:#e6edf3">Pinax Streams</b> via <b style="color:#e6edf3">The Graph</b> —
-      live on-chain activity across <b style="color:#e6edf3">9 networks</b>
-      (Solana + 8 EVM chains: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Avalanche, Unichain),
-      pushed to graphadvocate.com over a server-side WebSocket and re-served here.
-    </div>
-  </div>
-
-  <div class="fh-grid">
-    <div class="panel">
-      <h2><span>🐋 Stablecoin whales · USDC ≥ $100k · 8 EVM chains</span><span id="fh-wc"></span></h2>
-      <div id="whales"><div class="fh-empty">⟳ connecting to the Pinax stream…</div></div>
-    </div>
-    <div class="panel">
-      <h2><span>🌊 DEX swap firehose · Solana + 8 EVM chains</span><span id="fh-rate"></span></h2>
-      <div id="swapbox"><div class="fh-empty">⟳ connecting to the Pinax stream…</div></div>
-    </div>
   </div>
 
   <div class="panel">
@@ -346,47 +301,6 @@ async function load(){
   document.getElementById("status").textContent=" · updated "+new Date().toLocaleTimeString()
 }
 load();setInterval(load,10000)
-
-/* ── firehose: whales + DEX swaps, from GA's /firehose/data ───────── */
-const shortAddr=a=>a?a.slice(0,6)+"…"+a.slice(-4):"?"
-async function loadFirehose(){
-  let d
-  try{ d=await(await fetch("/firehose/data")).json() }catch(e){ return }
-  const live=d.status==="live"
-  const whales=d.whales||[], feed=d.feed||[], tp=d.trending_protocols||[], T=d.totals||{}
-
-  document.getElementById("fh-wc").textContent =
-    live ? `${T.whale_count||0} ≥ $100k` : ""
-  const wbox=document.getElementById("whales")
-  if(!whales.length){
-    wbox.innerHTML=`<div class="fh-empty">${live?"watching for whales…":"⟳ connecting to the Pinax stream…"}</div>`
-  }else{
-    wbox.innerHTML=whales.map((w,i)=>`<div class="whale ${i===0?'fresh':''}">
-      <span class="t">${w.ts}</span>
-      <span class="net">${(w.network||'').toUpperCase()}</span>
-      <span style="color:#8b94aa">${shortAddr(w.from)} → ${shortAddr(w.to)}</span>
-      <span class="amt">${fmtUsd(w.usd||0)}</span></div>`).join("")
-  }
-
-  document.getElementById("fh-rate").textContent =
-    live ? `${T.swaps_per_sec||0}/s` : ""
-  const sbox=document.getElementById("swapbox")
-  if(!feed.length){
-    sbox.innerHTML=`<div class="fh-empty">${live?"…":"⟳ connecting to the Pinax stream…"}</div>`
-  }else{
-    const tmax=tp.length?tp[0].swaps:1
-    const bars=tp.slice(0,5).map(p=>`<div class="tr-bar">
-      <span class="nm">${p.name}</span>
-      <span class="track"><span class="fill" style="width:${(100*p.swaps/tmax).toFixed(1)}%"></span></span>
-      <span class="n">${p.swaps}</span></div>`).join("")
-    const rows=feed.slice(0,8).map(f=>`<div class="swap-row">
-      <span class="t">${f.ts}</span>
-      <span style="font-weight:700">${(f.network||'').toUpperCase()}</span>
-      <span style="color:#8b94aa">${f.protocol} ×${f.count}</span></div>`).join("")
-    sbox.innerHTML=`<div style="margin-bottom:10px">${bars}</div>${rows}`
-  }
-}
-loadFirehose();setInterval(loadFirehose,3000)
 </script>
 </body>
 </html>
