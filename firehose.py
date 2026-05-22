@@ -142,15 +142,19 @@ async def run() -> None:
         try:
             _status = "connecting"
             # websockets >=14 uses additional_headers; older uses extra_headers
+            # max_size raised to 32 MiB — busy Solana blocks carry hundreds
+            # of swap events and blow the 1 MiB default (close code 1009).
             try:
                 conn = websockets.connect(
                     WS_URL, additional_headers=hdr,
-                    open_timeout=20, ping_interval=30, max_queue=2048,
+                    open_timeout=20, ping_interval=30,
+                    max_queue=2048, max_size=32 * 1024 * 1024,
                 )
             except TypeError:
                 conn = websockets.connect(
                     WS_URL, extra_headers=hdr,
-                    open_timeout=20, ping_interval=30, max_queue=2048,
+                    open_timeout=20, ping_interval=30,
+                    max_queue=2048, max_size=32 * 1024 * 1024,
                 )
             async with conn as ws:
                 _S.connected = True
