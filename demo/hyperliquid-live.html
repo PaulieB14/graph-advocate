@@ -78,23 +78,33 @@
   .vbar{display:flex;align-items:center;gap:10px;margin-bottom:7px;font-size:.82rem}
   .vbar .nm{width:62px;font-weight:700;text-align:right;flex-shrink:0}
   .vbar .track{flex:1;height:16px;background:rgba(255,255,255,.04);border-radius:5px;overflow:hidden}
-  .vbar .fill{height:100%;border-radius:5px;background:linear-gradient(90deg,#0f766e,#34d399);
-    transition:width 1s cubic-bezier(.4,0,.2,1);box-shadow:0 0 12px rgba(52,211,153,.4)}
+  .vbar .fill{display:block;height:100%;min-width:3px;border-radius:5px;
+    background:linear-gradient(90deg,#0f766e,#34d399);
+    transition:width 1s cubic-bezier(.4,0,.2,1);box-shadow:0 0 14px rgba(52,211,153,.55)}
   .vbar .amt{width:72px;text-align:right;color:#aab2c8;flex-shrink:0;font-variant-numeric:tabular-nums}
 
   table{width:100%;border-collapse:collapse;font-size:.84rem}
   th{text-align:right;font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;
     color:#7d8aa0;font-weight:600;padding:7px 9px;border-bottom:1px solid rgba(255,255,255,.08)}
   th:first-child,td:first-child{text-align:left}
-  td{padding:7px 9px;border-bottom:1px solid rgba(255,255,255,.05);text-align:right;vertical-align:middle}
-  tr:hover td{background:rgba(255,255,255,.025)}
-  .coin{font-weight:700;font-size:.9rem}
-  .px{font-variant-numeric:tabular-nums;font-weight:600}
+  td{padding:9px 9px;border-bottom:1px solid rgba(255,255,255,.05);text-align:right;vertical-align:middle}
+  tbody tr{transition:background .2s}
+  tbody tr:hover{background:rgba(52,211,153,.055)}
+  tr.up td:first-child{box-shadow:inset 3px 0 0 #34d399}
+  tr.down td:first-child{box-shadow:inset 3px 0 0 #f87171}
+  .coin{font-weight:800;font-size:.95rem;letter-spacing:-.01em}
+  .px{font-variant-numeric:tabular-nums;font-weight:600;font-size:.9rem}
   .up{color:#34d399}.down{color:#f87171}
-  .fund-pos{color:#fbbf24}.fund-neg{color:#60a5fa}
-  .pressure{display:inline-block;width:58px;height:7px;border-radius:4px;overflow:hidden;
-    background:#f87171;vertical-align:middle}
-  .pressure i{display:block;height:100%;background:#34d399}
+  .pill{display:inline-block;padding:3px 9px;border-radius:999px;font-weight:700;
+    font-size:.76rem;font-variant-numeric:tabular-nums}
+  .pill.up{background:rgba(52,211,153,.14);color:#34d399}
+  .pill.down{background:rgba(248,113,113,.14);color:#f87171}
+  .pill.fund-pos{background:rgba(251,191,36,.12);color:#fbbf24}
+  .pill.fund-neg{background:rgba(96,165,250,.12);color:#60a5fa}
+  .pressure{display:inline-block;width:62px;height:8px;border-radius:4px;overflow:hidden;
+    background:#f87171;vertical-align:middle;box-shadow:0 0 8px rgba(248,113,113,.25)}
+  .pressure i{display:block;height:100%;background:#34d399;box-shadow:0 0 8px rgba(52,211,153,.5)}
+  .spark{vertical-align:middle;filter:drop-shadow(0 1px 4px rgba(0,0,0,.4))}
   .foot{margin-top:18px;font-size:.73rem;color:#5d6b82;line-height:1.6;
     border-top:1px solid rgba(255,255,255,.06);padding-top:13px}
   .foot a{color:#6ee7b7;text-decoration:none}
@@ -190,11 +200,21 @@ function heatColor(chg){            // chg in percent
   return `hsl(${hue},${sat}%,${lit}%)`
 }
 function sparkline(s){
-  if(!s||s.length<2) return `<svg class="spark" width="78" height="22"></svg>`
-  const w=78,h=22,pad=2,mn=Math.min(...s),mx=Math.max(...s),r=(mx-mn)||1
-  const pts=s.map((v,i)=>(pad+(w-2*pad)*i/(s.length-1)).toFixed(1)+","+(pad+(h-2*pad)*(1-(v-mn)/r)).toFixed(1)).join(" ")
+  const w=98,h=30,pad=3
+  if(!s||s.length<2) return `<svg class="spark" width="${w}" height="${h}"></svg>`
+  const mn=Math.min(...s),mx=Math.max(...s),r=(mx-mn)||1
+  const xy=s.map((v,i)=>[pad+(w-2*pad)*i/(s.length-1),pad+(h-2*pad)*(1-(v-mn)/r)])
+  const line=xy.map(p=>p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ")
+  const area=`${pad},${h-pad} ${line} ${w-pad},${h-pad}`
   const col=s[s.length-1]>=s[0]?"#34d399":"#f87171"
-  return `<svg class="spark" width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`
+  const g="g"+Math.random().toString(36).slice(2,7)
+  return `<svg class="spark" width="${w}" height="${h}">
+    <defs><linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${col}" stop-opacity=".5"/>
+      <stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    <polygon points="${area}" fill="url(#${g})"/>
+    <polyline points="${line}" fill="none" stroke="${col}" stroke-width="1.9"
+      stroke-linejoin="round" stroke-linecap="round"/></svg>`
 }
 function countUp(el,to){
   const from=heroVol||to,t0=performance.now()
@@ -267,15 +287,15 @@ async function load(){
     const fr=(m.funding_rate||0)*100,frC=fr>=0?"fund-pos":"fund-neg"
     const bv=m.buy_volume_24h||0,sv=m.sell_volume_24h||0,bp=bv+sv>0?100*bv/(bv+sv):50
     last[m.coin]=m.price
-    return `<tr>
+    return `<tr class="${cl}">
       <td><span class="coin">${m.coin}</span></td>
       <td class="px">${fmtPx(m.price||0)}</td>
       <td>${sparkline(hist[m.coin])}</td>
-      <td class="${cl}">${ar} ${Math.abs(chg).toFixed(2)}%</td>
-      <td><span class="pressure"><i style="width:${bp.toFixed(0)}%"></i></span></td>
+      <td><span class="pill ${cl}">${ar} ${Math.abs(chg).toFixed(2)}%</span></td>
+      <td><span class="pressure" title="buy ${bp.toFixed(0)}%"><i style="width:${bp.toFixed(0)}%"></i></span></td>
       <td>${fmtUsd(m.volume_24h||0)}</td>
       <td>${fmtNum(m.open_interest||0)}</td>
-      <td class="${frC}">${fr>=0?'+':''}${fr.toFixed(4)}%</td></tr>`
+      <td><span class="pill ${frC}">${fr>=0?'+':''}${fr.toFixed(4)}%</span></td></tr>`
   }).join("")
 
   document.getElementById("status").textContent=" · updated "+new Date().toLocaleTimeString()
