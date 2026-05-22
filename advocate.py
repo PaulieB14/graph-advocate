@@ -2361,7 +2361,8 @@ def _execute_recommendation(rec: dict) -> dict | None:
 
     # --- Token API execution ---
     if service == "token-api":
-        jwt = os.environ.get("TOKEN_API_JWT", "") or os.environ.get("TOKEN_API_ACCESS_TOKEN", "")
+        jwt = (os.environ.get("TOKEN_API_JWT", "") or os.environ.get("TOKEN_API_ACCESS_TOKEN", "")
+               or os.environ.get("JWT", ""))
         if not jwt:
             # Fallback: free-tier JWT (rate-limited, 200 req/min, 2500 credits)
             jwt = (

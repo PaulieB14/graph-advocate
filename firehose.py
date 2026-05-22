@@ -61,7 +61,12 @@ _last_error = ""
 
 
 def _jwt() -> str | None:
-    return os.environ.get("TOKEN_API_JWT") or os.environ.get("TOKEN_API_ACCESS_TOKEN")
+    # "JWT" is accepted as an alias of TOKEN_API_JWT (Railway var named JWT).
+    return (
+        os.environ.get("TOKEN_API_JWT")
+        or os.environ.get("TOKEN_API_ACCESS_TOKEN")
+        or os.environ.get("JWT")
+    )
 
 
 def _handle(payload: dict) -> None:
@@ -188,6 +193,7 @@ def snapshot() -> dict:
         "env": {
             "TOKEN_API_JWT": _envinfo("TOKEN_API_JWT"),
             "TOKEN_API_ACCESS_TOKEN": _envinfo("TOKEN_API_ACCESS_TOKEN"),
+            "JWT": _envinfo("JWT"),
             "other_known_vars_present": [
                 k for k in ("ANTHROPIC_API_KEY", "GRAPH_API_KEY",
                             "GATEWAY_API_KEY", "GA_BASE_WALLET_PK")

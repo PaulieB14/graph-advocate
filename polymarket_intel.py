@@ -71,6 +71,7 @@ def _pinax_key() -> str:
     return (
         os.environ.get("TOKEN_API_JWT", "")
         or os.environ.get("TOKEN_API_ACCESS_TOKEN", "")
+        or os.environ.get("JWT", "")
         or os.environ.get("PINAX_API_KEY", "")
         or _FALLBACK_JWT
     )
@@ -91,6 +92,8 @@ async def _pinax(path: str, **params: Any) -> Any:
             key_state = "env:TOKEN_API_JWT"
         elif os.environ.get("TOKEN_API_ACCESS_TOKEN"):
             key_state = "env:TOKEN_API_ACCESS_TOKEN"
+        elif os.environ.get("JWT"):
+            key_state = "env:JWT"
         elif os.environ.get("PINAX_API_KEY"):
             key_state = "env:PINAX_API_KEY"
         else:
