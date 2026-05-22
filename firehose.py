@@ -55,6 +55,10 @@ class _State:
 
 _S = _State()
 
+# Self-diagnostics surfaced by snapshot() — debugging without Railway logs.
+_status = "not_started"
+_last_error = ""
+
 
 def _jwt() -> str | None:
     return os.environ.get("TOKEN_API_JWT") or os.environ.get("TOKEN_API_ACCESS_TOKEN")
@@ -113,13 +117,17 @@ def _handle(payload: dict) -> None:
 
 async def run() -> None:
     """Background task — connect, consume, reconnect forever. Never raises."""
+    global _status, _last_error
+    _status = "starting"
     jwt = _jwt()
     if not jwt:
+        _status = "no_jwt"
         log.warning("firehose: no TOKEN_API_JWT — consumer not started")
         return
     try:
         import websockets
     except ImportError:
+        _status = "no_websockets_lib"
         log.warning("firehose: websockets not installed — consumer not started")
         return
 
@@ -127,6 +135,7 @@ async def run() -> None:
     backoff = 2
     while True:
         try:
+            _status = "connecting"
             # websockets >=14 uses additional_headers; older uses extra_headers
             try:
                 conn = websockets.connect(
@@ -140,6 +149,7 @@ async def run() -> None:
                 )
             async with conn as ws:
                 _S.connected = True
+                _status = "live"
                 backoff = 2
                 log.info("firehose: connected to Pinax Streams")
                 async for raw in ws:
@@ -150,7 +160,9 @@ async def run() -> None:
                         continue
         except Exception as e:
             _S.connected = False
-            log.warning(f"firehose: disconnected ({type(e).__name__}) — retry in {backoff}s")
+            _status = "reconnecting"
+            _last_error = f"{type(e).__name__}: {str(e)[:180]}"
+            log.warning(f"firehose: disconnected ({_last_error}) — retry in {backoff}s")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60)
 
@@ -164,6 +176,8 @@ def snapshot() -> dict:
     swaps_per_sec = round(len(recent) / TREND_WINDOW, 1)
     return {
         "connected": _S.connected,
+        "status": _status,
+        "last_error": _last_error,
         "uptime_seconds": int(now - _S.started),
         "totals": {
             "swaps": _S.total_swaps,
