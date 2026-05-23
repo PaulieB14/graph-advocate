@@ -5397,6 +5397,88 @@ def build_app():
             "access-control-allow-origin": "*",
         })
 
+    # ── /copytrade/data — live Hyperliquid vault leaderboard ──────────────────
+    # Server-side cached for 5 minutes. Free-tier-safe: one refresh = ~5 calls
+    # to Pinax /vaults (paginated 10 at a time for 50 rows).
+    _CT_DATA_CACHE: dict = {"ts": 0, "payload": None}
+    _CT_DATA_TTL = 300  # seconds
+
+    async def copytrade_data_endpoint(request):
+        """GET /copytrade/data — vault leaderboard JSON for the dashboard."""
+        import time as _t
+        from hyperliquid_intel import fetch_vaults_list
+
+        now = _t.time()
+        if _CT_DATA_CACHE["payload"] and (now - _CT_DATA_CACHE["ts"]) < _CT_DATA_TTL:
+            return JSONResponse(_CT_DATA_CACHE["payload"], headers={
+                "cache-control": "public, max-age=60",
+                "access-control-allow-origin": "*",
+            })
+
+        try:
+            vaults = await fetch_vaults_list(limit=50, sort_by="lifetime_deposits")
+        except Exception as e:
+            log.warning(f"copytrade/data fetch failed: {e}")
+            # Serve stale if we have anything cached at all.
+            if _CT_DATA_CACHE["payload"]:
+                return JSONResponse(_CT_DATA_CACHE["payload"], headers={
+                    "cache-control": "no-cache",
+                    "access-control-allow-origin": "*",
+                })
+            return JSONResponse(
+                {"error": "upstream_unavailable", "vaults": []},
+                status_code=503,
+            )
+
+        # Derived fields per row — kept cheap (single endpoint, no per-leader fanout).
+        # Quality score requires depositor+leader fetches; deferred to detail page.
+        rows = []
+        for v in vaults:
+            deposits = float(v.get("lifetime_deposits") or 0)
+            withdrawals = float(v.get("lifetime_withdrawals") or 0)
+            commissions = float(v.get("lifetime_leader_commissions") or 0)
+            distributions = float(v.get("lifetime_distributions") or 0)
+            n_dep = int(v.get("depositor_count") or 0)
+            redemption = (withdrawals / deposits) if deposits > 0 else 0.0
+            commission_rate = (commissions / deposits) if deposits > 0 else 0.0
+            net_flow = deposits - withdrawals
+            rows.append({
+                "vault": v.get("vault"),
+                "leader": v.get("leader"),
+                "name": v.get("name") or None,
+                "created_at": v.get("created_at"),
+                "last_activity_at": v.get("last_activity_at"),
+                "depositor_count": n_dep,
+                "lifetime_deposits_usdc": round(deposits, 2),
+                "lifetime_withdrawals_usdc": round(withdrawals, 2),
+                "lifetime_distributions_usdc": round(distributions, 2),
+                "lifetime_leader_commissions_usdc": round(commissions, 2),
+                "net_flow_usdc": round(net_flow, 2),
+                "redemption_pressure": round(redemption, 4),
+                "commission_rate": round(commission_rate, 4),
+            })
+
+        payload = {
+            "vaults": rows,
+            "count": len(rows),
+            "source": "pinax token-api /v1/hyperliquid/vaults",
+            "refreshed_at": int(now),
+            "ttl_seconds": _CT_DATA_TTL,
+            "notes": [
+                "Sorted by lifetime_deposits. Per-vault deep dive (leader skill, "
+                "depositor concentration, full quality score) requires the paid "
+                "/hyperliquid/vault endpoint — see the detail page.",
+                "Redemption pressure = withdrawals / deposits; below 0.30 is healthy.",
+                "Commission rate = leader's lifetime commissions / lifetime deposits.",
+            ],
+        }
+        _CT_DATA_CACHE["ts"] = now
+        _CT_DATA_CACHE["payload"] = payload
+        return JSONResponse(payload, headers={
+            "cache-control": "public, max-age=60",
+            "access-control-allow-origin": "*",
+        })
+
     # Hyperliquid Live — auto-refreshing perp markets board (free Token API,
     # no key — the page fetches token-api.thegraph.com directly client-side).
     _HL_LIVE_HTML = None
@@ -6428,6 +6510,7 @@ def build_app():
         Route("/favicon.ico", favicon_endpoint),
         Route("/favicon.png", graphadvocate_png_endpoint),
         Route("/copytrade", copytrade_endpoint, methods=["GET"]),
+        Route("/copytrade/data", copytrade_data_endpoint, methods=["GET"]),
         Route("/hyperliquid-live", hyperliquid_live_endpoint, methods=["GET"]),
     ])
 
@@ -6520,7 +6603,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip")

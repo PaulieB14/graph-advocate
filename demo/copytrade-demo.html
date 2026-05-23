@@ -3,173 +3,304 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hyperliquid Copy-Trade — powered by The Graph Token API</title>
+<title>Hyperliquid Vault Leaderboard · Graph Advocate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
     background:radial-gradient(ellipse at top,#15132e 0%,#0a0e1a 55%);
-    color:#e2e8f0;min-height:100vh;padding:32px 20px}
-  .wrap{max-width:880px;margin:0 auto}
-  .demo-tag{display:inline-block;font-size:.68rem;font-weight:700;letter-spacing:.08em;
-    text-transform:uppercase;color:#fbbf24;border:1px solid rgba(251,191,36,.4);
-    background:rgba(251,191,36,.08);padding:3px 9px;border-radius:5px;margin-bottom:14px}
-  h1{font-size:1.6rem;font-weight:800;letter-spacing:-.02em;margin-bottom:4px;
+    color:#e2e8f0;min-height:100vh;padding:28px 18px}
+  .wrap{max-width:1180px;margin:0 auto}
+  .head{margin-bottom:18px}
+  .tag{display:inline-flex;align-items:center;gap:7px;font-size:.68rem;font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase;color:#34d399;
+    border:1px solid rgba(52,211,153,.35);background:rgba(52,211,153,.08);
+    padding:3px 10px;border-radius:5px;margin-bottom:12px}
+  .tag .dot{width:6px;height:6px;border-radius:50%;background:#34d399;
+    box-shadow:0 0 8px #34d399;animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+  h1{font-size:1.95rem;font-weight:800;letter-spacing:-.02em;margin-bottom:4px;
     background:linear-gradient(135deg,#fff,#a5b4fc);-webkit-background-clip:text;
     -webkit-text-fill-color:transparent}
-  .sub{color:#8b93b8;font-size:.9rem;margin-bottom:24px}
-  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);
-    border-radius:14px;padding:20px;margin-bottom:16px}
-  .trader-head{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px}
-  .addr{font-family:'JetBrains Mono',monospace;font-size:.82rem;color:#a5b4fc}
-  .sharp{font-size:.7rem;font-weight:700;letter-spacing:.06em;color:#34d399;
-    border:1px solid rgba(52,211,153,.4);background:rgba(52,211,153,.1);
-    padding:3px 9px;border-radius:999px}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px}
-  .stat .v{font-size:1.25rem;font-weight:800}
-  .stat .l{font-size:.7rem;color:#8b93b8;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
-  .green{color:#34d399}.red{color:#f87171}
-  .bankroll{display:flex;align-items:center;gap:14px;margin:6px 0 4px}
-  .bankroll input[type=range]{flex:1;accent-color:#6747ED}
-  .bankroll .amt{font-size:1.3rem;font-weight:800;color:#fff;min-width:96px;text-align:right}
-  .section-t{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
-    color:#8b93b8;margin:22px 0 10px}
-  .pos-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-  .pos{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
-    border-radius:10px;padding:13px 15px}
-  .pos .coin{font-weight:700;font-size:.95rem}
-  .pos .dir{font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:7px}
-  .long{background:rgba(52,211,153,.13);color:#34d399}
-  .short{background:rgba(248,113,113,.13);color:#f87171}
-  .pos .row{display:flex;justify-content:space-between;font-size:.8rem;margin-top:7px;color:#aab2d0}
-  .pos .mirror{color:#fff;font-weight:700}
-  .feed{display:flex;flex-direction:column;gap:7px}
-  .fill{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.03);
-    border:1px solid rgba(255,255,255,.06);border-radius:9px;padding:10px 14px;font-size:.83rem}
-  .fill .time{font-family:'JetBrains Mono',monospace;font-size:.72rem;color:#6b7394;min-width:62px}
-  .fill .act{font-weight:700;min-width:120px}
-  .fill .det{color:#aab2d0;flex:1}
-  .fill .you{text-align:right;color:#a5b4fc;font-weight:700;white-space:nowrap}
-  .fill .pnl{min-width:74px;text-align:right;font-weight:700;font-size:.8rem}
-  .foot{margin-top:24px;font-size:.74rem;color:#6b7394;line-height:1.6;
-    border-top:1px solid rgba(255,255,255,.06);padding-top:16px}
+  .sub{color:#8b93b8;font-size:.92rem;max-width:780px}
+  .sub a{color:#a5b4fc;text-decoration:none}
+  .sub a:hover{text-decoration:underline}
+
+  .risk{margin:18px 0;padding:12px 16px;border-left:3px solid #fbbf24;
+    background:rgba(251,191,36,.05);border-radius:0 8px 8px 0;font-size:.82rem;
+    color:#cbd5e1;line-height:1.55}
+  .risk b{color:#fbbf24}
+
+  .toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;
+    margin:18px 0 12px;font-size:.82rem}
+  .pill{padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.08);color:#cbd5e1;cursor:pointer;
+    transition:all .15s;user-select:none}
+  .pill:hover{background:rgba(255,255,255,.09)}
+  .pill.active{background:rgba(103,71,237,.18);border-color:rgba(165,180,252,.5);color:#fff}
+  .toolbar label{display:flex;align-items:center;gap:7px;color:#8b93b8}
+  .toolbar input[type=number]{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+    color:#fff;padding:5px 9px;border-radius:6px;width:90px;font-size:.82rem;font-family:'JetBrains Mono',monospace}
+  .toolbar input[type=checkbox]{accent-color:#6747ED}
+  .status{margin-left:auto;font-size:.74rem;color:#6b7394;font-family:'JetBrains Mono',monospace}
+
+  .card{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);
+    border-radius:14px;overflow:hidden}
+  table{width:100%;border-collapse:collapse;font-size:.84rem}
+  thead th{text-align:right;padding:13px 12px;font-weight:700;font-size:.7rem;
+    text-transform:uppercase;letter-spacing:.06em;color:#8b93b8;
+    border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer;
+    user-select:none;white-space:nowrap;background:rgba(255,255,255,.02)}
+  thead th:first-child,tbody td:first-child{text-align:left;padding-left:18px}
+  thead th:hover{color:#fff;background:rgba(255,255,255,.05)}
+  thead th.sorted{color:#a5b4fc}
+  thead th .arr{display:inline-block;margin-left:4px;opacity:0;font-size:.65rem}
+  thead th.sorted .arr{opacity:1}
+  tbody tr{transition:background .12s}
+  tbody tr:hover{background:rgba(165,180,252,.04)}
+  tbody td{padding:12px;text-align:right;border-bottom:1px solid rgba(255,255,255,.04);
+    font-variant-numeric:tabular-nums}
+  tbody tr:last-child td{border-bottom:none}
+  .vname{display:flex;flex-direction:column;gap:2px}
+  .vname .nm{font-weight:600;color:#e2e8f0}
+  .vname .ad{font-family:'JetBrains Mono',monospace;font-size:.72rem;color:#6b7394}
+  .vname .ad a{color:inherit;text-decoration:none}
+  .vname .ad a:hover{color:#a5b4fc}
+  .pos{color:#34d399}
+  .neg{color:#f87171}
+  .num{font-weight:600;color:#e2e8f0}
+  .dim{color:#6b7394}
+  .badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.68rem;
+    font-weight:700;letter-spacing:.04em}
+  .b-healthy{background:rgba(52,211,153,.13);color:#34d399}
+  .b-warn{background:rgba(251,191,36,.13);color:#fbbf24}
+  .b-bad{background:rgba(248,113,113,.13);color:#f87171}
+
+  .empty{padding:40px 20px;text-align:center;color:#6b7394;font-size:.9rem}
+  .loading{padding:40px 20px;text-align:center;color:#8b93b8;font-size:.9rem}
+
+  .foot{margin-top:28px;font-size:.76rem;color:#6b7394;line-height:1.7;
+    padding-top:18px;border-top:1px solid rgba(255,255,255,.05)}
   .foot b{color:#8b93b8}
-  code{background:rgba(255,255,255,.07);padding:1px 6px;border-radius:4px;
-    font-family:'JetBrains Mono',monospace;font-size:.78rem;color:#a5b4fc}
+  .foot code{background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px;
+    font-family:'JetBrains Mono',monospace;font-size:.75rem;color:#a5b4fc}
+  .foot a{color:#a5b4fc;text-decoration:none}
+  .foot a:hover{text-decoration:underline}
+
+  @media(max-width:740px){
+    h1{font-size:1.5rem}
+    .toolbar{font-size:.78rem;gap:8px}
+    table{font-size:.75rem}
+    thead th{padding:10px 7px;font-size:.62rem}
+    tbody td{padding:9px 7px}
+    .hide-sm{display:none}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <span class="demo-tag">● Demo — display only, no execution</span>
-  <h1>Hyperliquid Copy-Trade</h1>
-  <p class="sub">Mirror a top trader's book in real time. Powered by The Graph Token API — every number below is live on-chain Hyperliquid data.</p>
-
-  <!-- Trader -->
-  <div class="card">
-    <div class="trader-head">
-      <div>
-        <div style="font-weight:700;font-size:1.05rem">Tracked trader <span class="sharp">SHARP</span></div>
-        <div class="addr">0x469e9a7f624b04c24f0e64edf8d8a277e6bf58a5</div>
-      </div>
-      <div style="text-align:right">
-        <div class="green" style="font-size:1.5rem;font-weight:800">+$897,881</div>
-        <div class="l" style="font-size:.7rem;color:#8b93b8">realized PnL · last 7 days</div>
-      </div>
-    </div>
-    <div class="stats">
-      <div class="stat"><div class="v">2,469</div><div class="l">Trades 7d</div></div>
-      <div class="stat"><div class="v">$55.3M</div><div class="l">Volume 7d</div></div>
-      <div class="stat"><div class="v green">0</div><div class="l">Liquidations</div></div>
-      <div class="stat"><div class="v">$5,541</div><div class="l">Fees paid 7d</div></div>
-    </div>
+  <div class="head">
+    <span class="tag"><span class="dot"></span> Live · refreshes every 5 min</span>
+    <h1>Hyperliquid Vault Leaderboard</h1>
+    <p class="sub">
+      Every depositable vault on Hyperliquid, ranked by lifetime flows. Powered by
+      <a href="https://thegraph.com/docs/en/data-services/token-api/" target="_blank">The Graph Token API</a> via
+      <a href="https://pinax.network" target="_blank">Pinax Streams</a>. Click any leader address to deep-dive
+      via Graph Advocate's <code style="font-size:inherit">/hyperliquid/vault</code> evaluator.
+    </p>
   </div>
 
-  <!-- Bankroll -->
-  <div class="card">
-    <div class="section-t" style="margin-top:0">Your copy bankroll</div>
-    <div class="bankroll">
-      <input type="range" id="bank" min="100" max="25000" step="100" value="1000">
-      <span class="amt" id="bankAmt">$1,000</span>
-    </div>
-    <div style="font-size:.78rem;color:#8b93b8">Your bankroll is spread across the trader's open positions in the same proportions. Copy ratio: <span id="ratio" style="color:#a5b4fc;font-weight:700"></span></div>
+  <div class="risk">
+    <b>⚠ Read this before depositing.</b> Following a vault leader means trusting them with capital you can lose
+    in full. <b>Survivorship bias is severe</b> — top-30-day leaders are often this quarter's blow-ups. Look for
+    <b>12+ month track records</b>, <b>healthy redemption pressure</b> (&lt; 0.30), and <b>diversified depositors</b>.
+    Realistic outcomes for a good vault: +5–60% / year, -30 to -50% in a bad year. This page is research / intel
+    — it does not execute trades, custody funds, or give financial advice.
   </div>
 
-  <!-- Mirrored positions -->
-  <div class="section-t">Your mirrored book — what you'd be holding right now</div>
-  <div class="pos-grid" id="positions"></div>
+  <div class="toolbar">
+    <span class="pill active" data-sort="lifetime_deposits_usdc">By AUM (deposits)</span>
+    <span class="pill" data-sort="net_flow_usdc">By net flow</span>
+    <span class="pill" data-sort="depositor_count">By depositors</span>
+    <span class="pill" data-sort="last_activity_at">By recency</span>
+    <label><input type="checkbox" id="hideHighRedemp"> hide redemption &gt;
+      <input type="number" id="redempThresh" value="0.50" min="0" max="1" step="0.05">
+    </label>
+    <label><input type="checkbox" id="minDep" checked> min depositors
+      <input type="number" id="minDepN" value="5" min="0" step="1">
+    </label>
+    <span class="status" id="status">loading…</span>
+  </div>
 
-  <!-- Live moves -->
-  <div class="section-t">Live moves — the trader's recent fills, mirrored to your size</div>
-  <div class="feed" id="feed"></div>
+  <div class="card">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th data-key="rank" style="text-align:left">#</th>
+          <th data-key="name" style="text-align:left">Vault / Leader</th>
+          <th data-key="lifetime_deposits_usdc" class="sorted">AUM <span class="arr">▼</span></th>
+          <th data-key="net_flow_usdc">Net Flow <span class="arr"></span></th>
+          <th data-key="lifetime_distributions_usdc" class="hide-sm">Distributed <span class="arr"></span></th>
+          <th data-key="depositor_count">Depositors <span class="arr"></span></th>
+          <th data-key="redemption_pressure">Redemption <span class="arr"></span></th>
+          <th data-key="commission_rate" class="hide-sm">Fee <span class="arr"></span></th>
+          <th data-key="last_activity_at" class="hide-sm">Last Act <span class="arr"></span></th>
+        </tr>
+      </thead>
+      <tbody id="rows"><tr><td colspan="9" class="loading">⟳ loading vaults…</td></tr></tbody>
+    </table>
+  </div>
 
   <div class="foot">
-    <b>Data source:</b> The Graph Token API — Hyperliquid endpoints (<code>/v1/hyperliquid/markets/activity</code>, <code>/users</code>, <code>/users/positions</code>, <code>/markets</code>). Trader surfaced via Graph Advocate's <code>/hyperliquid/screen</code>.<br>
-    <b>This is a display demo.</b> It computes what mirroring would look like — it does not place, sign, or execute any order. Not financial advice. Prices snapshotted 2026-05-21 15:00 UTC.
+    <b>Data:</b> <code>GET /copytrade/data</code> (server-cached 5 min). Upstream: Pinax Token API
+    <code>/v1/hyperliquid/vaults</code> — free tier, paginated 10/page.<br>
+    <b>Deep dive:</b> click a leader address to call Graph Advocate's paid
+    <code>/hyperliquid/vault</code> ($0.10 USDC) for full evaluator output: leader skill score,
+    depositor concentration, redemption-pressure breakdown.<br>
+    <b>Honest scope:</b> "AUM" is lifetime deposits, not current net AUM — a vault with $50M deposits and
+    $45M withdrawals is much smaller than a $50M deposits / $5M withdrawals vault. Use <i>Net Flow</i>
+    to see actual stickiness. Quality scoring requires per-vault depositor + leader fetches; that's behind
+    the paid endpoint.<br>
+    <b>Not affiliated with Hyperliquid.</b> Hyperliquid blocks US IPs. Deposits happen on Hyperliquid's L1, not here.
   </div>
 </div>
 
 <script>
-const TRADER_BOOK_USD = 17309634; // sum of position notionals at snapshot
-const PRICES = {BTC:77262, XRP:1.3644, HYPE:62.166, ZEC:660.36};
-const POSITIONS = [
-  {coin:"BTC",  size:-6.50196},
-  {coin:"XRP",  size:-5000000},
-  {coin:"HYPE", size:-150000},
-  {coin:"ZEC",  size:1000},
-];
-const FILLS = [
-  {ts:"14:21:31", date:"05-21", dir:"CLOSE_SHORT", coin:"BTC", size:0.15109, price:76764, pnl:96.09},
-  {ts:"14:21:31", date:"05-21", dir:"CLOSE_SHORT", coin:"BTC", size:0.01361, price:76764, pnl:8.66},
-  {ts:"19:01:09", date:"05-20", dir:"OPEN_SHORT",  coin:"BTC", size:1.03493, price:77400, pnl:0},
-  {ts:"19:00:58", date:"05-20", dir:"OPEN_SHORT",  coin:"BTC", size:0.03940, price:77400, pnl:0},
-  {ts:"19:00:54", date:"05-20", dir:"OPEN_SHORT",  coin:"BTC", size:0.20000, price:77400, pnl:0},
-  {ts:"19:00:54", date:"05-20", dir:"OPEN_SHORT",  coin:"BTC", size:0.00592, price:77400, pnl:0},
-];
+const fmtUsd = (n,d=0) => {
+  if(n == null || isNaN(n)) return '—';
+  const a = Math.abs(n);
+  if(a >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
+  if(a >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+  if(a >= 1e3) return '$' + (n/1e3).toFixed(1) + 'K';
+  return '$' + n.toLocaleString('en-US',{maximumFractionDigits:d});
+};
+const fmtPct = n => (n == null || isNaN(n)) ? '—' : (n*100).toFixed(1) + '%';
+const fmtAge = ts => {
+  if(!ts) return '—';
+  const t = (typeof ts === 'string') ? Date.parse(ts) / 1000 : ts;
+  const ago = Math.floor(Date.now()/1000) - t;
+  if(ago < 60) return ago + 's';
+  if(ago < 3600) return Math.floor(ago/60) + 'm';
+  if(ago < 86400) return Math.floor(ago/3600) + 'h';
+  return Math.floor(ago/86400) + 'd';
+};
+const shortAddr = a => a ? (a.slice(0,6) + '…' + a.slice(-4)) : '—';
+const redempBadge = r => {
+  if(r == null) return '<span class="badge">—</span>';
+  if(r < 0.30) return `<span class="badge b-healthy">${(r*100).toFixed(0)}%</span>`;
+  if(r < 0.70) return `<span class="badge b-warn">${(r*100).toFixed(0)}%</span>`;
+  return `<span class="badge b-bad">${(r*100).toFixed(0)}%</span>`;
+};
 
-const fmt = n => n.toLocaleString('en-US',{maximumFractionDigits:0});
-const fmt2 = n => n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+let VAULTS = [];
+let SORT_KEY = 'lifetime_deposits_usdc';
+let SORT_DESC = true;
+
+async function load(){
+  const status = document.getElementById('status');
+  status.textContent = '⟳ refreshing…';
+  try {
+    const r = await fetch('/copytrade/data');
+    if(!r.ok) throw new Error('http '+r.status);
+    const d = await r.json();
+    VAULTS = d.vaults || [];
+    status.textContent = `${VAULTS.length} vaults · refreshed ${new Date().toLocaleTimeString()}`;
+    render();
+  } catch(e) {
+    status.textContent = 'fetch failed — ' + e.message;
+  }
+}
 
 function render(){
-  const bank = +document.getElementById('bank').value;
-  const ratio = bank / TRADER_BOOK_USD;
-  document.getElementById('bankAmt').textContent = '$'+fmt(bank);
-  document.getElementById('ratio').textContent = (ratio*100).toFixed(4)+'%  of their book';
+  const tbody = document.getElementById('rows');
+  const hideHi = document.getElementById('hideHighRedemp').checked;
+  const thresh = parseFloat(document.getElementById('redempThresh').value) || 0.5;
+  const minDepEn = document.getElementById('minDep').checked;
+  const minDepN = parseInt(document.getElementById('minDepN').value || '0', 10);
 
-  // positions
-  document.getElementById('positions').innerHTML = POSITIONS.map(p=>{
-    const px = PRICES[p.coin];
-    const notional = Math.abs(p.size)*px;
-    const isLong = p.size>0;
-    const yourUsd = notional*ratio;
-    const yourUnits = Math.abs(p.size)*ratio;
-    return `<div class="pos">
-      <div><span class="coin">${p.coin}</span>
-        <span class="dir ${isLong?'long':'short'}">${isLong?'LONG':'SHORT'}</span></div>
-      <div class="row"><span>Trader notional</span><span>$${fmt(notional)}</span></div>
-      <div class="row"><span>Your mirror</span>
-        <span class="mirror">$${fmt2(yourUsd)} · ${yourUnits<1?yourUnits.toPrecision(3):fmt2(yourUnits)} ${p.coin}</span></div>
-    </div>`;
+  let filtered = VAULTS.filter(v => {
+    if(hideHi && (v.redemption_pressure ?? 0) > thresh) return false;
+    if(minDepEn && (v.depositor_count ?? 0) < minDepN) return false;
+    return true;
+  });
+
+  // Sort
+  filtered.sort((a,b) => {
+    let av = a[SORT_KEY], bv = b[SORT_KEY];
+    if(SORT_KEY === 'last_activity_at') {
+      av = av ? Date.parse(av) : 0;
+      bv = bv ? Date.parse(bv) : 0;
+    }
+    if(av == null) av = SORT_DESC ? -Infinity : Infinity;
+    if(bv == null) bv = SORT_DESC ? -Infinity : Infinity;
+    return SORT_DESC ? bv - av : av - bv;
+  });
+
+  if(!filtered.length){
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">No vaults match those filters.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((v,i) => {
+    const leader = v.leader || '';
+    const vaultId = v.vault || '';
+    const nameDisplay = v.name || ('Vault ' + shortAddr(vaultId));
+    const netClass = (v.net_flow_usdc ?? 0) >= 0 ? 'pos' : 'neg';
+    const hlUrl = vaultId ? `https://app.hyperliquid.xyz/vaults/${vaultId}` : '#';
+    return `
+      <tr>
+        <td class="dim">${i+1}</td>
+        <td>
+          <div class="vname">
+            <span class="nm"><a href="${hlUrl}" target="_blank" style="color:inherit;text-decoration:none">${nameDisplay}</a></span>
+            <span class="ad">leader: <a href="https://app.hyperliquid.xyz/explorer/address/${leader}" target="_blank">${shortAddr(leader)}</a></span>
+          </div>
+        </td>
+        <td class="num">${fmtUsd(v.lifetime_deposits_usdc)}</td>
+        <td class="num ${netClass}">${(v.net_flow_usdc ?? 0) >= 0 ? '+' : ''}${fmtUsd(v.net_flow_usdc)}</td>
+        <td class="num hide-sm">${fmtUsd(v.lifetime_distributions_usdc)}</td>
+        <td class="num">${v.depositor_count ?? '—'}</td>
+        <td>${redempBadge(v.redemption_pressure)}</td>
+        <td class="num hide-sm">${fmtPct(v.commission_rate)}</td>
+        <td class="dim hide-sm">${fmtAge(v.last_activity_at)}</td>
+      </tr>`;
   }).join('');
 
-  // feed
-  document.getElementById('feed').innerHTML = FILLS.map(f=>{
-    const notional = f.size*f.price;
-    const yourUsd = notional*ratio;
-    const isClose = f.dir.startsWith('CLOSE');
-    const dirColor = f.dir.includes('SHORT')&&!isClose ? 'red' : (isClose?'green':'green');
-    const pnlHtml = f.pnl>0
-      ? `<span class="pnl green">+$${fmt2(f.pnl*ratio)}</span>`
-      : `<span class="pnl" style="color:#6b7394">—</span>`;
-    return `<div class="fill">
-      <span class="time">${f.date}<br>${f.ts}</span>
-      <span class="act ${dirColor}">${f.dir.replace('_',' ')}</span>
-      <span class="det">${fmt2(f.size)} ${f.coin} @ $${fmt(f.price)} · $${fmt(notional)}</span>
-      <span class="you">→ you $${fmt2(yourUsd)}</span>
-      ${pnlHtml}
-    </div>`;
-  }).join('');
+  // Update sort indicators
+  document.querySelectorAll('thead th').forEach(th => {
+    th.classList.toggle('sorted', th.dataset.key === SORT_KEY);
+    const arr = th.querySelector('.arr');
+    if(arr) arr.textContent = th.dataset.key === SORT_KEY ? (SORT_DESC ? '▼' : '▲') : '';
+  });
 }
-document.getElementById('bank').addEventListener('input', render);
-render();
+
+document.querySelectorAll('thead th').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.key;
+    if(!k || k === 'rank' || k === 'name') return;
+    if(SORT_KEY === k) SORT_DESC = !SORT_DESC;
+    else { SORT_KEY = k; SORT_DESC = true; }
+    render();
+  });
+});
+document.querySelectorAll('.pill[data-sort]').forEach(p => {
+  p.addEventListener('click', () => {
+    SORT_KEY = p.dataset.sort;
+    SORT_DESC = true;
+    document.querySelectorAll('.pill[data-sort]').forEach(x => x.classList.remove('active'));
+    p.classList.add('active');
+    render();
+  });
+});
+document.getElementById('hideHighRedemp').addEventListener('change', render);
+document.getElementById('redempThresh').addEventListener('change', render);
+document.getElementById('minDep').addEventListener('change', render);
+document.getElementById('minDepN').addEventListener('change', render);
+
+load();
+setInterval(load, 5 * 60 * 1000);  // every 5 min — matches server cache TTL
 </script>
 </body>
 </html>

@@ -154,6 +154,38 @@ async def fetch_vault_depositors(vault: str, limit: int | None = None) -> list[d
     )
 
 
+async def fetch_vaults_list(
+    limit: int = 50,
+    sort_by: str = "lifetime_deposits",
+) -> list[dict]:
+    """Paginated leaderboard of vaults across the platform.
+
+    Pinax free-tier caps `/vaults` at 10 rows per call, so we paginate
+    via `page` until we have `limit` rows or the source runs dry.
+    Used by /copytrade/data — refresh every 5 minutes is plenty.
+    """
+    rows: list[dict] = []
+    page = 1
+    page_size = 10
+    while len(rows) < limit and page <= 20:  # hard ceiling for safety
+        chunk = _data(
+            await _pinax(
+                "/vaults",
+                limit=page_size,
+                page=page,
+                sort=sort_by,
+                order="desc",
+            )
+        )
+        if not chunk:
+            break
+        rows.extend(chunk)
+        if len(chunk) < page_size:
+            break
+        page += 1
+    return rows[:limit]
+
+
 # ── Score derivation ─────────────────────────────────────────────────────────
 #
 # Hyperliquid users have richer signals than Polymarket because perps trading
