@@ -470,7 +470,7 @@
           <th data-key="apr">APR <span class="arr"></span></th>
           <th data-key="current_tvl_usdc" class="sorted">TVL <span class="arr">▼</span></th>
           <th data-key="net_flow_usdc" class="hide-sm">Net Flow <span class="arr"></span></th>
-          <th data-key="depositor_count">Depositors <span class="arr"></span></th>
+          <th data-key="depositor_count" title="Total unique depositors lifetime (from Pinax). HL caps follower-list responses at 100 — see detail panel.">Depositors <span class="arr"></span></th>
           <th data-key="redemption_pressure">Redemption <span class="arr"></span></th>
           <th data-key="last_activity_at" class="hide-sm">Last Act <span class="arr"></span></th>
         </tr>
@@ -1001,7 +1001,7 @@ function renderDetail(d){
         <div><div class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px">APR</div><div class="num" style="font-size:1.25rem;color:${aprPct >= 0 ? 'var(--pos)' : 'var(--neg)'}">${aprPct != null ? aprPct.toFixed(2) + '%' : '—'}</div></div>
         <div><div class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px">Current TVL</div><div class="num" style="font-size:1.25rem">${fmtUsd(live.current_tvl_usdc)}</div></div>
         <div><div class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px">Leader stake</div><div class="num" style="font-size:1.25rem">${live.leader_fraction != null ? (live.leader_fraction * 100).toFixed(3) + '%' : '—'}</div></div>
-        <div><div class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px">Followers (HL)</div><div class="num" style="font-size:1.25rem">${live.followers_count ?? '—'}</div></div>
+        <div><div class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px">Lifetime depositors</div><div class="num" style="font-size:1.25rem">${(m.depositor_count ?? '—').toLocaleString?.() ?? m.depositor_count ?? '—'}</div><div class="dim" style="font-size:.66rem;margin-top:2px">top ${live.followers_count ?? '—'} shown below</div></div>
       </div>
       ${sparkSvg}
       ${d.description ? `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);font-size:.85rem;color:var(--text-2);line-height:1.6">${d.description}</div>` : ''}
@@ -1049,7 +1049,7 @@ function renderDetail(d){
       </div>
       ` : ''}
       <div class="panel">
-        <h3>Top followers · current equity + lifetime PnL</h3>
+        <h3>Top followers · current equity + lifetime PnL <span class="dim" style="font-weight:400;font-size:.7rem;text-transform:none;letter-spacing:0">(top 100 returned by HL, top 10 shown)</span></h3>
         ${depTable}
       </div>
       ${(() => {
