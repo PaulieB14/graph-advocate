@@ -177,13 +177,14 @@
   .quality-bar.score-low .fill{background:linear-gradient(90deg,var(--neg),var(--warn))}
 
   /* ── Depositor table ────────────────────────────────────────────── */
-  .dep-table{width:100%;font-size:.78rem;margin-top:6px;table-layout:fixed}
-  .dep-table td{padding:6px 0;border-bottom:1px solid var(--border);text-align:right;
-    overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+  .dep-table{width:100%;font-size:.78rem;margin-top:6px;border-collapse:separate;border-spacing:0}
+  .dep-table td,.dep-table th{padding:6px 10px 6px 0;border-bottom:1px solid var(--border);
+    text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dep-table td:last-child,.dep-table th:last-child{padding-right:0}
   .dep-table tr:last-child td{border-bottom:none}
-  .dep-table td:first-child{text-align:left;font-family:var(--mono);
-    color:var(--accent);font-size:.7rem;width:60%;word-break:break-all;white-space:normal;
-    overflow:visible;line-height:1.5}
+  .dep-table td:first-child,.dep-table th:first-child{text-align:left;
+    font-family:var(--mono);color:var(--accent);font-size:.7rem;
+    word-break:break-all;line-height:1.5}
 
   /* ── CTAs ───────────────────────────────────────────────────────── */
   .deposit-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;
