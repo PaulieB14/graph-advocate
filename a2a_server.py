@@ -5626,10 +5626,14 @@ def build_app():
             if isinstance(entry, list) and len(entry) == 2:
                 period, body = entry
                 history = (body or {}).get("accountValueHistory") or []
-                # Down-sample if >200 points to keep payload tight
+                # Down-sample if >200 points to keep payload tight, but ALWAYS
+                # preserve the last point so the trend pct stays current.
                 if len(history) > 200:
                     step = max(1, len(history) // 200)
-                    history = history[::step]
+                    sampled = history[::step]
+                    if sampled and sampled[-1] is not history[-1]:
+                        sampled.append(history[-1])
+                    history = sampled
                 portfolio_compact[period] = history
 
         payload = {

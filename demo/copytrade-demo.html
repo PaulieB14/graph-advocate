@@ -775,8 +775,16 @@ function renderSparkline(portfolio){
   const series = portfolio.allTime || portfolio.month || portfolio.week || portfolio.day;
   if(!series || series.length < 2) return '';
   // series: [[ts_ms, "value_string"], ...]
-  const points = series.map(p => [p[0], parseFloat(p[1])]).filter(p => !isNaN(p[1]));
+  let points = series.map(p => [p[0], parseFloat(p[1])]).filter(p => !isNaN(p[1]));
   if(points.length < 2) return '';
+
+  // Trim leading zeros — HL's portfolio starts at vault founding, which is
+  // usually NAV=0 before any deposits. Including those zeros breaks the
+  // pct-change calc (divide by zero) AND makes the chart look flat at the
+  // start. Strip leading <= 0 points but keep at least the last 2.
+  while(points.length > 2 && points[0][1] <= 0) points.shift();
+  if(points.length < 2) return '';
+
   const vals = points.map(p => p[1]);
   const mn = Math.min(...vals);
   const mx = Math.max(...vals);
@@ -794,13 +802,13 @@ function renderSparkline(portfolio){
   const areaPath = path + ` L ${xy[xy.length-1][0].toFixed(1)} ${h-pad} L ${xy[0][0].toFixed(1)} ${h-pad} Z`;
   const first = vals[0], last = vals[vals.length-1];
   const trend = last >= first ? 'var(--pos)' : 'var(--neg)';
-  const pctChange = first ? ((last - first) / first * 100) : 0;
+  const pctChange = first > 0 ? ((last - first) / first * 100) : null;
   const periodLabel = portfolio.allTime ? 'all time' : portfolio.month ? '30d' : portfolio.week ? '7d' : '24h';
   return `
     <div style="margin-top:6px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
         <span class="dim" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.10em">NAV · ${periodLabel}</span>
-        <span style="font-size:.78rem;color:${trend};font-weight:600;font-variant-numeric:tabular-nums">${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%</span>
+        <span style="font-size:.78rem;color:${trend};font-weight:600;font-variant-numeric:tabular-nums">${pctChange == null ? '—' : (pctChange >= 0 ? '+' : '') + pctChange.toFixed(2) + '%'}</span>
       </div>
       <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:${h}px;display:block">
         <defs>
