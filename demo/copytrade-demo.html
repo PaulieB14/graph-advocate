@@ -69,10 +69,15 @@
   .sub a:hover{border-bottom-color:var(--accent)}
   .sub code{font-family:var(--mono);font-size:.85em;color:var(--text-1);
     background:rgba(255,255,255,.04);padding:1px 5px;border-radius:4px}
-  .brand-row{display:flex;align-items:center;gap:10px;font-size:.74rem;color:var(--text-3);
-    font-family:var(--mono);letter-spacing:.02em}
+  .brand-row{display:flex;align-items:center;gap:8px;font-size:.74rem;color:var(--text-3);
+    font-family:var(--mono);letter-spacing:.02em;flex-wrap:wrap}
   .brand-row a{color:var(--text-2);text-decoration:none}
   .brand-row a:hover{color:var(--accent)}
+  .agent-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;
+    background:var(--surface);border:1px solid var(--border-strong);border-radius:6px;
+    color:var(--text-2)!important;font-size:.7rem;letter-spacing:.02em;transition:all .15s}
+  .agent-pill:hover{border-color:var(--accent);color:var(--accent)!important;background:var(--accent-soft)}
+  .agent-pill-icon{color:var(--accent);font-weight:600}
 
   /* ── Risk callout — refined, no longer screams ──────────────────── */
   .risk{margin:22px 0;padding:14px 18px;
@@ -370,6 +375,9 @@
       </p>
     </div>
     <div class="brand-row">
+      <a href="/copytrade/data" target="_blank" class="agent-pill" title="JSON feed for agents — self-describing, no auth"><span class="agent-pill-icon">{ }</span> JSON</a>
+      <a href="/llms.txt" target="_blank" class="agent-pill" title="llmstxt.org-style discovery doc">llms.txt</a>
+      <span style="color:var(--text-mute);margin:0 4px">·</span>
       <a href="https://graphadvocate.com" target="_blank">graphadvocate.com</a>
       <span style="color:var(--text-mute)">·</span>
       <a href="https://github.com/PaulieB14/graph-advocate" target="_blank">github</a>
