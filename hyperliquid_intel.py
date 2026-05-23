@@ -154,6 +154,118 @@ async def fetch_vault_depositors(vault: str, limit: int | None = None) -> list[d
     )
 
 
+_HYPEREVM_RPC = os.getenv("HYPEREVM_RPC_URL", "https://rpc.hyperliquid.xyz/evm")
+_HYPERSCAN_API = os.getenv("HYPERSCAN_API_URL", "https://www.hyperscan.com/api")
+
+
+async def _hype_price_usdc() -> float | None:
+    """Current HYPE/USDC mid via Pinax markets — unauthenticated."""
+    try:
+        rows = _data(await _pinax("/markets", coin="HYPE", limit=1))
+        if rows:
+            return float(rows[0].get("price") or 0) or None
+    except Exception as e:
+        log.debug(f"hype price lookup failed: {e}")
+    return None
+
+
+async def fetch_leader_hyperevm_context(address: str) -> dict:
+    """Returns native HYPE balance + top ERC-20 holdings on HyperEVM for `address`.
+
+    Uses HL's public RPC for native balance + tx count, Hyperscan's
+    Blockscout-style API for the token list, and Pinax `/markets` for the
+    HYPE USDC mid price. All sources free, no auth.
+
+    On any individual upstream failure the corresponding field is null —
+    we never raise, the UI just shows what came back.
+    """
+    addr = address.lower()
+    out: dict = {"address": addr, "native_hype": None, "native_hype_usd": None,
+                 "tokens": [], "total_usd": None, "tx_count": None}
+
+    async def _rpc(method: str, params: list):
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as cli:
+            r = await cli.post(_HYPEREVM_RPC, json={
+                "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+            })
+            r.raise_for_status()
+            return r.json().get("result")
+
+    async def _tokens():
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as cli:
+            r = await cli.get(_HYPERSCAN_API, params={
+                "module": "account", "action": "tokenlist", "address": addr,
+            })
+            r.raise_for_status()
+            return r.json().get("result") or []
+
+    import asyncio as _aio
+    try:
+        bal_hex, nonce_hex, token_list, hype_px = await _aio.gather(
+            _rpc("eth_getBalance", [addr, "latest"]),
+            _rpc("eth_getTransactionCount", [addr, "latest"]),
+            _tokens(),
+            _hype_price_usdc(),
+            return_exceptions=True,
+        )
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {str(e)[:140]}"
+        return out
+
+    # Native balance
+    if isinstance(bal_hex, str) and bal_hex.startswith("0x"):
+        try:
+            wei = int(bal_hex, 16)
+            out["native_hype"] = wei / 1e18
+            if isinstance(hype_px, (int, float)) and hype_px > 0:
+                out["native_hype_usd"] = round(out["native_hype"] * hype_px, 2)
+        except Exception:
+            pass
+
+    # Tx count
+    if isinstance(nonce_hex, str) and nonce_hex.startswith("0x"):
+        try:
+            out["tx_count"] = int(nonce_hex, 16)
+        except Exception:
+            pass
+
+    # Tokens — sort by raw balance, skip dust + obvious spam
+    if isinstance(token_list, list):
+        toks = []
+        for t in token_list:
+            try:
+                dec = int(t.get("decimals") or 18)
+                bal_raw = int(t.get("balance") or 0)
+                if bal_raw == 0:
+                    continue
+                amount = bal_raw / (10 ** dec) if dec else float(bal_raw)
+                if amount < 1e-6:
+                    continue
+                sym = (t.get("symbol") or "?")[:16]
+                name = (t.get("name") or "")[:64]
+                # Quick spam heuristic — symbols with URLs or "claim" / "airdrop"
+                lower = (sym + " " + name).lower()
+                if any(s in lower for s in ("http", "claim", "airdrop", ".com", ".io", "visit")):
+                    continue
+                toks.append({
+                    "symbol": sym,
+                    "name": name,
+                    "contract": t.get("contractAddress"),
+                    "decimals": dec,
+                    "amount": round(amount, 6),
+                })
+            except Exception:
+                continue
+        # Sort by raw amount descending — without USD prices, this is the best we can do
+        toks.sort(key=lambda x: x["amount"], reverse=True)
+        out["tokens"] = toks[:8]
+
+    # Total USD = native portion only (we don't have per-token oracle prices in this MVP)
+    total = out.get("native_hype_usd") or 0
+    out["total_usd"] = round(total, 2)
+    return out
+
+
 async def fetch_user_liquidations_count(user: str, days: int = 30) -> int:
     """Count of liquidation events for `user` in the last `days` days.
 

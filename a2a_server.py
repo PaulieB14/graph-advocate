@@ -5492,7 +5492,8 @@ def build_app():
         import time as _t
         from hyperliquid_intel import (
             fetch_vault, fetch_vault_depositors, fetch_user,
-            fetch_user_liquidations_count, compute_vault_score, compute_user_score,
+            fetch_user_liquidations_count, fetch_leader_hyperevm_context,
+            compute_vault_score, compute_user_score,
         )
 
         addr = (request.path_params.get("vault") or "").strip().lower()
@@ -5517,14 +5518,16 @@ def build_app():
             if not vault:
                 return JSONResponse({"error": "vault_not_found"}, status_code=404)
 
-            # Stage 2: leader stats + liquidations (parallel, need leader from vault)
+            # Stage 2: leader stats + liquidations + HyperEVM context (parallel)
             leader = (vault.get("leader") or "").lower()
             leader_stats = None
             liq_count = 0
+            hevm_ctx = None
             if leader:
-                leader_stats, liq_count = await asyncio.gather(
+                leader_stats, liq_count, hevm_ctx = await asyncio.gather(
                     fetch_user(leader),
                     fetch_user_liquidations_count(leader, days=30),
+                    fetch_leader_hyperevm_context(leader),
                     return_exceptions=False,
                 )
 
@@ -5583,6 +5586,7 @@ def build_app():
                 "risk_flag": risk_flag,
             },
             "top_depositors": dep_rows,
+            "hyperevm": hevm_ctx,
             "hyperliquid_url": f"https://app.hyperliquid.xyz/vaults/{addr}",
             "refreshed_at": int(now),
             "source": "pinax token-api /v1/hyperliquid/{vaults, vaults/depositors, users, markets/liquidations}",

@@ -117,6 +117,22 @@
   .deposit-btn:hover{transform:translateY(-1px)}
   .liq-flag{display:inline-flex;align-items:center;gap:5px;font-size:.7rem;
     padding:3px 8px;border-radius:4px;font-weight:700}
+  .copy-btn{background:transparent;border:none;cursor:pointer;color:#6b7394;
+    font-size:.78rem;padding:1px 5px;border-radius:4px;margin-left:6px;
+    transition:all .15s;font-family:'JetBrains Mono',monospace}
+  .copy-btn:hover{color:#a5b4fc;background:rgba(165,180,252,.1)}
+  .copy-btn.copied{color:#34d399}
+  .hevm-tokens{display:flex;flex-direction:column;gap:5px;font-size:.78rem;margin-top:4px}
+  .hevm-tok{display:flex;justify-content:space-between;padding:4px 0;
+    border-bottom:1px solid rgba(255,255,255,.04)}
+  .hevm-tok:last-child{border-bottom:none}
+  .hevm-tok .sym{font-weight:700;color:#e2e8f0;font-family:'JetBrains Mono',monospace}
+  .hevm-tok .amt{font-variant-numeric:tabular-nums;color:#aab2d0}
+  .hevm-tok .usd{font-variant-numeric:tabular-nums;color:#6b7394;font-size:.72rem;margin-left:8px}
+  .hevm-total{display:flex;justify-content:space-between;font-size:.92rem;
+    font-weight:700;padding:8px 0 4px;margin-top:6px;
+    border-top:1px solid rgba(255,255,255,.07)}
+  .hevm-total .v{color:#34d399}
   .liq-clean{background:rgba(52,211,153,.1);color:#34d399}
   .liq-medium{background:rgba(251,191,36,.1);color:#fbbf24}
   .liq-high{background:rgba(248,113,113,.1);color:#f87171}
@@ -282,6 +298,17 @@ const fmtAge = ts => {
   return Math.floor(ago/86400) + 'd';
 };
 const shortAddr = a => a ? (a.slice(0,6) + '…' + a.slice(-4)) : '—';
+function copyAddr(ev, addr){
+  ev.stopPropagation(); ev.preventDefault();
+  navigator.clipboard.writeText(addr).then(() => {
+    const btn = ev.currentTarget || ev.target;
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1200);
+  });
+}
+const copyBtn = addr => `<button class="copy-btn" onclick="copyAddr(event, '${addr}')" title="Copy address">📋</button>`;
 const redempBadge = r => {
   if(r == null) return '<span class="badge">—</span>';
   if(r < 0.30) return `<span class="badge b-healthy">${(r*100).toFixed(0)}%</span>`;
@@ -338,7 +365,7 @@ function filteredSortedVaults(){
 function rowHTML(v, i){
   const leader = v.leader || '';
   const vaultId = v.vault || '';
-  const nameDisplay = v.name || 'Unnamed vault';
+  const nameDisplay = v.name && v.name.trim() ? v.name : vaultId;
   const netClass = (v.net_flow_usdc ?? 0) >= 0 ? 'pos' : 'neg';
   const expanded = EXPANDED.has(vaultId) ? 'expanded' : '';
   const checked = SELECTED.has(vaultId) ? 'checked' : '';
@@ -347,9 +374,9 @@ function rowHTML(v, i){
       <td class="cb"><input type="checkbox" class="sel" data-vault="${vaultId}" ${checked} onclick="event.stopPropagation()"></td>
       <td>
         <div class="vname" title="${nameDisplay} · ${vaultId}">
-          <span class="nm">${nameDisplay}</span>
-          <span class="ad">leader: <a href="https://app.hyperliquid.xyz/explorer/address/${leader}" target="_blank" onclick="event.stopPropagation()">${shortAddr(leader)}</a></span>
-          <span class="full-addr">${vaultId}</span>
+          <span class="nm">${nameDisplay}${copyBtn(vaultId)}</span>
+          <span class="ad">leader: <a href="https://app.hyperliquid.xyz/explorer/address/${leader}" target="_blank" onclick="event.stopPropagation()">${shortAddr(leader)}</a>${copyBtn(leader)}</span>
+          ${v.name && v.name.trim() ? `<span class="full-addr">${vaultId}</span>` : ''}
         </div>
       </td>
       <td class="num">${fmtUsd(v.lifetime_deposits_usdc)}</td>
@@ -373,6 +400,43 @@ function detailRowHTML(vaultId){
     inner = renderDetail(cached);
   }
   return `<tr class="detail-row"><td colspan="9"><div class="detail" id="d-${vaultId}">${inner}</div></td></tr>`;
+}
+
+function renderHevm(h){
+  if(!h){
+    return `<div class="dim" style="font-size:.8rem">Loading HyperEVM context…</div>`;
+  }
+  if(h.error){
+    return `<div class="dim" style="font-size:.8rem">HyperEVM lookup unavailable: ${h.error}</div>`;
+  }
+  const native = h.native_hype || 0;
+  const nativeUsd = h.native_hype_usd || 0;
+  const tokens = (h.tokens || []).slice(0, 6);
+  const totalUsd = h.total_usd || 0;
+  const tokenRows = tokens.length ? tokens.map(t => `
+    <div class="hevm-tok">
+      <span><span class="sym">${t.symbol || '?'}</span></span>
+      <span><span class="amt">${(t.amount || 0).toLocaleString('en-US',{maximumFractionDigits:4})}</span>${t.usd != null ? `<span class="usd">$${(t.usd).toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : ''}</span>
+    </div>`).join('') : '';
+  const noTokens = tokens.length === 0 ? `<div class="dim" style="font-size:.78rem;padding:4px 0">No ERC-20 holdings detected.</div>` : '';
+  const nonceLine = (h.tx_count != null) ?
+    `<div class="dim" style="font-size:.74rem;margin-top:6px">HyperEVM tx count: ${h.tx_count.toLocaleString()}${h.tx_count === 0 ? ' <span style="color:#fbbf24">(no HyperEVM activity)</span>' : ''}</div>` : '';
+  const explorerLink = `<a href="https://www.hyperscan.com/address/${h.address}" target="_blank" style="color:#a5b4fc;text-decoration:none;font-size:.74rem">view on Hyperscan →</a>`;
+  return `
+    <div class="hevm-tokens">
+      <div class="hevm-tok">
+        <span><span class="sym">HYPE</span> <span class="dim" style="font-size:.7rem">native</span></span>
+        <span><span class="amt">${native.toLocaleString('en-US',{maximumFractionDigits:4})}</span><span class="usd">$${nativeUsd.toLocaleString('en-US',{maximumFractionDigits:0})}</span></span>
+      </div>
+      ${tokenRows}
+    </div>
+    ${noTokens}
+    <div class="hevm-total">
+      <span>Total HyperEVM value</span>
+      <span class="v">$${totalUsd.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+    </div>
+    ${nonceLine}
+    <div style="margin-top:8px">${explorerLink}</div>`;
 }
 
 function renderDetail(d){
@@ -407,8 +471,8 @@ function renderDetail(d){
     </div>
     <div class="quality-bar ${qCls}"><div class="fill" style="width:${qScore}%"></div></div>
     <div style="font-size:.78rem;color:#8b93b8;margin:8px 0 4px;line-height:1.6">
-      <div><b style="color:#aab2d0">Vault:</b> <span style="font-family:'JetBrains Mono',monospace;color:#a5b4fc;overflow-wrap:anywhere;word-break:break-all">${d.vault}</span></div>
-      ${d.leader ? `<div><b style="color:#aab2d0">Leader:</b> <span style="font-family:'JetBrains Mono',monospace;color:#a5b4fc;overflow-wrap:anywhere;word-break:break-all">${d.leader}</span></div>` : ''}
+      <div><b style="color:#aab2d0">Vault:</b> <span style="font-family:'JetBrains Mono',monospace;color:#a5b4fc;overflow-wrap:anywhere;word-break:break-all">${d.vault}</span>${copyBtn(d.vault)}</div>
+      ${d.leader ? `<div><b style="color:#aab2d0">Leader:</b> <span style="font-family:'JetBrains Mono',monospace;color:#a5b4fc;overflow-wrap:anywhere;word-break:break-all">${d.leader}</span>${copyBtn(d.leader)}</div>` : ''}
       ${d.name ? `<div><b style="color:#aab2d0">Name:</b> ${d.name}</div>` : ''}
     </div>
 
@@ -440,6 +504,10 @@ function renderDetail(d){
         ${depTable}
       </div>
       <div class="panel">
+        <h3>Leader on HyperEVM</h3>
+        ${renderHevm(d.hyperevm)}
+      </div>
+      <div class="panel" style="grid-column:1/-1">
         <h3>Open this vault on Hyperliquid</h3>
         <p style="font-size:.82rem;color:#8b93b8;line-height:1.5;margin-bottom:4px">
           Deposits happen on Hyperliquid's L1. Clicking below opens HL's vault page
@@ -553,7 +621,7 @@ function renderComposer(){
   // Rows
   const compRows = document.getElementById('compRows');
   compRows.innerHTML = Array.from(SELECTED.values()).map(({vault, allocation}) => {
-    const name = vault.name || 'Unnamed vault';
+    const name = vault.name && vault.name.trim() ? vault.name : vault.vault;
     return `<div class="comp-row">
       <span class="vn" title="${name}">${name}<span class="ad">${vault.vault}</span></span>
       <input type="range" min="0" max="100" step="1" value="${allocation || 0}"
