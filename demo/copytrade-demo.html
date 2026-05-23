@@ -545,13 +545,25 @@ const fmtUsd = (n,d=0) => {
 };
 const fmtPct = n => (n == null || isNaN(n)) ? '—' : (n*100).toFixed(1) + '%';
 const fmtAge = ts => {
-  if(!ts) return '—';
-  const t = (typeof ts === 'string') ? Date.parse(ts) / 1000 : ts;
+  if(ts == null || ts === '') return '—';
+  let t;
+  if(typeof ts === 'string'){
+    t = Date.parse(ts) / 1000;  // ISO string → ms → s
+    if(isNaN(t)) return '—';
+  } else {
+    // Number — could be seconds or ms. Pinax sends ms; detect by magnitude.
+    // > 1e12 = ms; 1e9-1e12 = s; smaller is corrupt.
+    t = ts > 1e12 ? ts / 1000 : ts;
+    if(t < 1e9) return '—';
+  }
   const ago = Math.floor(Date.now()/1000) - t;
-  if(ago < 60) return ago + 's';
-  if(ago < 3600) return Math.floor(ago/60) + 'm';
-  if(ago < 86400) return Math.floor(ago/3600) + 'h';
-  return Math.floor(ago/86400) + 'd';
+  if(ago < 0) return '—';  // future timestamp → bogus
+  if(ago < 60) return ago + 's ago';
+  if(ago < 3600) return Math.floor(ago/60) + 'm ago';
+  if(ago < 86400) return Math.floor(ago/3600) + 'h ago';
+  if(ago < 86400*30) return Math.floor(ago/86400) + 'd ago';
+  if(ago < 86400*365) return Math.floor(ago/(86400*30)) + 'mo ago';
+  return Math.floor(ago/(86400*365)) + 'y ago';
 };
 const shortAddr = a => a ? (a.slice(0,6) + '…' + a.slice(-4)) : '—';
 function copyAddr(ev, addr){
@@ -564,7 +576,7 @@ function copyAddr(ev, addr){
     setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1200);
   });
 }
-const copyBtn = addr => `<button class="copy-btn" onclick="copyAddr(event, '${addr}')" title="Copy address">⧉</button>`;
+const copyBtn = addr => addr ? `<button class="copy-btn" onclick="copyAddr(event, '${addr}')" title="Copy address">⧉</button>` : '';
 const redempBadge = r => {
   if(r == null) return '<span class="badge">—</span>';
   if(r < 0.30) return `<span class="badge b-healthy">${(r*100).toFixed(0)}%</span>`;
@@ -707,7 +719,9 @@ function rowHTML(v, i){
       <td>
         <div class="vname" title="${nameDisplay} · ${vaultId}">
           <span class="nm">${nameDisplay}${copyBtn(vaultId)}</span>
-          <span class="ad">leader: <a href="https://app.hyperliquid.xyz/explorer/address/${leader}" target="_blank" onclick="event.stopPropagation()">${shortAddr(leader)}</a>${copyBtn(leader)}</span>
+          ${leader
+            ? `<span class="ad">leader · <a href="https://app.hyperliquid.xyz/explorer/address/${leader}" target="_blank" onclick="event.stopPropagation()">${shortAddr(leader)}</a>${copyBtn(leader)}</span>`
+            : `<span class="ad" style="color:var(--warn);font-size:.66rem">legacy vault · leader not indexed</span>`}
           ${v.name && v.name.trim() ? `<span class="full-addr">${vaultId}</span>` : ''}
         </div>
       </td>
@@ -802,10 +816,12 @@ function renderDetail(d){
       <span class="liq-flag ${liqCls}">${liqLabel} · ${ro.liquidations_30d_display ?? '?'} in 30d</span>
     </div>
     <div class="quality-bar ${qCls}"><div class="fill" style="width:${qScore}%"></div></div>
-    <div style="font-size:.78rem;color:#8b93b8;margin:8px 0 4px;line-height:1.6">
-      <div><b style="color:#aab2d0">Vault:</b> <span style="font-family:'JetBrains Mono',monospace;color:#a5b4fc;overflow-wrap:anywhere;word-break:break-all">${d.vault}</span>${copyBtn(d.vault)}</div>
-      ${d.leader ? `<div><b style="color:#aab2d0">Leader:</b> <span style="font-family:'JetBrains Mono',monospace;color:#a5b4fc;overflow-wrap:anywhere;word-break:break-all">${d.leader}</span>${copyBtn(d.leader)}</div>` : ''}
-      ${d.name ? `<div><b style="color:#aab2d0">Name:</b> ${d.name}</div>` : ''}
+    <div style="font-size:.8rem;color:var(--text-2);margin:10px 0 4px;line-height:1.7">
+      <div><b style="color:var(--text-2);font-weight:500">Vault</b> <span style="font-family:var(--mono);color:var(--accent);overflow-wrap:anywhere;word-break:break-all;margin-left:10px">${d.vault}</span>${copyBtn(d.vault)}</div>
+      ${d.leader
+        ? `<div><b style="color:var(--text-2);font-weight:500">Leader</b> <span style="font-family:var(--mono);color:var(--accent);overflow-wrap:anywhere;word-break:break-all;margin-left:10px">${d.leader}</span>${copyBtn(d.leader)}</div>`
+        : `<div style="color:var(--text-3);font-size:.78rem;margin-top:2px"><b style="color:var(--warn);font-weight:600">Legacy vault</b> · leader address not indexed (pre-Pinax cutover). Open on Hyperliquid below to see the leader.</div>`}
+      ${d.name ? `<div><b style="color:var(--text-2);font-weight:500">Name</b> <span style="margin-left:10px">${d.name}</span></div>` : ''}
     </div>
 
     <div class="detail-grid">
@@ -823,6 +839,7 @@ function renderDetail(d){
       </div>
       <div class="panel">
         <h3>Leader profile</h3>
+        ${d.leader && (ls.skill_score != null || ls.realized_pnl_usdc != null) ? `
         <div class="kv">
           <span class="k">Skill score (perps)</span><span class="v">${ls.skill_score?.toFixed?.(1) ?? '—'} / 100</span>
           <span class="k">Classification</span><span class="v">${(ls.classification || 'unknown').replace(/_/g,' ')}</span>
@@ -830,6 +847,13 @@ function renderDetail(d){
           <span class="k">Lifetime volume</span><span class="v">${fmtUsd(ls.total_volume_usdc)}</span>
           <span class="k">Liquidation fills (lifetime)</span><span class="v">${ls.liquidation_fills ?? '—'}</span>
         </div>
+        ` : `
+        <div style="padding:8px 0;font-size:.83rem;color:var(--text-3);line-height:1.6">
+          <p style="margin-bottom:8px"><span style="color:var(--warn);font-weight:600">No leader address indexed</span> for this vault.</p>
+          <p>This is typical for vaults created before Pinax's indexer cutover. Without a leader address, perps skill score, lifetime PnL, and trading volume can't be derived.</p>
+          <p style="margin-top:8px">Open the vault on Hyperliquid below — HL's UI shows the leader's name and recent activity.</p>
+        </div>
+        `}
       </div>
       <div class="panel">
         <h3>Top depositors</h3>
@@ -837,7 +861,11 @@ function renderDetail(d){
       </div>
       <div class="panel">
         <h3>Leader on HyperEVM</h3>
-        ${renderHevm(d.hyperevm)}
+        ${d.leader ? renderHevm(d.hyperevm) : `
+        <div style="padding:8px 0;font-size:.83rem;color:var(--text-3);line-height:1.6">
+          <p>No leader address indexed — HyperEVM context can't be fetched without an on-chain address to look up.</p>
+        </div>
+        `}
       </div>
       <div class="panel" style="grid-column:1/-1">
         <h3>Open this vault on Hyperliquid</h3>
