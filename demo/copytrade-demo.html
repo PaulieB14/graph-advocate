@@ -768,11 +768,12 @@ function detailRowHTML(vaultId){
   return `<tr class="detail-row"><td colspan="8"><div class="detail" id="d-${vaultId}">${inner}</div></td></tr>`;
 }
 
-// Render a tiny inline SVG sparkline of NAV history from HL portfolio data
+// Render a tiny inline SVG sparkline of NAV history from HL portfolio data.
+// Prefer 'month' (30d) over 'allTime' — matches APR's typical annualization
+// window so users see consistent numbers (APR ≈ 30d change × 12).
 function renderSparkline(portfolio){
   if(!portfolio || typeof portfolio !== 'object') return '';
-  // Prefer 'allTime', fall back to 'month', 'week', 'day'
-  const series = portfolio.allTime || portfolio.month || portfolio.week || portfolio.day;
+  const series = portfolio.month || portfolio.allTime || portfolio.week || portfolio.day;
   if(!series || series.length < 2) return '';
   // series: [[ts_ms, "value_string"], ...]
   let points = series.map(p => [p[0], parseFloat(p[1])]).filter(p => !isNaN(p[1]));
@@ -803,12 +804,18 @@ function renderSparkline(portfolio){
   const first = vals[0], last = vals[vals.length-1];
   const trend = last >= first ? 'var(--pos)' : 'var(--neg)';
   const pctChange = first > 0 ? ((last - first) / first * 100) : null;
-  const periodLabel = portfolio.allTime ? 'all time' : portfolio.month ? '30d' : portfolio.week ? '7d' : '24h';
+  // Match label to which series we actually used (same priority order as above)
+  const periodLabel = portfolio.month ? '30d' : portfolio.allTime ? 'all time' : portfolio.week ? '7d' : '24h';
+  // Days-in-period for annualization context
+  const periodDays = portfolio.month ? 30 : portfolio.week ? 7 : portfolio.allTime ? null : 1;
+  const annualized = (pctChange != null && periodDays && periodDays > 0)
+    ? (pctChange * (365 / periodDays))
+    : null;
   return `
     <div style="margin-top:6px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
         <span class="dim" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.10em">NAV · ${periodLabel}</span>
-        <span style="font-size:.78rem;color:${trend};font-weight:600;font-variant-numeric:tabular-nums">${pctChange == null ? '—' : (pctChange >= 0 ? '+' : '') + pctChange.toFixed(2) + '%'}</span>
+        <span style="font-size:.78rem;color:${trend};font-weight:600;font-variant-numeric:tabular-nums">${pctChange == null ? '—' : (pctChange >= 0 ? '+' : '') + pctChange.toFixed(2) + '%'}${annualized != null ? `<span class="dim" style="font-weight:400;font-size:.7rem;margin-left:8px">≈ ${(annualized >= 0 ? '+' : '') + annualized.toFixed(1)}% annualized</span>` : ''}</span>
       </div>
       <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:${h}px;display:block">
         <defs>
