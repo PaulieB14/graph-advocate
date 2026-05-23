@@ -159,6 +159,50 @@ _HYPERSCAN_API = os.getenv("HYPERSCAN_API_URL", "https://www.hyperscan.com/api")
 _HL_INFO_API = os.getenv("HL_INFO_API_URL", "https://api.hyperliquid.xyz/info")
 
 
+# Spot-pair symbol cache. HL coin codes can be @N for spot pairs — we build a
+# {@N: SYMBOL} map on first use via /info {type:"spotMeta"}, then reuse forever.
+_SPOT_SYMBOL_CACHE: dict | None = None
+
+
+async def _spot_symbol_map() -> dict:
+    """Returns {'@107': 'BUDDY/USDC', '@1': 'PURR/USDC', ...} from HL spotMeta.
+    Built lazily on first call, cached for the process lifetime. Empty dict on
+    failure (so callers always get a dict back)."""
+    global _SPOT_SYMBOL_CACHE
+    if _SPOT_SYMBOL_CACHE is not None:
+        return _SPOT_SYMBOL_CACHE
+    out: dict = {}
+    try:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as cli:
+            r = await cli.post(
+                _HL_INFO_API,
+                json={"type": "spotMeta"},
+                headers={"Content-Type": "application/json"},
+            )
+            r.raise_for_status()
+            d = r.json()
+            universe = d.get("universe") or []
+            tokens = {t["index"]: t.get("name") for t in (d.get("tokens") or [])}
+            for u in universe:
+                # u: {"name":"@107","tokens":[<base_idx>,<quote_idx>],"index":...,"isCanonical":...}
+                code = u.get("name") or u.get("index")
+                toks = u.get("tokens") or []
+                if len(toks) == 2 and toks[0] in tokens and toks[1] in tokens:
+                    out[code] = f"{tokens[toks[0]]}/{tokens[toks[1]]}"
+    except Exception as e:
+        log.debug(f"spotMeta failed: {e}")
+    _SPOT_SYMBOL_CACHE = out
+    return out
+
+
+def _resolve_coin(coin: str, sym_map: dict) -> str:
+    """Resolve @N codes to a human symbol; pass perp tickers through unchanged."""
+    if not coin: return coin
+    if coin.startswith("@"):
+        return sym_map.get(coin, coin)
+    return coin
+
+
 async def fetch_clearinghouse_state_hl(user_address: str) -> dict | None:
     """HL native /info clearinghouseState — current perps positions + margin
     summary for a user. Returns marginSummary, assetPositions, withdrawable,

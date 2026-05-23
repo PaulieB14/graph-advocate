@@ -2595,6 +2595,10 @@ Repository: https://github.com/PaulieB14/graph-advocate
 - POST /feedback                   Agent feedback submission
 - GET  /quality                    Response quality metrics
 - GET  /export/stats               Summary stats
+- GET  /copytrade/data             Hyperliquid vault leaderboard JSON (free)
+- GET  /copytrade/vault/{addr}     Per-vault deep dive: HL live (APR, TVL, sparkline,
+                                   positions, last 10 trades, top followers) +
+                                   Pinax lifetime flows + HyperEVM leader context (free)
 
 ## Pricing
 
@@ -5467,6 +5471,19 @@ def build_app():
         for a, det in zip(addrs, hl_details):
             if isinstance(det, dict): hl_by_addr[a] = det
 
+        # Filter out child vaults (e.g. HLP Strategy A/B) — these are protocol
+        # sub-vaults, not user-depositable. Detect via relationship.type == "child".
+        child_count = 0
+        filtered_vaults = []
+        for v in vaults:
+            hl_d = hl_by_addr.get(v.get("vault")) or {}
+            rel = (hl_d.get("relationship") or {})
+            if rel.get("type") == "child":
+                child_count += 1
+                continue
+            filtered_vaults.append(v)
+        vaults = filtered_vaults
+
         rows = []
         for v in vaults:
             addr = v.get("vault")
@@ -5485,6 +5502,10 @@ def build_app():
             leader = (hl.get("leader") or v.get("leader") or None)
             if leader:
                 leader = leader.lower()
+            # Clamp leader_fraction to [0,1] to fix float-precision overflow (e.g. 1.0000000000000093)
+            leader_fraction = hl.get("leaderFraction")
+            if leader_fraction is not None:
+                leader_fraction = max(0.0, min(1.0, float(leader_fraction)))
 
             rows.append({
                 "vault": addr,
@@ -5493,7 +5514,7 @@ def build_app():
                 "name": hl.get("name") or None,
                 "apr": hl.get("apr"),  # decimal e.g. 0.0111 = 1.11%
                 "current_tvl_usdc": hl.get("maxDistributable"),
-                "leader_fraction": hl.get("leaderFraction"),
+                "leader_fraction": leader_fraction,
                 "allow_deposits": hl.get("allowDeposits"),
                 "is_closed": hl.get("isClosed"),
                 "description": hl.get("description") or None,
@@ -5516,13 +5537,38 @@ def build_app():
             "source": "pinax token-api /v1/hyperliquid/vaults",
             "refreshed_at": int(now),
             "ttl_seconds": _CT_DATA_TTL,
+            "excluded_child_vault_count": child_count,
             "notes": [
                 "Sorted by lifetime_deposits. Names + APR + real leaders come from "
                 "Hyperliquid's native /info API (free, unauth). Lifetime flows come "
                 "from Pinax. Per-vault deep dive on the detail page.",
                 "Redemption pressure = withdrawals / deposits; below 0.30 is healthy.",
-                "APR is HL's stated annualized return; treat as backward-looking.",
+                "APR is HL's stated annualized return (decimal); treat as backward-looking.",
+                f"Excluded {child_count} HL child vaults (protocol sub-vaults of "
+                "parent strategies, not user-depositable).",
             ],
+            "agent_metadata": {
+                "doc": "https://graphadvocate.com/llms.txt",
+                "detail_endpoint": "GET /copytrade/vault/{vault_address}",
+                "cache_ttl_seconds": _CT_DATA_TTL,
+                "fields": {
+                    "vault": "0x-prefixed HL vault address (lowercase, 42 chars)",
+                    "leader": "0x-prefixed wallet that operates the vault (lowercase or null)",
+                    "name": "human-readable vault name from HL, or null",
+                    "apr": "annualized return, decimal (0.01 = 1%, can be negative)",
+                    "current_tvl_usdc": "current pool value in USDC, from HL maxDistributable",
+                    "lifetime_deposits_usdc": "cumulative deposits ever, from Pinax",
+                    "lifetime_withdrawals_usdc": "cumulative withdrawals ever, from Pinax",
+                    "lifetime_distributions_usdc": "cumulative PnL distributions to depositors, from Pinax",
+                    "net_flow_usdc": "deposits − withdrawals (stickiness signal)",
+                    "redemption_pressure": "withdrawals/deposits ratio, decimal; healthy < 0.30",
+                    "depositor_count": "unique depositor addresses, from Pinax",
+                    "leader_fraction": "leader's own share of vault, decimal 0..1",
+                    "is_closed": "bool — vault is closed",
+                    "allow_deposits": "bool — accepting new deposits",
+                    "last_activity_at": "epoch milliseconds (Pinax convention)",
+                },
+            },
         }
         _CT_DATA_CACHE["ts"] = now
         _CT_DATA_CACHE["payload"] = payload
@@ -5546,6 +5592,7 @@ def build_app():
             fetch_vault, fetch_vault_depositors, fetch_user,
             fetch_user_liquidations_count, fetch_leader_hyperevm_context,
             fetch_clearinghouse_state_hl, fetch_recent_fills_hl,
+            _spot_symbol_map, _resolve_coin,
             compute_vault_score, compute_user_score,
         )
 
@@ -5604,8 +5651,14 @@ def build_app():
 
         # Top followers — prefer HL's richer data (current equity, all-time PnL,
         # days following) over Pinax's deposits-only view. Each row has 7 fields.
-        hl_followers_raw = (hl_data := hl or {}).get("followers") or []
-        total_equity = sum(float(f.get("vaultEquity") or 0) for f in hl_followers_raw) or 1.0
+        hl_data = hl or {}
+        hl_followers_raw = hl_data.get("followers") or []
+        # Share denominator = vault's actual TVL (maxDistributable) when present —
+        # gives the TRUE share of the vault each follower owns. Fall back to sum
+        # of returned followers' equities if HL didn't give us TVL.
+        tvl_for_share = float(hl_data.get("maxDistributable") or 0)
+        if tvl_for_share <= 0:
+            tvl_for_share = sum(float(f.get("vaultEquity") or 0) for f in hl_followers_raw) or 1.0
         followers_rows = []
         for f in hl_followers_raw[:10]:
             eq = float(f.get("vaultEquity") or 0)
@@ -5613,7 +5666,7 @@ def build_app():
             followers_rows.append({
                 "address": f.get("user"),
                 "equity_usdc": round(eq, 2),
-                "share_pct": round(100 * eq / total_equity, 2),
+                "share_pct": round(100 * eq / tvl_for_share, 2),
                 "all_time_pnl_usdc": round(all_time_pnl, 2),
                 "days_following": f.get("daysFollowing"),
                 "lockup_until": f.get("lockupUntil"),
@@ -5630,6 +5683,9 @@ def build_app():
             "last_activity_at": d.get("last_activity_at"),
         } for d in (depositors or [])]
 
+        # Resolve @N spot codes to human-readable symbols (cached once per process)
+        sym_map = await _spot_symbol_map()
+
         # Current open positions from HL clearinghouseState
         positions = []
         if hl_ch_state and isinstance(hl_ch_state, dict):
@@ -5643,7 +5699,7 @@ def build_app():
                 if size == 0:
                     continue
                 positions.append({
-                    "coin": pos.get("coin"),
+                    "coin": _resolve_coin(pos.get("coin"), sym_map),
                     "size": size,
                     "side": "long" if size > 0 else "short",
                     "entry_px": float(pos.get("entryPx") or 0),
@@ -5670,7 +5726,7 @@ def build_app():
         for f in (hl_fills or []):
             try:
                 fills_rows.append({
-                    "coin": f.get("coin"),
+                    "coin": _resolve_coin(f.get("coin"), sym_map),
                     "side": "buy" if f.get("side") == "B" else "sell",
                     "size": float(f.get("sz") or 0),
                     "price": float(f.get("px") or 0),

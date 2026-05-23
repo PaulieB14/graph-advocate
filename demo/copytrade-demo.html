@@ -880,8 +880,8 @@ function renderDetail(d){
   if(fol.length){
     depTable = `
       <table class="dep-table">
-        <thead><tr style="font-size:.62rem;text-transform:uppercase;letter-spacing:.10em;color:var(--text-3)">
-          <td>Address</td><td>Equity</td><td>Share</td><td>All-time PnL</td><td>Days</td>
+        <thead><tr style="font-size:.62rem;text-transform:uppercase;letter-spacing:.10em;color:var(--text-3);white-space:nowrap">
+          <td>Address</td><td>Equity</td><td>Share</td><td>PnL (all-time)</td><td>Days</td>
         </tr></thead>
         ${fol.map(p => {
           const pnlClass = (p.all_time_pnl_usdc ?? 0) >= 0 ? 'pos' : 'neg';
@@ -908,12 +908,19 @@ function renderDetail(d){
     depTable = `<div class="dim" style="font-size:.8rem">no follower data</div>`;
   }
 
-  // Leader's current positions panel
+  // Leader's current positions panel — only render if there ARE positions
+  // (the margin summary alone isn't interesting enough to warrant a card)
   const pos = d.leader_positions || [];
   const ms = d.leader_margin_summary;
   let positionsCard = '';
-  if(pos.length || ms){
-    const posRows = pos.length ? `
+  if(pos.length){
+    const summary = ms ? `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;font-size:.78rem;margin-bottom:10px">
+        <div><span class="dim">Account value</span><div class="num">${fmtUsd(ms.account_value_usdc)}</div></div>
+        <div><span class="dim">Notional pos</span><div class="num">${fmtUsd(ms.total_ntl_pos_usdc)}</div></div>
+        <div><span class="dim">Withdrawable</span><div class="num">${fmtUsd(ms.withdrawable_usdc)}</div></div>
+      </div>` : '';
+    const posRows = `
       <table class="dep-table" style="margin-top:8px">
         <thead><tr style="font-size:.62rem;text-transform:uppercase;letter-spacing:.10em;color:var(--text-3)">
           <td style="width:auto">Coin</td><td>Side</td><td>Size</td><td>Notional</td><td>Unrealized PnL</td><td>Lev</td>
@@ -930,13 +937,7 @@ function renderDetail(d){
             <td class="dim">${p.leverage ? p.leverage + 'x' : '—'}</td>
           </tr>`;
         }).join('')}
-      </table>` : `<div class="dim" style="font-size:.8rem;padding:6px 0">No open positions right now.</div>`;
-    const summary = ms ? `
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;font-size:.78rem">
-        <div><span class="dim">Account value</span><div class="num">${fmtUsd(ms.account_value_usdc)}</div></div>
-        <div><span class="dim">Notional pos</span><div class="num">${fmtUsd(ms.total_ntl_pos_usdc)}</div></div>
-        <div><span class="dim">Withdrawable</span><div class="num">${fmtUsd(ms.withdrawable_usdc)}</div></div>
-      </div>` : '';
+      </table>`;
     positionsCard = `
       <div class="panel" style="grid-column:1/-1">
         <h3>Leader's current positions · live from Hyperliquid</h3>
@@ -1035,12 +1036,18 @@ function renderDetail(d){
         <h3>Top followers · current equity + lifetime PnL</h3>
         ${depTable}
       </div>
-      ${d.leader && d.hyperevm && !d.hyperevm.error ? `
-      <div class="panel">
-        <h3>Leader on HyperEVM</h3>
-        ${renderHevm(d.hyperevm)}
-      </div>
-      ` : ''}
+      ${(() => {
+        const h = d.hyperevm;
+        if(!d.leader || !h || h.error) return '';
+        // Hide when leader has zero HYPE, zero tokens, AND zero tx count — nothing to show
+        const hasActivity = (h.native_hype && h.native_hype > 0) || (h.tokens && h.tokens.length > 0) || (h.tx_count && h.tx_count > 0);
+        if(!hasActivity) return '';
+        return `
+          <div class="panel">
+            <h3>Leader on HyperEVM</h3>
+            ${renderHevm(h)}
+          </div>`;
+      })()}
       ${positionsCard}
       ${fillsCard}
       <div class="panel" style="grid-column:1/-1">
