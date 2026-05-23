@@ -442,6 +442,7 @@
     <span class="pill" data-sort="net_flow_usdc">By net flow</span>
     <span class="pill" data-sort="depositor_count">By depositors</span>
     <span class="pill" data-sort="last_activity_at">By recency</span>
+    <label><input type="checkbox" id="hideClosed" checked> hide closed vaults</label>
     <label><input type="checkbox" id="hideHighRedemp"> hide redemption &gt;
       <input type="number" id="redempThresh" value="0.50" min="0" max="1" step="0.05">
     </label>
@@ -609,19 +610,22 @@ async function load(){
 
 function renderHero(){
   if(!VAULTS.length) return;
-  // Prefer current TVL (HL-sourced) for the headline; fall back to lifetime deposits.
-  const totalTvl = VAULTS.reduce((s,v) => s + (v.current_tvl_usdc != null ? v.current_tvl_usdc : (v.lifetime_deposits_usdc || 0)), 0);
-  const tvlIsLive = VAULTS.some(v => v.current_tvl_usdc != null);
-  const totalDep = VAULTS.reduce((s,v) => s + (v.depositor_count || 0), 0);
-  const healthy = VAULTS.filter(v => (v.redemption_pressure ?? 1) < 0.30 && (v.depositor_count ?? 0) >= 5).length;
-  const netFlowPos = VAULTS.filter(v => (v.net_flow_usdc ?? 0) > 0).length;
-  document.getElementById('heroVaults').textContent = VAULTS.length;
-  document.getElementById('heroVaultsSub').textContent = `${netFlowPos} with positive net flow`;
+  // Hero stats reflect OPEN vaults only — closed/no-deposit vaults are not actionable
+  const open = VAULTS.filter(v => !v.is_closed && v.allow_deposits !== false);
+  const totalTvl = open.reduce((s,v) => s + (v.current_tvl_usdc != null ? v.current_tvl_usdc : (v.lifetime_deposits_usdc || 0)), 0);
+  const tvlIsLive = open.some(v => v.current_tvl_usdc != null);
+  const totalDep = open.reduce((s,v) => s + (v.depositor_count || 0), 0);
+  const healthy = open.filter(v => (v.redemption_pressure ?? 1) < 0.30 && (v.depositor_count ?? 0) >= 5).length;
+  const netFlowPos = open.filter(v => (v.net_flow_usdc ?? 0) > 0).length;
+  document.getElementById('heroVaults').textContent = open.length;
+  document.getElementById('heroVaultsSub').textContent = open.length < VAULTS.length
+    ? `${open.length} open · ${VAULTS.length - open.length} closed`
+    : `${netFlowPos} with positive net flow`;
   document.getElementById('heroAum').textContent = fmtUsd(totalTvl);
-  document.querySelector('#heroAum + .sub-v').textContent = tvlIsLive ? 'current pool (HL live)' : 'lifetime deposits';
+  document.querySelector('#heroAum + .sub-v').textContent = tvlIsLive ? 'current pool · open vaults' : 'lifetime deposits';
   document.getElementById('heroDep').textContent = totalDep.toLocaleString();
   document.getElementById('heroHealthy').textContent = healthy;
-  document.getElementById('heroHealthySub').textContent = `${healthy} of ${VAULTS.length} · redemption < 30%`;
+  document.getElementById('heroHealthySub').textContent = `${healthy} of ${open.length} · redemption < 30%`;
 }
 
 // Smart picks: composite scoring
@@ -629,6 +633,8 @@ function renderHero(){
 //   - then rank by (deposits * (1 - redemption) * log(depositors))
 function pickedVaults(){
   const eligible = VAULTS.filter(v =>
+    !v.is_closed &&
+    v.allow_deposits !== false &&
     (v.net_flow_usdc ?? 0) > 0 &&
     (v.redemption_pressure ?? 1) < 0.30 &&
     (v.depositor_count ?? 0) >= 20
@@ -690,7 +696,9 @@ function filteredSortedVaults(){
   const minDepEn = document.getElementById('minDep').checked;
   const minDepN = parseInt(document.getElementById('minDepN').value || '0', 10);
 
+  const hideClosed = document.getElementById('hideClosed').checked;
   let filtered = VAULTS.filter(v => {
+    if(hideClosed && (v.is_closed || v.allow_deposits === false)) return false;
     if(hideHi && (v.redemption_pressure ?? 0) > thresh) return false;
     if(minDepEn && (v.depositor_count ?? 0) < minDepN) return false;
     return true;
@@ -1132,6 +1140,7 @@ document.querySelectorAll('.pill[data-sort]').forEach(p => {
     render();
   });
 });
+document.getElementById('hideClosed').addEventListener('change', render);
 document.getElementById('hideHighRedemp').addEventListener('change', render);
 document.getElementById('redempThresh').addEventListener('change', render);
 document.getElementById('minDep').addEventListener('change', render);
