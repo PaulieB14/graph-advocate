@@ -5479,6 +5479,125 @@ def build_app():
             "access-control-allow-origin": "*",
         })
 
+    # ── /copytrade/vault/<address> — per-vault deep dive ──────────────────────
+    # Hits the same building blocks as the paid /hyperliquid/vault endpoint
+    # but free (we're internal — no x402 facilitator round-trip). Cached per
+    # vault for 5 min so a curious user clicking around doesn't burn quota.
+    _CT_VAULT_CACHE: dict = {}  # vault_address (lowercased) -> {ts, payload}
+    _CT_VAULT_TTL = 300
+
+    async def copytrade_vault_endpoint(request):
+        """GET /copytrade/vault/{address} — full evaluator output for one vault."""
+        import asyncio
+        import time as _t
+        from hyperliquid_intel import (
+            fetch_vault, fetch_vault_depositors, fetch_user,
+            fetch_user_liquidations_count, compute_vault_score, compute_user_score,
+        )
+
+        addr = (request.path_params.get("vault") or "").strip().lower()
+        if not addr or not addr.startswith("0x") or len(addr) != 42:
+            return JSONResponse({"error": "invalid_vault_address"}, status_code=400)
+
+        now = _t.time()
+        cached = _CT_VAULT_CACHE.get(addr)
+        if cached and (now - cached["ts"]) < _CT_VAULT_TTL:
+            return JSONResponse(cached["payload"], headers={
+                "cache-control": "public, max-age=60",
+                "access-control-allow-origin": "*",
+            })
+
+        try:
+            # Stage 1: vault + depositors (parallel, both keyed only on address)
+            vault, depositors = await asyncio.gather(
+                fetch_vault(addr),
+                fetch_vault_depositors(addr, limit=10),
+                return_exceptions=False,
+            )
+            if not vault:
+                return JSONResponse({"error": "vault_not_found"}, status_code=404)
+
+            # Stage 2: leader stats + liquidations (parallel, need leader from vault)
+            leader = (vault.get("leader") or "").lower()
+            leader_stats = None
+            liq_count = 0
+            if leader:
+                leader_stats, liq_count = await asyncio.gather(
+                    fetch_user(leader),
+                    fetch_user_liquidations_count(leader, days=30),
+                    return_exceptions=False,
+                )
+
+            leader_score = compute_user_score(leader_stats) if leader_stats else {}
+            quality = compute_vault_score(vault, depositors, leader_score)
+        except Exception as e:
+            log.warning(f"copytrade/vault/{addr[:10]}… failed: {e}")
+            return JSONResponse(
+                {"error": "upstream_error", "message": str(e)[:200]},
+                status_code=502,
+            )
+
+        # Depositor concentration table
+        total_dep = float(vault.get("lifetime_deposits") or 0) or 1
+        dep_rows = [{
+            "address": d.get("depositor"),
+            "deposits_usdc": round(float(d.get("deposits") or 0), 2),
+            "share_pct": round(100 * float(d.get("deposits") or 0) / total_dep, 2),
+            "last_activity_at": d.get("last_activity_at"),
+        } for d in (depositors or [])]
+
+        # Risk overlay
+        liq_30d_display = (
+            f"{liq_count}+" if liq_count >= 10
+            else (str(liq_count) if liq_count > 0 else "0")
+        )
+        risk_flag = (
+            "high" if liq_count >= 5
+            else ("medium" if liq_count > 0 else "clean")
+        )
+
+        payload = {
+            "vault": addr,
+            "leader": leader,
+            "name": vault.get("name"),
+            "created_at": vault.get("created_at"),
+            "last_activity_at": vault.get("last_activity_at"),
+            "metrics": {
+                "lifetime_deposits_usdc": round(float(vault.get("lifetime_deposits") or 0), 2),
+                "lifetime_withdrawals_usdc": round(float(vault.get("lifetime_withdrawals") or 0), 2),
+                "lifetime_distributions_usdc": round(float(vault.get("lifetime_distributions") or 0), 2),
+                "lifetime_leader_commissions_usdc": round(float(vault.get("lifetime_leader_commissions") or 0), 2),
+                "depositor_count": int(vault.get("depositor_count") or 0),
+            },
+            "quality": quality,
+            "leader_stats": {
+                "skill_score": leader_score.get("skill_score") if leader_score else None,
+                "classification": leader_score.get("classification") if leader_score else None,
+                "realized_pnl_usdc": float(leader_stats.get("realized_pnl") or 0) if leader_stats else None,
+                "total_volume_usdc": float(leader_stats.get("total_volume") or 0) if leader_stats else None,
+                "liquidation_fills": int(leader_stats.get("liquidation_fills") or 0) if leader_stats else None,
+            },
+            "risk_overlay": {
+                "liquidations_30d": liq_count,
+                "liquidations_30d_display": liq_30d_display,
+                "risk_flag": risk_flag,
+            },
+            "top_depositors": dep_rows,
+            "hyperliquid_url": f"https://app.hyperliquid.xyz/vaults/{addr}",
+            "refreshed_at": int(now),
+            "source": "pinax token-api /v1/hyperliquid/{vaults, vaults/depositors, users, markets/liquidations}",
+        }
+        _CT_VAULT_CACHE[addr] = {"ts": now, "payload": payload}
+        # Bound cache size — only keep last 200 vaults
+        if len(_CT_VAULT_CACHE) > 200:
+            oldest = sorted(_CT_VAULT_CACHE.items(), key=lambda kv: kv[1]["ts"])[:50]
+            for k, _ in oldest:
+                _CT_VAULT_CACHE.pop(k, None)
+        return JSONResponse(payload, headers={
+            "cache-control": "public, max-age=60",
+            "access-control-allow-origin": "*",
+        })
+
     # Hyperliquid Live — auto-refreshing perp markets board (free Token API,
     # no key — the page fetches token-api.thegraph.com directly client-side).
     _HL_LIVE_HTML = None
@@ -6511,6 +6630,7 @@ def build_app():
         Route("/favicon.png", graphadvocate_png_endpoint),
         Route("/copytrade", copytrade_endpoint, methods=["GET"]),
         Route("/copytrade/data", copytrade_data_endpoint, methods=["GET"]),
+        Route("/copytrade/vault/{vault}", copytrade_vault_endpoint, methods=["GET"]),
         Route("/hyperliquid-live", hyperliquid_live_endpoint, methods=["GET"]),
     ])
 

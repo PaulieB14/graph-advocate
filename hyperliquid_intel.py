@@ -154,6 +154,28 @@ async def fetch_vault_depositors(vault: str, limit: int | None = None) -> list[d
     )
 
 
+async def fetch_user_liquidations_count(user: str, days: int = 30) -> int:
+    """Count of liquidation events for `user` in the last `days` days.
+
+    Used by the copy-trade dashboard's risk-overlay badge. Pinax free-tier
+    caps `limit` at 10, so we cap the returned count at 10 and report
+    '10+' upstream if needed.
+    """
+    import time as _t
+    start_time = int(_t.time()) - days * 86400
+    rows = _data(
+        await _pinax(
+            "/markets/liquidations",
+            liquidated_user=user,
+            sort_by="time",
+            order="desc",
+            start_time=start_time,
+            limit=10,
+        )
+    )
+    return len(rows)
+
+
 async def fetch_vaults_list(
     limit: int = 50,
     sort_by: str = "lifetime_deposits",
