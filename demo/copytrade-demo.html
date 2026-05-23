@@ -183,6 +183,59 @@
   .foot a{color:#a5b4fc;text-decoration:none}
   .foot a:hover{text-decoration:underline}
 
+  /* Hero stats banner */
+  .hero{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0 4px}
+  @media(max-width:740px){.hero{grid-template-columns:repeat(2,1fr)}}
+  .stat-tile{background:linear-gradient(135deg,rgba(165,180,252,.07),rgba(103,71,237,.04));
+    border:1px solid rgba(165,180,252,.18);border-radius:12px;padding:14px 16px}
+  .stat-tile .l{font-size:.66rem;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;color:#8b93b8;margin-bottom:4px}
+  .stat-tile .v{font-size:1.4rem;font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+  .stat-tile .sub-v{font-size:.7rem;color:#6b7394;margin-top:2px}
+
+  /* How-to / FAQ collapsibles */
+  details.guide{margin:14px 0;background:rgba(255,255,255,.022);
+    border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:0;overflow:hidden}
+  details.guide summary{cursor:pointer;padding:14px 18px;font-size:.86rem;font-weight:600;
+    color:#a5b4fc;list-style:none;display:flex;align-items:center;gap:10px;
+    user-select:none;transition:background .12s}
+  details.guide summary:hover{background:rgba(165,180,252,.04)}
+  details.guide summary::-webkit-details-marker{display:none}
+  details.guide summary::before{content:'▸';transition:transform .2s;
+    display:inline-block;color:#6b7394}
+  details.guide[open] summary::before{transform:rotate(90deg)}
+  details.guide .body{padding:0 18px 18px;font-size:.85rem;color:#cbd5e1;line-height:1.7}
+  details.guide .body h4{font-size:.78rem;font-weight:700;text-transform:uppercase;
+    letter-spacing:.05em;color:#a5b4fc;margin:14px 0 6px}
+  details.guide .body code{background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px;
+    font-family:'JetBrains Mono',monospace;font-size:.78rem;color:#a5b4fc}
+  details.guide .body ul{margin:6px 0 0 18px}
+  details.guide .body li{margin-bottom:5px}
+  details.guide .body table.gloss{width:100%;border-collapse:collapse;font-size:.82rem;margin:8px 0}
+  details.guide .body table.gloss td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:top}
+  details.guide .body table.gloss td:first-child{font-weight:700;color:#e2e8f0;white-space:nowrap;width:200px}
+  details.guide .body table.gloss td:nth-child(2){color:#aab2d0}
+
+  /* Smart picks */
+  .picks{margin:18px 0;padding:16px 18px;background:linear-gradient(135deg,rgba(52,211,153,.07),rgba(16,185,129,.03));
+    border:1px solid rgba(52,211,153,.25);border-radius:12px}
+  .picks-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+  .picks-title{font-size:.84rem;font-weight:700;color:#34d399;letter-spacing:.04em}
+  .picks-title .info{color:#8b93b8;font-weight:400;margin-left:8px;font-size:.78rem}
+  .picks-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:760px){.picks-grid{grid-template-columns:1fr}}
+  .pick{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
+    border-radius:9px;padding:12px 14px;cursor:pointer;transition:all .15s}
+  .pick:hover{border-color:rgba(52,211,153,.5);transform:translateY(-1px)}
+  .pick .pick-rank{font-size:.66rem;font-weight:700;color:#34d399;letter-spacing:.06em}
+  .pick .pick-name{font-weight:700;color:#fff;font-size:.88rem;margin:3px 0 6px;
+    word-break:break-all;line-height:1.3}
+  .pick .pick-meta{display:flex;justify-content:space-between;font-size:.74rem;color:#8b93b8}
+  .pick .pick-meta b{color:#e2e8f0;font-variant-numeric:tabular-nums}
+  .pick-action{padding:8px 14px;background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.35);
+    border-radius:7px;font-size:.74rem;font-weight:700;cursor:pointer;transition:all .15s}
+  .pick-action:hover{background:rgba(52,211,153,.25)}
+
   @media(max-width:740px){
     h1{font-size:1.5rem}
     .toolbar{font-size:.78rem;gap:8px}
@@ -199,9 +252,9 @@
     <span class="tag"><span class="dot"></span> Live · refreshes every 5 min</span>
     <h1>Hyperliquid Vault Leaderboard</h1>
     <p class="sub">
-      Every depositable vault on Hyperliquid, ranked by lifetime flows. Click any row to deep-dive — leader skill, depositor concentration, liquidation history. Select multiple rows to compose a multi-vault portfolio. Powered by
-      <a href="https://thegraph.com/docs/en/data-services/token-api/" target="_blank">The Graph Token API</a> via
-      <a href="https://pinax.network" target="_blank">Pinax Streams</a>.
+      Every depositable vault on Hyperliquid, ranked by lifetime flows. Click any row to deep-dive — leader skill, depositor concentration, liquidation history. Select multiple rows to compose a multi-vault portfolio. Data from the
+      <a href="https://pinax.network" target="_blank">Pinax</a> Token API
+      (centralized warehouse, served at <code style="font-size:inherit">token-api.thegraph.com</code>).
     </p>
   </div>
 
@@ -212,6 +265,59 @@
     and <b>clean liquidation history</b>. Realistic outcomes for a good vault: +5–60% / year, -30 to -50% in a bad
     year. This page is research — it does not execute trades, custody funds, or give financial advice. Deposits
     happen on Hyperliquid's L1, not here.
+  </div>
+
+  <!-- Hero stats banner — computed client-side from leaderboard data -->
+  <div class="hero" id="hero">
+    <div class="stat-tile"><div class="l">Vaults tracked</div><div class="v" id="heroVaults">—</div><div class="sub-v" id="heroVaultsSub">loading</div></div>
+    <div class="stat-tile"><div class="l">Combined AUM</div><div class="v" id="heroAum">—</div><div class="sub-v">lifetime deposits</div></div>
+    <div class="stat-tile"><div class="l">Total depositors</div><div class="v" id="heroDep">—</div><div class="sub-v">across all vaults</div></div>
+    <div class="stat-tile"><div class="l">Healthy vaults</div><div class="v" id="heroHealthy">—</div><div class="sub-v" id="heroHealthySub">redemption &lt; 30%</div></div>
+  </div>
+
+  <!-- How to use / glossary -->
+  <details class="guide" id="howto" open>
+    <summary>📖 How to read this dashboard</summary>
+    <div class="body">
+      <p style="margin-bottom:10px"><b style="color:#fff">In 30 seconds:</b> pick 3–5 vaults with <b>green redemption badges</b>, <b>net flow &gt; 0</b>, and <b>20+ depositors</b>. Click a row to see leader skill + recent liquidations. Use the <b>Smart picks</b> below to start from a curated set, or check the boxes on rows to build your own portfolio. Then click <b>Deposit on Hyperliquid</b> — the deposit happens on HL's site, not here.</p>
+
+      <h4>How to read each column</h4>
+      <table class="gloss">
+        <tr><td>AUM</td><td>Lifetime <i>deposits</i> in USDC — gross capital ever put in. Big number ≠ big current pool (see Net Flow).</td></tr>
+        <tr><td>Net Flow</td><td>Deposits − Withdrawals. <span class="pos">Positive</span> = capital is still arriving. <span class="neg">Negative</span> = vault is draining.</td></tr>
+        <tr><td>Distributed</td><td>USDC returned to depositors as PnL distributions. The honest "did the leader actually make money for followers?" number.</td></tr>
+        <tr><td>Depositors</td><td>Unique addresses that have deposited. Higher = more diversified holder base, harder for one whale to pull the rug.</td></tr>
+        <tr><td>Redemption</td><td>Withdrawals ÷ Deposits. <span class="badge b-healthy">&lt; 30%</span> healthy · <span class="badge b-warn">30–70%</span> watch · <span class="badge b-bad">&gt; 70%</span> people are leaving fast.</td></tr>
+        <tr><td>Fee</td><td>Leader's lifetime commissions as a % of deposits. Sane = 1–5%. &gt; 10% means the leader has been extracting heavily.</td></tr>
+        <tr><td>Last Act</td><td>When the leader last did anything on-chain in this vault. Stale (&gt; 14d) = either coasting or abandoned.</td></tr>
+      </table>
+
+      <h4>What you get when you click a row</h4>
+      <ul>
+        <li><b>Quality score (0–100)</b> — composite: 40% leader skill, 25% low redemption, 20% diversified depositors, 15% sane fee. &gt; 70 = high quality, &lt; 35 = avoid.</li>
+        <li><b>Leader profile</b> — composite skill score, realized PnL, lifetime trading volume, lifetime liquidation count.</li>
+        <li><b>30-day liquidations</b> — <span class="badge b-healthy">Clean</span> (0) / <span class="badge b-warn">Some</span> (1–4) / <span class="badge b-bad">Recent</span> (5+). The strongest near-term risk signal.</li>
+        <li><b>Top depositors</b> — full addresses + share %. If one address owns &gt; 50%, that's a concentration risk.</li>
+        <li><b>Leader on HyperEVM</b> — what the leader's wallet looks like on HL's EVM sidechain (native HYPE + ERC-20s). A leader with $2M idle has more skin in the game than one with $50.</li>
+      </ul>
+
+      <h4>Building a portfolio</h4>
+      <ul>
+        <li>Check the box on 2+ vault rows — composer slides up at the bottom.</li>
+        <li>Drag the sliders to allocate. Auto-rebalance to equal weight with the button.</li>
+        <li>Goal: 3–5 vaults, all with green redemption, low correlation (different coin focus is a proxy).</li>
+        <li>Click <b>"Open all on Hyperliquid"</b> — fires one tab per vault.</li>
+      </ul>
+    </div>
+  </details>
+
+  <!-- Smart picks — auto-curated -->
+  <div class="picks" id="picks" style="display:none">
+    <div class="picks-head">
+      <div class="picks-title">🎯 Smart picks <span class="info">— top 3 by composite: scale + low redemption + many depositors + positive net flow</span></div>
+      <button class="pick-action" onclick="selectAllPicks()">Add all to portfolio composer →</button>
+    </div>
+    <div class="picks-grid" id="picksGrid"></div>
   </div>
 
   <div class="toolbar">
@@ -247,9 +353,38 @@
     </table>
   </div>
 
+  <details class="guide">
+    <summary>❓ FAQ</summary>
+    <div class="body">
+      <h4>What's the difference between a vault and copy trading?</h4>
+      <p>Strict copy trading (mirror execution) auto-replicates a trader's trades on <i>your</i> wallet — slippage, latency, position-scaling all introduce drag and risk. <b>Vaults</b> are different: you deposit USDC into a pool the leader manages, daily NAV updates, no per-trade execution needed. Cleaner mechanism. This dashboard surfaces vaults specifically.</p>
+
+      <h4>Why is the AUM not the current pool size?</h4>
+      <p>"AUM" here is <b>lifetime deposits</b> — every USDC that's ever been deposited. The current pool is <code>deposits − withdrawals − distributions</code>. Use <b>Net Flow</b> to gauge stickiness.</p>
+
+      <h4>What's a "good" quality score?</h4>
+      <p>The score weights 4 things: leader skill (40%), low redemption (25%), diversified depositors (20%), sane fee (15%). <b>&gt; 70 = high quality</b>, <b>35–70 = neutral / do more diligence</b>, <b>&lt; 35 = avoid</b>. Quality &lt; 5 depositors → "insufficient data".</p>
+
+      <h4>Why does the Pinax feed only show legacy vaults?</h4>
+      <p>HL has two vault generations. Legacy <b>HyperCore vaults</b> (2023+, native L1) are what's indexed today. <b>Protocol vaults</b> (new, ERC-4626 on HyperEVM, support perps + spot + HIP-3) are not indexed yet — they'd need a HyperEVM subgraph. As builders launch new vaults via that path, this feed will need a complementary HyperEVM indexer.</p>
+
+      <h4>Can I deposit from this app?</h4>
+      <p>No — and intentionally so. GA is research / intel only. Clicking <b>Open on Hyperliquid</b> deep-links to HL's own UI where you complete the deposit. We never touch your funds or sign on your behalf.</p>
+
+      <h4>I'm in the US. Can I use HL vaults?</h4>
+      <p>HL blocks US IPs at the front-end. Many US users access HL via VPN; that's a personal-risk call. Capital gains are still taxable. This dashboard works from anywhere — only the actual deposit on HL is geo-restricted.</p>
+
+      <h4>How fresh is the data?</h4>
+      <p>Leaderboard refreshes every 5 minutes (server cache). Per-vault detail cached 5 minutes per vault. Pinax refreshes the underlying source roughly hourly for the users/leader stats; vault flow data updates faster.</p>
+
+      <h4>Where do you get HyperEVM data?</h4>
+      <p>Direct from HL's public RPC (<code>rpc.hyperliquid.xyz/evm</code>) for native HYPE + tx count, and Hyperscan (Blockscout API) for the ERC-20 token list. Free, no auth.</p>
+    </div>
+  </details>
+
   <div class="foot">
-    <b>Data:</b> <code>GET /copytrade/data</code> (5-min server cache). Upstream: Pinax Token API
-    <code>/v1/hyperliquid/vaults</code> on the free tier.<br>
+    <b>Data:</b> <code>GET /copytrade/data</code> (5-min server cache). Upstream: <a href="https://pinax.network" target="_blank">Pinax</a> Token API
+    <code>/v1/hyperliquid/vaults</code> on the free tier — Pinax operates its own centralized warehouse.<br>
     <b>Deep dive:</b> <code>GET /copytrade/vault/&lt;address&gt;</code> on row click — combines vault flows,
     depositor concentration, leader skill score, and last-30-day liquidation count.<br>
     <b>Honest scope:</b> "AUM" = lifetime deposits, not current net AUM. Use <i>Net Flow</i> for stickiness.
@@ -336,10 +471,86 @@ async function load(){
     const d = await r.json();
     VAULTS = d.vaults || [];
     status.textContent = `${VAULTS.length} vaults · refreshed ${new Date().toLocaleTimeString()}`;
+    renderHero();
+    renderPicks();
     render();
   } catch(e) {
     status.textContent = 'fetch failed — ' + e.message;
   }
+}
+
+function renderHero(){
+  if(!VAULTS.length) return;
+  const totalAum = VAULTS.reduce((s,v) => s + (v.lifetime_deposits_usdc || 0), 0);
+  const totalDep = VAULTS.reduce((s,v) => s + (v.depositor_count || 0), 0);
+  const healthy = VAULTS.filter(v => (v.redemption_pressure ?? 1) < 0.30 && (v.depositor_count ?? 0) >= 5).length;
+  const netFlowPos = VAULTS.filter(v => (v.net_flow_usdc ?? 0) > 0).length;
+  document.getElementById('heroVaults').textContent = VAULTS.length;
+  document.getElementById('heroVaultsSub').textContent = `${netFlowPos} with positive net flow`;
+  document.getElementById('heroAum').textContent = fmtUsd(totalAum);
+  document.getElementById('heroDep').textContent = totalDep.toLocaleString();
+  document.getElementById('heroHealthy').textContent = healthy;
+  document.getElementById('heroHealthySub').textContent = `${healthy} of ${VAULTS.length} · redemption < 30%`;
+}
+
+// Smart picks: composite scoring
+//   - net flow positive AND redemption < 0.30 AND depositors >= 20
+//   - then rank by (deposits * (1 - redemption) * log(depositors))
+function pickedVaults(){
+  const eligible = VAULTS.filter(v =>
+    (v.net_flow_usdc ?? 0) > 0 &&
+    (v.redemption_pressure ?? 1) < 0.30 &&
+    (v.depositor_count ?? 0) >= 20
+  );
+  eligible.sort((a,b) => {
+    const sa = (a.lifetime_deposits_usdc || 0) * (1 - (a.redemption_pressure || 0)) * Math.log(1 + (a.depositor_count || 1));
+    const sb = (b.lifetime_deposits_usdc || 0) * (1 - (b.redemption_pressure || 0)) * Math.log(1 + (b.depositor_count || 1));
+    return sb - sa;
+  });
+  return eligible.slice(0, 3);
+}
+
+function renderPicks(){
+  const picks = pickedVaults();
+  const wrap = document.getElementById('picks');
+  if(!picks.length){ wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const labels = ['#1', '#2', '#3'];
+  document.getElementById('picksGrid').innerHTML = picks.map((v, i) => {
+    const nameDisplay = v.name && v.name.trim() ? v.name : v.vault;
+    return `<div class="pick" onclick="scrollToVault('${v.vault}')">
+      <div class="pick-rank">${labels[i]} pick</div>
+      <div class="pick-name">${nameDisplay}</div>
+      <div class="pick-meta"><span>AUM</span><b>${fmtUsd(v.lifetime_deposits_usdc)}</b></div>
+      <div class="pick-meta"><span>Depositors</span><b>${v.depositor_count}</b></div>
+      <div class="pick-meta"><span>Redemption</span><b>${((v.redemption_pressure || 0) * 100).toFixed(0)}%</b></div>
+    </div>`;
+  }).join('');
+}
+
+function scrollToVault(vaultId){
+  // Expand the row if not already, then scroll into view
+  if(!EXPANDED.has(vaultId)) toggleExpand(vaultId);
+  setTimeout(() => {
+    const row = document.querySelector(`tr.r[data-vault="${vaultId}"]`);
+    if(row) row.scrollIntoView({behavior: 'smooth', block: 'center'});
+  }, 60);
+}
+
+function selectAllPicks(){
+  const picks = pickedVaults();
+  picks.forEach(v => {
+    if(!SELECTED.has(v.vault)) SELECTED.set(v.vault, {vault: v, allocation: null});
+  });
+  rebalanceEqual();
+  // Tick the checkboxes in the UI
+  picks.forEach(v => {
+    const cb = document.querySelector(`input.sel[data-vault="${v.vault}"]`);
+    if(cb) cb.checked = true;
+  });
+  renderComposer();
+  // Scroll composer into view
+  document.getElementById('composer').scrollIntoView({behavior: 'smooth', block: 'end'});
 }
 
 function filteredSortedVaults(){
