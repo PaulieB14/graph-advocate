@@ -719,9 +719,7 @@ function rowHTML(v, i){
       <td>
         <div class="vname" title="${nameDisplay} · ${vaultId}">
           <span class="nm">${nameDisplay}${copyBtn(vaultId)}</span>
-          ${leader
-            ? `<span class="ad">leader · <a href="https://app.hyperliquid.xyz/explorer/address/${leader}" target="_blank" onclick="event.stopPropagation()">${shortAddr(leader)}</a>${copyBtn(leader)}</span>`
-            : `<span class="ad" style="color:var(--warn);font-size:.66rem">legacy vault · leader not indexed</span>`}
+          ${leader ? `<span class="ad">leader · <a href="https://app.hyperliquid.xyz/explorer/address/${leader}" target="_blank" onclick="event.stopPropagation()">${shortAddr(leader)}</a>${copyBtn(leader)}</span>` : ''}
           ${v.name && v.name.trim() ? `<span class="full-addr">${vaultId}</span>` : ''}
         </div>
       </td>
@@ -818,9 +816,7 @@ function renderDetail(d){
     <div class="quality-bar ${qCls}"><div class="fill" style="width:${qScore}%"></div></div>
     <div style="font-size:.8rem;color:var(--text-2);margin:10px 0 4px;line-height:1.7">
       <div><b style="color:var(--text-2);font-weight:500">Vault</b> <span style="font-family:var(--mono);color:var(--accent);overflow-wrap:anywhere;word-break:break-all;margin-left:10px">${d.vault}</span>${copyBtn(d.vault)}</div>
-      ${d.leader
-        ? `<div><b style="color:var(--text-2);font-weight:500">Leader</b> <span style="font-family:var(--mono);color:var(--accent);overflow-wrap:anywhere;word-break:break-all;margin-left:10px">${d.leader}</span>${copyBtn(d.leader)}</div>`
-        : `<div style="color:var(--text-3);font-size:.78rem;margin-top:2px"><b style="color:var(--warn);font-weight:600">Legacy vault</b> · leader address not indexed (pre-Pinax cutover). Open on Hyperliquid below to see the leader.</div>`}
+      ${d.leader ? `<div><b style="color:var(--text-2);font-weight:500">Leader</b> <span style="font-family:var(--mono);color:var(--accent);overflow-wrap:anywhere;word-break:break-all;margin-left:10px">${d.leader}</span>${copyBtn(d.leader)}</div>` : ''}
       ${d.name ? `<div><b style="color:var(--text-2);font-weight:500">Name</b> <span style="margin-left:10px">${d.name}</span></div>` : ''}
     </div>
 
@@ -837,9 +833,9 @@ function renderDetail(d){
           <span class="k">Top depositor share</span><span class="v">${fmtPct(q.top_depositor_share)}</span>
         </div>
       </div>
+      ${d.leader && (ls.skill_score != null || ls.realized_pnl_usdc != null) ? `
       <div class="panel">
         <h3>Leader profile</h3>
-        ${d.leader && (ls.skill_score != null || ls.realized_pnl_usdc != null) ? `
         <div class="kv">
           <span class="k">Skill score (perps)</span><span class="v">${ls.skill_score?.toFixed?.(1) ?? '—'} / 100</span>
           <span class="k">Classification</span><span class="v">${(ls.classification || 'unknown').replace(/_/g,' ')}</span>
@@ -847,26 +843,18 @@ function renderDetail(d){
           <span class="k">Lifetime volume</span><span class="v">${fmtUsd(ls.total_volume_usdc)}</span>
           <span class="k">Liquidation fills (lifetime)</span><span class="v">${ls.liquidation_fills ?? '—'}</span>
         </div>
-        ` : `
-        <div style="padding:8px 0;font-size:.83rem;color:var(--text-3);line-height:1.6">
-          <p style="margin-bottom:8px"><span style="color:var(--warn);font-weight:600">No leader address indexed</span> for this vault.</p>
-          <p>This is typical for vaults created before Pinax's indexer cutover. Without a leader address, perps skill score, lifetime PnL, and trading volume can't be derived.</p>
-          <p style="margin-top:8px">Open the vault on Hyperliquid below — HL's UI shows the leader's name and recent activity.</p>
-        </div>
-        `}
       </div>
+      ` : ''}
       <div class="panel">
         <h3>Top depositors</h3>
         ${depTable}
       </div>
+      ${d.leader && d.hyperevm && !d.hyperevm.error ? `
       <div class="panel">
         <h3>Leader on HyperEVM</h3>
-        ${d.leader ? renderHevm(d.hyperevm) : `
-        <div style="padding:8px 0;font-size:.83rem;color:var(--text-3);line-height:1.6">
-          <p>No leader address indexed — HyperEVM context can't be fetched without an on-chain address to look up.</p>
-        </div>
-        `}
+        ${renderHevm(d.hyperevm)}
       </div>
+      ` : ''}
       <div class="panel" style="grid-column:1/-1">
         <h3>Open this vault on Hyperliquid</h3>
         <p style="font-size:.82rem;color:#8b93b8;line-height:1.5;margin-bottom:4px">
