@@ -5545,6 +5545,7 @@ def build_app():
         from hyperliquid_intel import (
             fetch_vault, fetch_vault_depositors, fetch_user,
             fetch_user_liquidations_count, fetch_leader_hyperevm_context,
+            fetch_clearinghouse_state_hl, fetch_recent_fills_hl,
             compute_vault_score, compute_user_score,
         )
 
@@ -5574,18 +5575,21 @@ def build_app():
             if not vault and hl:
                 vault = {"vault": addr, "leader": hl.get("leader"), "name": hl.get("name")}
 
-            # Stage 2: leader stats + liquidations + HyperEVM context (parallel)
-            # Use HL's leader as primary (always present) — fall back to Pinax's.
+            # Stage 2: leader stats + liquidations + HyperEVM + HL clearinghouse + recent fills (all parallel)
             leader_raw = (hl.get("leader") if hl else None) or vault.get("leader") or ""
             leader = leader_raw.lower() if leader_raw else ""
             leader_stats = None
             liq_count = 0
             hevm_ctx = None
+            hl_ch_state = None
+            hl_fills = []
             if leader:
-                leader_stats, liq_count, hevm_ctx = await asyncio.gather(
+                leader_stats, liq_count, hevm_ctx, hl_ch_state, hl_fills = await asyncio.gather(
                     fetch_user(leader),
                     fetch_user_liquidations_count(leader, days=30),
                     fetch_leader_hyperevm_context(leader),
+                    fetch_clearinghouse_state_hl(leader),
+                    fetch_recent_fills_hl(leader, limit=10),
                     return_exceptions=False,
                 )
 
@@ -5598,14 +5602,85 @@ def build_app():
                 status_code=502,
             )
 
-        # Depositor concentration table
-        total_dep = float(vault.get("lifetime_deposits") or 0) or 1
-        dep_rows = [{
-            "address": d.get("depositor"),
+        # Top followers — prefer HL's richer data (current equity, all-time PnL,
+        # days following) over Pinax's deposits-only view. Each row has 7 fields.
+        hl_followers_raw = (hl_data := hl or {}).get("followers") or []
+        total_equity = sum(float(f.get("vaultEquity") or 0) for f in hl_followers_raw) or 1.0
+        followers_rows = []
+        for f in hl_followers_raw[:10]:
+            eq = float(f.get("vaultEquity") or 0)
+            all_time_pnl = float(f.get("allTimePnl") or 0)
+            followers_rows.append({
+                "address": f.get("user"),
+                "equity_usdc": round(eq, 2),
+                "share_pct": round(100 * eq / total_equity, 2),
+                "all_time_pnl_usdc": round(all_time_pnl, 2),
+                "days_following": f.get("daysFollowing"),
+                "lockup_until": f.get("lockupUntil"),
+            })
+
+        # Legacy Pinax depositors — kept as fallback when HL has no followers
+        # (rare for live vaults). Fix the previous null bug: Pinax field is `user`,
+        # not `depositor`.
+        total_dep_usdc = float(vault.get("lifetime_deposits") or 0) or 1.0
+        pinax_dep_rows = [{
+            "address": d.get("user") or d.get("depositor") or d.get("address"),
             "deposits_usdc": round(float(d.get("deposits") or 0), 2),
-            "share_pct": round(100 * float(d.get("deposits") or 0) / total_dep, 2),
+            "share_pct": round(100 * float(d.get("deposits") or 0) / total_dep_usdc, 2),
             "last_activity_at": d.get("last_activity_at"),
         } for d in (depositors or [])]
+
+        # Current open positions from HL clearinghouseState
+        positions = []
+        if hl_ch_state and isinstance(hl_ch_state, dict):
+            for p in hl_ch_state.get("assetPositions") or []:
+                pos = p.get("position") or {}
+                size_str = pos.get("szi") or "0"
+                try:
+                    size = float(size_str)
+                except (TypeError, ValueError):
+                    size = 0
+                if size == 0:
+                    continue
+                positions.append({
+                    "coin": pos.get("coin"),
+                    "size": size,
+                    "side": "long" if size > 0 else "short",
+                    "entry_px": float(pos.get("entryPx") or 0),
+                    "position_value_usdc": float(pos.get("positionValue") or 0),
+                    "unrealized_pnl_usdc": float(pos.get("unrealizedPnl") or 0),
+                    "leverage": (pos.get("leverage") or {}).get("value"),
+                    "margin_used_usdc": float(pos.get("marginUsed") or 0),
+                    "liquidation_px": float(pos.get("liquidationPx") or 0) if pos.get("liquidationPx") else None,
+                })
+            # Margin summary
+            ms = hl_ch_state.get("marginSummary") or {}
+            margin_summary = {
+                "account_value_usdc": float(ms.get("accountValue") or 0),
+                "total_ntl_pos_usdc": float(ms.get("totalNtlPos") or 0),
+                "total_raw_usd_usdc": float(ms.get("totalRawUsd") or 0),
+                "total_margin_used_usdc": float(ms.get("totalMarginUsed") or 0),
+                "withdrawable_usdc": float(hl_ch_state.get("withdrawable") or 0),
+            }
+        else:
+            margin_summary = None
+
+        # Recent fills — format for UI
+        fills_rows = []
+        for f in (hl_fills or []):
+            try:
+                fills_rows.append({
+                    "coin": f.get("coin"),
+                    "side": "buy" if f.get("side") == "B" else "sell",
+                    "size": float(f.get("sz") or 0),
+                    "price": float(f.get("px") or 0),
+                    "closed_pnl_usdc": float(f.get("closedPnl") or 0),
+                    "ts_ms": int(f.get("time") or 0),
+                    "hash": f.get("hash"),
+                    "fee_usdc": float(f.get("fee") or 0),
+                })
+            except Exception:
+                continue
 
         # Risk overlay
         liq_30d_display = (
@@ -5674,7 +5749,11 @@ def build_app():
                 "liquidations_30d_display": liq_30d_display,
                 "risk_flag": risk_flag,
             },
-            "top_depositors": dep_rows,
+            "top_followers": followers_rows,           # HL-sourced — preferred
+            "top_depositors": pinax_dep_rows,           # Pinax fallback
+            "leader_positions": positions,              # current open perp positions
+            "leader_margin_summary": margin_summary,    # account value, withdrawable
+            "leader_recent_fills": fills_rows,          # last 10 trades
             "hyperevm": hevm_ctx,
             "hyperliquid_url": f"https://app.hyperliquid.xyz/vaults/{addr}",
             "refreshed_at": int(now),

@@ -159,6 +159,45 @@ _HYPERSCAN_API = os.getenv("HYPERSCAN_API_URL", "https://www.hyperscan.com/api")
 _HL_INFO_API = os.getenv("HL_INFO_API_URL", "https://api.hyperliquid.xyz/info")
 
 
+async def fetch_clearinghouse_state_hl(user_address: str) -> dict | None:
+    """HL native /info clearinghouseState — current perps positions + margin
+    summary for a user. Returns marginSummary, assetPositions, withdrawable,
+    crossMaintenanceMarginUsed. Free, no auth.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as cli:
+            r = await cli.post(
+                _HL_INFO_API,
+                json={"type": "clearinghouseState", "user": user_address.lower()},
+                headers={"Content-Type": "application/json"},
+            )
+            r.raise_for_status()
+            d = r.json()
+            return d if isinstance(d, dict) else None
+    except Exception as e:
+        log.debug(f"hl clearinghouseState failed for {user_address[:10]}…: {e}")
+        return None
+
+
+async def fetch_recent_fills_hl(user_address: str, limit: int = 10) -> list[dict]:
+    """HL native /info userFills — recent trade fills for a user.
+    Returns most-recent first. Free, no auth.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as cli:
+            r = await cli.post(
+                _HL_INFO_API,
+                json={"type": "userFills", "user": user_address.lower()},
+                headers={"Content-Type": "application/json"},
+            )
+            r.raise_for_status()
+            d = r.json()
+            return (d if isinstance(d, list) else [])[:limit]
+    except Exception as e:
+        log.debug(f"hl userFills failed for {user_address[:10]}…: {e}")
+        return []
+
+
 async def fetch_vault_details_hl(vault_address: str) -> dict | None:
     """Native Hyperliquid /info vaultDetails for a vault.
 

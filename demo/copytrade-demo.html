@@ -873,15 +873,104 @@ function renderDetail(d){
   const qScore = q.vault_quality_score ?? 0;
   const qCls = qScore < 50 ? 'score-low' : '';
 
+  // Prefer HL followers (richer); fall back to Pinax depositors
+  const fol = (d.top_followers || []).slice(0, 6);
   const dep = (d.top_depositors || []).slice(0, 6);
-  const depTable = dep.length ? `
-    <table class="dep-table">
-      ${dep.map(p => `<tr>
-        <td title="${p.address}">${p.address}</td>
-        <td>${fmtUsd(p.deposits_usdc)}</td>
-        <td class="dim">${p.share_pct.toFixed(1)}%</td>
-      </tr>`).join('')}
-    </table>` : `<div class="dim" style="font-size:.8rem">no depositor data</div>`;
+  let depTable;
+  if(fol.length){
+    depTable = `
+      <table class="dep-table">
+        <thead><tr style="font-size:.62rem;text-transform:uppercase;letter-spacing:.10em;color:var(--text-3)">
+          <td>Address</td><td>Equity</td><td>Share</td><td>All-time PnL</td><td>Days</td>
+        </tr></thead>
+        ${fol.map(p => {
+          const pnlClass = (p.all_time_pnl_usdc ?? 0) >= 0 ? 'pos' : 'neg';
+          const pnlSign = (p.all_time_pnl_usdc ?? 0) >= 0 ? '+' : '';
+          return `<tr>
+            <td title="${p.address}">${p.address ? p.address.slice(0,8) + '…' + p.address.slice(-6) : '—'}${copyBtn(p.address)}</td>
+            <td>${fmtUsd(p.equity_usdc)}</td>
+            <td class="dim">${p.share_pct.toFixed(1)}%</td>
+            <td class="${pnlClass}">${pnlSign}${fmtUsd(p.all_time_pnl_usdc)}</td>
+            <td class="dim">${p.days_following ?? '—'}d</td>
+          </tr>`;
+        }).join('')}
+      </table>`;
+  } else if(dep.length){
+    depTable = `
+      <table class="dep-table">
+        ${dep.map(p => `<tr>
+          <td title="${p.address}">${p.address || '—'}</td>
+          <td>${fmtUsd(p.deposits_usdc)}</td>
+          <td class="dim">${p.share_pct.toFixed(1)}%</td>
+        </tr>`).join('')}
+      </table>`;
+  } else {
+    depTable = `<div class="dim" style="font-size:.8rem">no follower data</div>`;
+  }
+
+  // Leader's current positions panel
+  const pos = d.leader_positions || [];
+  const ms = d.leader_margin_summary;
+  let positionsCard = '';
+  if(pos.length || ms){
+    const posRows = pos.length ? `
+      <table class="dep-table" style="margin-top:8px">
+        <thead><tr style="font-size:.62rem;text-transform:uppercase;letter-spacing:.10em;color:var(--text-3)">
+          <td style="width:auto">Coin</td><td>Side</td><td>Size</td><td>Notional</td><td>Unrealized PnL</td><td>Lev</td>
+        </tr></thead>
+        ${pos.map(p => {
+          const pnlClass = (p.unrealized_pnl_usdc ?? 0) >= 0 ? 'pos' : 'neg';
+          const sideCls = p.side === 'long' ? 'pos' : 'neg';
+          return `<tr>
+            <td style="color:var(--text-1);font-weight:600">${p.coin}</td>
+            <td class="${sideCls}">${p.side}</td>
+            <td>${Math.abs(p.size).toLocaleString('en-US',{maximumFractionDigits:4})}</td>
+            <td>${fmtUsd(p.position_value_usdc)}</td>
+            <td class="${pnlClass}">${(p.unrealized_pnl_usdc ?? 0) >= 0 ? '+' : ''}${fmtUsd(p.unrealized_pnl_usdc)}</td>
+            <td class="dim">${p.leverage ? p.leverage + 'x' : '—'}</td>
+          </tr>`;
+        }).join('')}
+      </table>` : `<div class="dim" style="font-size:.8rem;padding:6px 0">No open positions right now.</div>`;
+    const summary = ms ? `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;font-size:.78rem">
+        <div><span class="dim">Account value</span><div class="num">${fmtUsd(ms.account_value_usdc)}</div></div>
+        <div><span class="dim">Notional pos</span><div class="num">${fmtUsd(ms.total_ntl_pos_usdc)}</div></div>
+        <div><span class="dim">Withdrawable</span><div class="num">${fmtUsd(ms.withdrawable_usdc)}</div></div>
+      </div>` : '';
+    positionsCard = `
+      <div class="panel" style="grid-column:1/-1">
+        <h3>Leader's current positions · live from Hyperliquid</h3>
+        ${summary}
+        ${posRows}
+      </div>`;
+  }
+
+  // Recent fills
+  const fills = d.leader_recent_fills || [];
+  let fillsCard = '';
+  if(fills.length){
+    fillsCard = `
+      <div class="panel" style="grid-column:1/-1">
+        <h3>Last ${fills.length} trades · live from Hyperliquid</h3>
+        <table class="dep-table" style="margin-top:6px">
+          <thead><tr style="font-size:.62rem;text-transform:uppercase;letter-spacing:.10em;color:var(--text-3)">
+            <td>Time</td><td style="width:auto">Coin</td><td>Side</td><td>Size</td><td>Price</td><td>Closed PnL</td>
+          </tr></thead>
+          ${fills.map(f => {
+            const pnlClass = (f.closed_pnl_usdc ?? 0) > 0 ? 'pos' : (f.closed_pnl_usdc < 0 ? 'neg' : 'dim');
+            const sideCls = f.side === 'buy' ? 'pos' : 'neg';
+            return `<tr>
+              <td class="dim">${fmtAge(f.ts_ms)}</td>
+              <td style="color:var(--text-1);font-weight:600">${f.coin}</td>
+              <td class="${sideCls}">${f.side}</td>
+              <td>${f.size.toLocaleString('en-US',{maximumFractionDigits:4})}</td>
+              <td>$${f.price.toLocaleString('en-US',{maximumFractionDigits:2})}</td>
+              <td class="${pnlClass}">${f.closed_pnl_usdc ? ((f.closed_pnl_usdc >= 0 ? '+' : '') + fmtUsd(f.closed_pnl_usdc)) : '—'}</td>
+            </tr>`;
+          }).join('')}
+        </table>
+      </div>`;
+  }
 
   // Sparkline from HL portfolio.allTime (or fallback to month/week)
   const sparkSvg = renderSparkline(live.portfolio);
@@ -943,7 +1032,7 @@ function renderDetail(d){
       </div>
       ` : ''}
       <div class="panel">
-        <h3>Top depositors</h3>
+        <h3>Top followers · current equity + lifetime PnL</h3>
         ${depTable}
       </div>
       ${d.leader && d.hyperevm && !d.hyperevm.error ? `
@@ -952,6 +1041,8 @@ function renderDetail(d){
         ${renderHevm(d.hyperevm)}
       </div>
       ` : ''}
+      ${positionsCard}
+      ${fillsCard}
       <div class="panel" style="grid-column:1/-1">
         <h3>Open this vault on Hyperliquid</h3>
         <p style="font-size:.82rem;color:#8b93b8;line-height:1.5;margin-bottom:4px">
