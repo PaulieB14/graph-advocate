@@ -387,7 +387,7 @@
   <!-- Hero stats banner — computed client-side from leaderboard data -->
   <div class="hero" id="hero">
     <div class="stat-tile"><div class="l">Vaults tracked</div><div class="v" id="heroVaults">—</div><div class="sub-v" id="heroVaultsSub">loading</div></div>
-    <div class="stat-tile"><div class="l">Combined AUM</div><div class="v" id="heroAum">—</div><div class="sub-v">lifetime deposits</div></div>
+    <div class="stat-tile"><div class="l">Combined TVL</div><div class="v" id="heroAum">—</div><div class="sub-v">current pool</div></div>
     <div class="stat-tile"><div class="l">Total depositors</div><div class="v" id="heroDep">—</div><div class="sub-v">across all vaults</div></div>
     <div class="stat-tile"><div class="l">Healthy vaults</div><div class="v" id="heroHealthy">—</div><div class="sub-v" id="heroHealthySub">redemption &lt; 30%</div></div>
   </div>
@@ -457,16 +457,15 @@
         <tr>
           <th data-key="select" style="width:30px"></th>
           <th data-key="name" style="text-align:left">Vault / Leader</th>
-          <th data-key="lifetime_deposits_usdc" class="sorted">AUM <span class="arr">▼</span></th>
-          <th data-key="net_flow_usdc">Net Flow <span class="arr"></span></th>
-          <th data-key="lifetime_distributions_usdc" class="hide-sm">Distributed <span class="arr"></span></th>
+          <th data-key="apr">APR <span class="arr"></span></th>
+          <th data-key="current_tvl_usdc" class="sorted">TVL <span class="arr">▼</span></th>
+          <th data-key="net_flow_usdc" class="hide-sm">Net Flow <span class="arr"></span></th>
           <th data-key="depositor_count">Depositors <span class="arr"></span></th>
           <th data-key="redemption_pressure">Redemption <span class="arr"></span></th>
-          <th data-key="commission_rate" class="hide-sm">Fee <span class="arr"></span></th>
           <th data-key="last_activity_at" class="hide-sm">Last Act <span class="arr"></span></th>
         </tr>
       </thead>
-      <tbody id="rows"><tr><td colspan="9" class="loading">⟳ loading vaults…</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="8" class="loading">⟳ loading vaults…</td></tr></tbody>
     </table>
   </div>
 
@@ -610,13 +609,16 @@ async function load(){
 
 function renderHero(){
   if(!VAULTS.length) return;
-  const totalAum = VAULTS.reduce((s,v) => s + (v.lifetime_deposits_usdc || 0), 0);
+  // Prefer current TVL (HL-sourced) for the headline; fall back to lifetime deposits.
+  const totalTvl = VAULTS.reduce((s,v) => s + (v.current_tvl_usdc != null ? v.current_tvl_usdc : (v.lifetime_deposits_usdc || 0)), 0);
+  const tvlIsLive = VAULTS.some(v => v.current_tvl_usdc != null);
   const totalDep = VAULTS.reduce((s,v) => s + (v.depositor_count || 0), 0);
   const healthy = VAULTS.filter(v => (v.redemption_pressure ?? 1) < 0.30 && (v.depositor_count ?? 0) >= 5).length;
   const netFlowPos = VAULTS.filter(v => (v.net_flow_usdc ?? 0) > 0).length;
   document.getElementById('heroVaults').textContent = VAULTS.length;
   document.getElementById('heroVaultsSub').textContent = `${netFlowPos} with positive net flow`;
-  document.getElementById('heroAum').textContent = fmtUsd(totalAum);
+  document.getElementById('heroAum').textContent = fmtUsd(totalTvl);
+  document.querySelector('#heroAum + .sub-v').textContent = tvlIsLive ? 'current pool (HL live)' : 'lifetime deposits';
   document.getElementById('heroDep').textContent = totalDep.toLocaleString();
   document.getElementById('heroHealthy').textContent = healthy;
   document.getElementById('heroHealthySub').textContent = `${healthy} of ${VAULTS.length} · redemption < 30%`;
@@ -706,29 +708,41 @@ function filteredSortedVaults(){
   return filtered;
 }
 
+function aprBadge(apr){
+  if(apr == null || isNaN(apr)) return '<span class="dim">—</span>';
+  const pct = apr * 100;
+  const cls = pct >= 30 ? 'pos' : (pct >= 5 ? '' : (pct < 0 ? 'neg' : 'dim'));
+  const sign = pct >= 0 ? '' : '';
+  return `<span class="num ${cls}">${sign}${pct.toFixed(1)}%</span>`;
+}
+
 function rowHTML(v, i){
   const leader = v.leader || '';
   const vaultId = v.vault || '';
-  const nameDisplay = v.name && v.name.trim() ? v.name : vaultId;
+  const hasName = v.name && v.name.trim();
+  const nameDisplay = hasName ? v.name : vaultId;
   const netClass = (v.net_flow_usdc ?? 0) >= 0 ? 'pos' : 'neg';
   const expanded = EXPANDED.has(vaultId) ? 'expanded' : '';
   const checked = SELECTED.has(vaultId) ? 'checked' : '';
+  const tvl = v.current_tvl_usdc != null ? v.current_tvl_usdc : v.lifetime_deposits_usdc;
+  const tvlLabel = v.current_tvl_usdc != null ? '' : '<span class="dim" style="font-size:.66rem;margin-left:4px">lifetime</span>';
+  const closedBadge = v.is_closed ? '<span class="badge b-bad" style="margin-left:6px">closed</span>' : '';
+  const noDepBadge = (!v.is_closed && v.allow_deposits === false) ? '<span class="badge b-warn" style="margin-left:6px">no new deposits</span>' : '';
   return `
     <tr class="r ${expanded}" data-vault="${vaultId}">
       <td class="cb"><input type="checkbox" class="sel" data-vault="${vaultId}" ${checked} onclick="event.stopPropagation()"></td>
       <td>
         <div class="vname" title="${nameDisplay} · ${vaultId}">
-          <span class="nm">${nameDisplay}${copyBtn(vaultId)}</span>
+          <span class="nm">${nameDisplay}${copyBtn(vaultId)}${closedBadge}${noDepBadge}</span>
           ${leader ? `<span class="ad">leader · <a href="https://app.hyperliquid.xyz/explorer/address/${leader}" target="_blank" onclick="event.stopPropagation()">${shortAddr(leader)}</a>${copyBtn(leader)}</span>` : ''}
-          ${v.name && v.name.trim() ? `<span class="full-addr">${vaultId}</span>` : ''}
+          ${hasName ? `<span class="full-addr">${vaultId}</span>` : ''}
         </div>
       </td>
-      <td class="num">${fmtUsd(v.lifetime_deposits_usdc)}</td>
-      <td class="num ${netClass}">${(v.net_flow_usdc ?? 0) >= 0 ? '+' : ''}${fmtUsd(v.net_flow_usdc)}</td>
-      <td class="num hide-sm">${fmtUsd(v.lifetime_distributions_usdc)}</td>
+      <td>${aprBadge(v.apr)}</td>
+      <td class="num">${fmtUsd(tvl)}${tvlLabel}</td>
+      <td class="num ${netClass} hide-sm">${(v.net_flow_usdc ?? 0) >= 0 ? '+' : ''}${fmtUsd(v.net_flow_usdc)}</td>
       <td class="num">${v.depositor_count ?? '—'}</td>
       <td>${redempBadge(v.redemption_pressure)}</td>
-      <td class="num hide-sm">${fmtPct(v.commission_rate)}</td>
       <td class="dim hide-sm">${fmtAge(v.last_activity_at)}</td>
     </tr>`;
 }
@@ -743,7 +757,54 @@ function detailRowHTML(vaultId){
   } else {
     inner = renderDetail(cached);
   }
-  return `<tr class="detail-row"><td colspan="9"><div class="detail" id="d-${vaultId}">${inner}</div></td></tr>`;
+  return `<tr class="detail-row"><td colspan="8"><div class="detail" id="d-${vaultId}">${inner}</div></td></tr>`;
+}
+
+// Render a tiny inline SVG sparkline of NAV history from HL portfolio data
+function renderSparkline(portfolio){
+  if(!portfolio || typeof portfolio !== 'object') return '';
+  // Prefer 'allTime', fall back to 'month', 'week', 'day'
+  const series = portfolio.allTime || portfolio.month || portfolio.week || portfolio.day;
+  if(!series || series.length < 2) return '';
+  // series: [[ts_ms, "value_string"], ...]
+  const points = series.map(p => [p[0], parseFloat(p[1])]).filter(p => !isNaN(p[1]));
+  if(points.length < 2) return '';
+  const vals = points.map(p => p[1]);
+  const mn = Math.min(...vals);
+  const mx = Math.max(...vals);
+  const range = mx - mn || 1;
+  const w = 880, h = 80;
+  const pad = 4;
+  const tStart = points[0][0], tEnd = points[points.length-1][0];
+  const tRange = (tEnd - tStart) || 1;
+  const xy = points.map(p => {
+    const x = pad + ((p[0] - tStart) / tRange) * (w - 2*pad);
+    const y = pad + (1 - (p[1] - mn) / range) * (h - 2*pad);
+    return [x, y];
+  });
+  const path = xy.map((p,i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const areaPath = path + ` L ${xy[xy.length-1][0].toFixed(1)} ${h-pad} L ${xy[0][0].toFixed(1)} ${h-pad} Z`;
+  const first = vals[0], last = vals[vals.length-1];
+  const trend = last >= first ? 'var(--pos)' : 'var(--neg)';
+  const pctChange = first ? ((last - first) / first * 100) : 0;
+  const periodLabel = portfolio.allTime ? 'all time' : portfolio.month ? '30d' : portfolio.week ? '7d' : '24h';
+  return `
+    <div style="margin-top:6px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+        <span class="dim" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.10em">NAV · ${periodLabel}</span>
+        <span style="font-size:.78rem;color:${trend};font-weight:600;font-variant-numeric:tabular-nums">${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%</span>
+      </div>
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:${h}px;display:block">
+        <defs>
+          <linearGradient id="sparkGrad-${Math.random().toString(36).slice(2,8)}" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="${trend}" stop-opacity="0.2"/>
+            <stop offset="100%" stop-color="${trend}" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="${areaPath}" fill="${trend}" fill-opacity="0.08"/>
+        <path d="${path}" fill="none" stroke="${trend}" stroke-width="1.4"/>
+      </svg>
+    </div>`;
 }
 
 function renderHevm(h){
@@ -788,6 +849,7 @@ function renderDetail(d){
   const ls = d.leader_stats || {};
   const ro = d.risk_overlay || {};
   const m = d.metrics || {};
+  const live = d.hl_live || {};
 
   const liqCls = `liq-${ro.risk_flag || 'clean'}`;
   const liqLabel = ro.risk_flag === 'clean' ? '✓ Clean' :
@@ -805,6 +867,24 @@ function renderDetail(d){
       </tr>`).join('')}
     </table>` : `<div class="dim" style="font-size:.8rem">no depositor data</div>`;
 
+  // Sparkline from HL portfolio.allTime (or fallback to month/week)
+  const sparkSvg = renderSparkline(live.portfolio);
+
+  // HL live panel (APR, TVL, leader fraction)
+  const aprPct = live.apr != null ? (live.apr * 100) : null;
+  const liveCard = `
+    <div class="panel" style="grid-column:1/-1">
+      <h3>Live · from Hyperliquid</h3>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px">
+        <div><div class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px">APR</div><div class="num" style="font-size:1.25rem;color:${aprPct >= 0 ? 'var(--pos)' : 'var(--neg)'}">${aprPct != null ? aprPct.toFixed(2) + '%' : '—'}</div></div>
+        <div><div class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px">Current TVL</div><div class="num" style="font-size:1.25rem">${fmtUsd(live.current_tvl_usdc)}</div></div>
+        <div><div class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px">Leader stake</div><div class="num" style="font-size:1.25rem">${live.leader_fraction != null ? (live.leader_fraction * 100).toFixed(3) + '%' : '—'}</div></div>
+        <div><div class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px">Followers (HL)</div><div class="num" style="font-size:1.25rem">${live.followers_count ?? '—'}</div></div>
+      </div>
+      ${sparkSvg}
+      ${d.description ? `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);font-size:.85rem;color:var(--text-2);line-height:1.6">${d.description}</div>` : ''}
+    </div>`;
+
   return `
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
       <span class="badge ${qScore >= 70 ? 'b-healthy' : qScore >= 40 ? 'b-warn' : 'b-bad'}">
@@ -821,8 +901,9 @@ function renderDetail(d){
     </div>
 
     <div class="detail-grid">
+      ${live.apr != null || live.current_tvl_usdc != null ? liveCard : ''}
       <div class="panel">
-        <h3>Vault flows</h3>
+        <h3>Lifetime flows · from Pinax</h3>
         <div class="kv">
           <span class="k">Lifetime deposits</span><span class="v">${fmtUsd(m.lifetime_deposits_usdc)}</span>
           <span class="k">Lifetime withdrawals</span><span class="v">${fmtUsd(m.lifetime_withdrawals_usdc)}</span>
@@ -873,7 +954,7 @@ function render(){
   const filtered = filteredSortedVaults();
 
   if(!filtered.length){
-    tbody.innerHTML = '<tr><td colspan="9" class="empty">No vaults match those filters.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">No vaults match those filters.</td></tr>';
     return;
   }
 

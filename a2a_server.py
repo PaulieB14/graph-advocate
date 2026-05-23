@@ -5403,8 +5403,35 @@ def build_app():
     _CT_DATA_CACHE: dict = {"ts": 0, "payload": None}
     _CT_DATA_TTL = 300  # seconds
 
+    # ── Per-vault HL info cache (longer TTL than the leaderboard) ──────────
+    # Names + leaders + APR don't move every minute. 30-min cache cuts the
+    # outbound HL calls drastically on a busy site.
+    _CT_HL_CACHE: dict = {}  # vault_address -> {ts, payload}
+    _CT_HL_TTL = 1800
+
+    async def _hl_enrich(vault_address: str):
+        """Return cached HL vaultDetails or fetch fresh. Never raises."""
+        import time as _tt
+        from hyperliquid_intel import fetch_vault_details_hl
+        now = _tt.time()
+        c = _CT_HL_CACHE.get(vault_address)
+        if c and (now - c["ts"]) < _CT_HL_TTL:
+            return c["payload"]
+        try:
+            data = await fetch_vault_details_hl(vault_address)
+        except Exception:
+            data = None
+        _CT_HL_CACHE[vault_address] = {"ts": now, "payload": data}
+        # Bound cache size
+        if len(_CT_HL_CACHE) > 400:
+            oldest = sorted(_CT_HL_CACHE.items(), key=lambda kv: kv[1]["ts"])[:100]
+            for k, _ in oldest:
+                _CT_HL_CACHE.pop(k, None)
+        return data
+
     async def copytrade_data_endpoint(request):
-        """GET /copytrade/data — vault leaderboard JSON for the dashboard."""
+        """GET /copytrade/data — vault leaderboard JSON, enriched with HL info."""
+        import asyncio
         import time as _t
         from hyperliquid_intel import fetch_vaults_list
 
@@ -5419,7 +5446,6 @@ def build_app():
             vaults = await fetch_vaults_list(limit=50, sort_by="lifetime_deposits")
         except Exception as e:
             log.warning(f"copytrade/data fetch failed: {e}")
-            # Serve stale if we have anything cached at all.
             if _CT_DATA_CACHE["payload"]:
                 return JSONResponse(_CT_DATA_CACHE["payload"], headers={
                     "cache-control": "no-cache",
@@ -5430,10 +5456,21 @@ def build_app():
                 status_code=503,
             )
 
-        # Derived fields per row — kept cheap (single endpoint, no per-leader fanout).
-        # Quality score requires depositor+leader fetches; deferred to detail page.
+        # Enrich with HL info API in parallel — name, real leader, APR, current TVL.
+        # Each call cached 30 min per-vault. First refresh after server start hits HL
+        # ~50 times, subsequent refreshes are mostly cache hits.
+        addrs = [v.get("vault") for v in vaults if v.get("vault")]
+        hl_details = await asyncio.gather(
+            *[_hl_enrich(a) for a in addrs], return_exceptions=True,
+        )
+        hl_by_addr = {}
+        for a, det in zip(addrs, hl_details):
+            if isinstance(det, dict): hl_by_addr[a] = det
+
         rows = []
         for v in vaults:
+            addr = v.get("vault")
+            hl = hl_by_addr.get(addr) or {}
             deposits = float(v.get("lifetime_deposits") or 0)
             withdrawals = float(v.get("lifetime_withdrawals") or 0)
             commissions = float(v.get("lifetime_leader_commissions") or 0)
@@ -5442,10 +5479,25 @@ def build_app():
             redemption = (withdrawals / deposits) if deposits > 0 else 0.0
             commission_rate = (commissions / deposits) if deposits > 0 else 0.0
             net_flow = deposits - withdrawals
+
+            # HL data takes precedence for leader (always present) and adds the
+            # fields Pinax doesn't carry.
+            leader = (hl.get("leader") or v.get("leader") or None)
+            if leader:
+                leader = leader.lower()
+
             rows.append({
-                "vault": v.get("vault"),
-                "leader": v.get("leader"),
-                "name": v.get("name") or None,
+                "vault": addr,
+                "leader": leader,
+                # HL-only:
+                "name": hl.get("name") or None,
+                "apr": hl.get("apr"),  # decimal e.g. 0.0111 = 1.11%
+                "current_tvl_usdc": hl.get("maxDistributable"),
+                "leader_fraction": hl.get("leaderFraction"),
+                "allow_deposits": hl.get("allowDeposits"),
+                "is_closed": hl.get("isClosed"),
+                "description": hl.get("description") or None,
+                # Pinax cumulative flows:
                 "created_at": v.get("created_at"),
                 "last_activity_at": v.get("last_activity_at"),
                 "depositor_count": n_dep,
@@ -5465,11 +5517,11 @@ def build_app():
             "refreshed_at": int(now),
             "ttl_seconds": _CT_DATA_TTL,
             "notes": [
-                "Sorted by lifetime_deposits. Per-vault deep dive (leader skill, "
-                "depositor concentration, full quality score) requires the paid "
-                "/hyperliquid/vault endpoint — see the detail page.",
+                "Sorted by lifetime_deposits. Names + APR + real leaders come from "
+                "Hyperliquid's native /info API (free, unauth). Lifetime flows come "
+                "from Pinax. Per-vault deep dive on the detail page.",
                 "Redemption pressure = withdrawals / deposits; below 0.30 is healthy.",
-                "Commission rate = leader's lifetime commissions / lifetime deposits.",
+                "APR is HL's stated annualized return; treat as backward-looking.",
             ],
         }
         _CT_DATA_CACHE["ts"] = now
@@ -5509,17 +5561,23 @@ def build_app():
             })
 
         try:
-            # Stage 1: vault + depositors (parallel, both keyed only on address)
-            vault, depositors = await asyncio.gather(
+            # Stage 1: Pinax vault + depositors + HL info (parallel)
+            vault, depositors, hl = await asyncio.gather(
                 fetch_vault(addr),
                 fetch_vault_depositors(addr, limit=10),
+                _hl_enrich(addr),
                 return_exceptions=False,
             )
-            if not vault:
+            if not vault and not hl:
                 return JSONResponse({"error": "vault_not_found"}, status_code=404)
+            # If Pinax has nothing but HL does, synthesize a minimal vault dict.
+            if not vault and hl:
+                vault = {"vault": addr, "leader": hl.get("leader"), "name": hl.get("name")}
 
             # Stage 2: leader stats + liquidations + HyperEVM context (parallel)
-            leader = (vault.get("leader") or "").lower()
+            # Use HL's leader as primary (always present) — fall back to Pinax's.
+            leader_raw = (hl.get("leader") if hl else None) or vault.get("leader") or ""
+            leader = leader_raw.lower() if leader_raw else ""
             leader_stats = None
             liq_count = 0
             hevm_ctx = None
@@ -5559,12 +5617,39 @@ def build_app():
             else ("medium" if liq_count > 0 else "clean")
         )
 
+        # Pull HL-only headline fields into the payload
+        hl_data = hl or {}
+        portfolio = hl_data.get("portfolio") or []
+        # Compress portfolio to {period: [[ts, val], ...]} for client
+        portfolio_compact = {}
+        for entry in portfolio:
+            if isinstance(entry, list) and len(entry) == 2:
+                period, body = entry
+                history = (body or {}).get("accountValueHistory") or []
+                # Down-sample if >200 points to keep payload tight
+                if len(history) > 200:
+                    step = max(1, len(history) // 200)
+                    history = history[::step]
+                portfolio_compact[period] = history
+
         payload = {
             "vault": addr,
             "leader": leader,
-            "name": vault.get("name"),
+            "name": hl_data.get("name") or vault.get("name"),
+            "description": hl_data.get("description"),
             "created_at": vault.get("created_at"),
             "last_activity_at": vault.get("last_activity_at"),
+            "hl_live": {
+                "apr": hl_data.get("apr"),
+                "current_tvl_usdc": hl_data.get("maxDistributable"),
+                "max_withdrawable_usdc": hl_data.get("maxWithdrawable"),
+                "leader_fraction": hl_data.get("leaderFraction"),
+                "leader_commission": hl_data.get("leaderCommission"),
+                "is_closed": hl_data.get("isClosed"),
+                "allow_deposits": hl_data.get("allowDeposits"),
+                "followers_count": len(hl_data.get("followers") or []),
+                "portfolio": portfolio_compact,
+            },
             "metrics": {
                 "lifetime_deposits_usdc": round(float(vault.get("lifetime_deposits") or 0), 2),
                 "lifetime_withdrawals_usdc": round(float(vault.get("lifetime_withdrawals") or 0), 2),
@@ -5589,7 +5674,7 @@ def build_app():
             "hyperevm": hevm_ctx,
             "hyperliquid_url": f"https://app.hyperliquid.xyz/vaults/{addr}",
             "refreshed_at": int(now),
-            "source": "pinax token-api /v1/hyperliquid/{vaults, vaults/depositors, users, markets/liquidations}",
+            "source": "pinax + hl /info (vaultDetails) — names, APR, leaders, portfolio from HL; lifetime flows from Pinax",
         }
         _CT_VAULT_CACHE[addr] = {"ts": now, "payload": payload}
         # Bound cache size — only keep last 200 vaults

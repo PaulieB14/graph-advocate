@@ -156,6 +156,34 @@ async def fetch_vault_depositors(vault: str, limit: int | None = None) -> list[d
 
 _HYPEREVM_RPC = os.getenv("HYPEREVM_RPC_URL", "https://rpc.hyperliquid.xyz/evm")
 _HYPERSCAN_API = os.getenv("HYPERSCAN_API_URL", "https://www.hyperscan.com/api")
+_HL_INFO_API = os.getenv("HL_INFO_API_URL", "https://api.hyperliquid.xyz/info")
+
+
+async def fetch_vault_details_hl(vault_address: str) -> dict | None:
+    """Native Hyperliquid /info vaultDetails for a vault.
+
+    Returns the same payload HL's own UI consumes — name, leader,
+    description, apr (decimal e.g. 0.01113 = 1.113%), portfolio
+    time-series (sparkline source), leaderCommission, maxDistributable,
+    followers count, isClosed. Free, no auth, no key.
+
+    Pinax doesn't carry vault names or APR; this is how we fill those in.
+    Returns None on any failure (caller falls back to Pinax data only).
+    """
+    addr = vault_address.lower()
+    try:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as cli:
+            r = await cli.post(
+                _HL_INFO_API,
+                json={"type": "vaultDetails", "vaultAddress": addr},
+                headers={"Content-Type": "application/json"},
+            )
+            r.raise_for_status()
+            d = r.json()
+            return d if isinstance(d, dict) and d.get("vaultAddress") else None
+    except Exception as e:
+        log.debug(f"hl vaultDetails failed for {addr[:10]}…: {e}")
+        return None
 
 
 async def _hype_price_usdc() -> float | None:
