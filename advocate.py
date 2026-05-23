@@ -256,7 +256,7 @@ Rules:
 - If the request is not about onchain data, agent auth, or x402 payments (e.g. irrelevant tasks), respond with recommendation="out-of-scope" and explain what you DO handle
 
 CRITICAL — recommendation MUST be exactly one of these values (never invent new names):
-  token-api, polymarket-token-api, hyperliquid-token-api, subgraph-registry, substreams,
+  token-api, polymarket-token-api, hyperliquid-token-api, copytrade, subgraph-registry, substreams,
   graph-aave-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp,
   predictfun-mcp, mcp8004, 8004scan, x402-analytics, introduction, out-of-scope, comparison
   Do NOT use names like "Uniswap V3 Ethereum Subgraph" or "subgraph-query-builder" — use "subgraph-registry" instead.
@@ -304,6 +304,21 @@ with derived intelligence the upstream doesn't provide):
   "liquidation risk", "funding burn", "is this trader good", "leverage risk",
   "screen top", "rank by skill", "copy trade ... safe"
 The curl_example URL must be EXACTLY https://graphadvocate.com/hyperliquid/{score|pnl|screen|vault|risk}.
+
+COPYTRADE ROUTING RULE (Hyperliquid vault leaderboard, FREE, agent-friendly):
+- Browse / list / compare Hyperliquid vaults, "find good vaults", vault leaderboard,
+  "show me the vault landscape" → recommendation = "copytrade" with curl_example
+  GET https://graphadvocate.com/copytrade/data
+- Per-vault deep dive ("everything about vault 0x...", "show vault 0x..." with
+  HL live data + lifetime flows + positions + fills + followers) →
+  recommendation = "copytrade" with curl_example
+  GET https://graphadvocate.com/copytrade/vault/{address}
+- Single-vault DERIVED EVALUATION ("evaluate vault X with quality score and
+  classification", "should I deposit") → keep recommendation = "hyperliquid-token-api"
+  (the PAID /hyperliquid/vault endpoint). copytrade has raw data + sparkline;
+  hyperliquid-token-api has the curated score.
+- The /copytrade/data response is self-describing (agent_metadata block with
+  field semantics + units). Agents can introspect directly from the payload.
 
 Response format — always valid JSON with these fields:
 {
@@ -354,6 +369,9 @@ Routing examples (condensed):
 - "Top N Hyperliquid BTC traders ranked by skill" or "Who's the sharpest ETH perps trader?" → hyperliquid-token-api (POST /hyperliquid/screen)
 - "Evaluate Hyperliquid vault 0x..." or "Should I deposit into this Hyperliquid vault?" → hyperliquid-token-api (POST /hyperliquid/vault)
 - "Liquidation + funding risk for Hyperliquid trader 0x..." or "How leveraged is this Hyperliquid wallet?" → hyperliquid-token-api (POST /hyperliquid/risk)
+- "List Hyperliquid vaults" or "Best HL vaults right now" or "Vault leaderboard" → copytrade (GET https://graphadvocate.com/copytrade/data)
+- "Deep dive on Hyperliquid vault 0x..." or "Everything about vault 0x..." → copytrade (GET https://graphadvocate.com/copytrade/vault/{addr})
+- "Compare HL vaults by APR" or "Find healthy HL vaults" → copytrade (GET /copytrade/data, then filter client-side)
 - "Top N subgraphs by query volume / most queried subgraphs / leaderboard" → subgraph-registry
   with the **Graph QoS subgraph** (id Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D, entity
   queryDailyDataPoints, fields query_count + total_query_fees + dayStart). Example query
@@ -811,6 +829,35 @@ _SERVICE_METADATA: dict[str, dict] = {
             "Liquidation + funding risk for Hyperliquid trader 0x...",
         ],
     },
+    "copytrade": {
+        "summary": (
+            "FREE comprehensive Hyperliquid vault feed combining Pinax lifetime flows "
+            "with HL's native /info API (names, APR, current TVL, leader stake, NAV "
+            "sparkline data, top followers with equity + lifetime PnL, leader's current "
+            "open positions, last 10 trades, HyperEVM context, recent liquidations). "
+            "Pure JSON, no auth, self-describing schema in the response payload. "
+            "Pairs well with the paid /hyperliquid/vault endpoint for derived scoring."
+        ),
+        "best_for": [
+            "Browsing the full Hyperliquid vault leaderboard (50 vaults, free, agent-friendly)",
+            "Per-vault deep dive: live NAV + positions + recent fills + followers in one JSON",
+            "Comparing APR, TVL, redemption pressure across many vaults",
+            "Discovering vault leaders by composite metrics (positive net flow + healthy redemption)",
+        ],
+        "not_for": [
+            "Curated derived scoring with quality classification — use hyperliquid-token-api /hyperliquid/vault (paid)",
+            "Per-coin top-trader screening — use hyperliquid-token-api /hyperliquid/screen (paid)",
+        ],
+        "auth": "None — free, no key, no x402 challenge",
+        "interface": "REST (GET, returns JSON)",
+        "example_prompts": [
+            "List the best Hyperliquid vaults right now",
+            "Browse Hyperliquid vault leaderboard",
+            "Show me Hyperliquid vault data for 0x...",
+            "Compare top Hyperliquid vaults by APR and redemption pressure",
+            "Find healthy Hyperliquid vaults with positive net flow",
+        ],
+    },
     "graph-lending-mcp": {
         "summary": "Cross-protocol lending data via Messari standardized subgraphs (Aave, Compound, MakerDAO, etc.).",
         "best_for": ["Comparing TVL across lending protocols", "Standardized borrow/supply rates"],
@@ -858,6 +905,7 @@ _SERVICE_CHAINS: dict[str, list[str]] = {
     "graph-polymarket-mcp": ["Polygon"],
     "polymarket-token-api": ["Polygon (Polymarket markets) + Base (USDC payment rail)"],
     "hyperliquid-token-api": ["Hyperliquid (HyperCore perps) + Base (USDC payment rail)"],
+    "copytrade": ["Hyperliquid (HyperCore vaults) + HyperEVM (leader context)"],
     "graph-lending-mcp": ["Ethereum", "Polygon", "Arbitrum", "Avalanche", "BSC", "Optimism", "Base", "Scroll", "Fantom", "Gnosis", "+ 5 more"],
     "graph-limitless-mcp": ["Base"],
     "predictfun-mcp": ["BNB Chain"],
@@ -2606,6 +2654,24 @@ You have access to these services:
     - `/v1/polymarket/*` — Polymarket markets, OHLCV, activity, user PnL, leaderboards (Polygon). Free at 100 req/s.
     - `/v1/hyperliquid/*` — Hyperliquid markets (perps + spot, including stocks like TSLA/USDC when Hyperliquid lists them), users, vaults, platform stats. Currently staging.
   When a user asks about Hyperliquid (perps, spot, stocks, vaults, liquidations, funding) OR Polymarket (markets, OHLCV, P&L), route to Token API's chain-specific path — that's the simpler answer than the MCP wrapper.
+
+**Graph Advocate Copytrade** — FREE Hyperliquid vault leaderboard + per-vault deep dive
+  Endpoints (no auth, JSON):
+    - GET https://graphadvocate.com/copytrade/data
+      Live leaderboard of 50 HL vaults with name, APR, current TVL, leader address,
+      leader stake %, redemption pressure, lifetime flows (deposits/withdrawals/distributions),
+      depositor count, status flags. Cached 5 min server-side.
+    - GET https://graphadvocate.com/copytrade/vault/{vault_address}
+      Per-vault deep dive: HL live state (APR, TVL, leader stake, follower count),
+      NAV history (sparkline source — day/week/month/all-time), description, top-10
+      followers (current equity + lifetime PnL + days following), leader's CURRENT
+      open perp positions, last 10 trades, HyperEVM context.
+  Best for: browsing the HL vault landscape, comparing many vaults at once, agent
+  loops that want raw structured data over self-describing JSON.
+  Response carries an `agent_metadata` block with field semantics for self-description.
+  Browseable UI at https://graphadvocate.com/copytrade.
+  CONTRAST with the paid /hyperliquid/vault endpoint: copytrade is RAW data + sparkline,
+  /hyperliquid/vault is the CURATED quality score + classification (the value-add layer).
 
 **Subgraph Registry** — protocol-level indexed data (Uniswap, Aave, ENS, Compound, Curve, etc.)
   15,500+ subgraphs available
