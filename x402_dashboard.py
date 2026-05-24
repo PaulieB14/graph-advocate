@@ -242,10 +242,20 @@ def build_dashboard_payload(omnigraph: dict, agents: list, services: list) -> di
     eip3009 = sum(d["eip3009_count"] for d in daily_clean[-30:])
     permit2 = sum(d["permit2_count"] for d in daily_clean[-30:])
 
-    # Agent share of x402 economy
-    agent_volume = sum(m["volume_usdc"] for m in top_merchants if m["is_registered_agent"])
-    anon_volume = sum(m["volume_usdc"] for m in top_merchants if not m["is_registered_agent"])
-    agent_count = sum(1 for m in top_merchants if m["is_registered_agent"])
+    # Agent share of x402 economy — search across ALL receivers (200), not just top 50
+    # so we get a meaningful denominator for the agent-share insight.
+    all_recv_enriched = []
+    for r in receivers:
+        addr = (r.get("address") or "").lower()
+        vol = float(r.get("totalVolumeDecimal") or 0)
+        is_agent = addr in agent_index
+        all_recv_enriched.append({
+            "addr": addr, "volume": vol, "is_agent": is_agent,
+        })
+    agent_volume = sum(r["volume"] for r in all_recv_enriched if r["is_agent"])
+    anon_volume = sum(r["volume"] for r in all_recv_enriched if not r["is_agent"])
+    agent_count = sum(1 for r in all_recv_enriched if r["is_agent"])
+    total_count = len(all_recv_enriched)
 
     return {
         "status": "ok",
@@ -274,9 +284,11 @@ def build_dashboard_payload(omnigraph: dict, agents: list, services: list) -> di
         ],
         "agent_vs_anon": {
             "agent_count": agent_count,
-            "anon_count": len(top_merchants) - agent_count,
+            "anon_count": total_count - agent_count,
+            "total_merchants_analyzed": total_count,
             "agent_volume_usdc": round(agent_volume, 2),
             "anon_volume_usdc": round(anon_volume, 2),
+            "agent_volume_pct": round(100 * agent_volume / (agent_volume + anon_volume), 2) if (agent_volume + anon_volume) > 0 else 0,
         },
     }
 

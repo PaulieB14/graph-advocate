@@ -283,30 +283,35 @@ function renderMerchants(rows){
 function renderAgentSplit(a){
   if(!a) return '<div class="empty">No data.</div>';
   const total = (a.agent_count||0) + (a.anon_count||0);
-  const agentPct = total ? (a.agent_count/total*100) : 0;
-  const anonPct = 100 - agentPct;
+  if(!total) return '<div class="empty">No data.</div>';
+  const agentPct = (a.agent_count / total * 100);
+  const totalAnalyzed = a.total_merchants_analyzed || total;
+  // When agent share is 0, show the chart inverted-style so the finding is visible
+  const isZero = a.agent_count === 0;
   return `
     <div class="donut">
       <div>
         <div style="position:relative;width:140px;height:140px;margin:0 auto">
           <svg viewBox="0 0 36 36" style="width:100%;height:100%">
-            <circle cx="18" cy="18" r="15.915" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="3.5"/>
-            <circle cx="18" cy="18" r="15.915" fill="none"
+            <circle cx="18" cy="18" r="15.915" fill="none" stroke="${isZero ? 'var(--neg-soft)' : 'rgba(255,255,255,.05)'}" stroke-width="3.5"/>
+            ${isZero ? '' : `<circle cx="18" cy="18" r="15.915" fill="none"
               stroke="var(--pos)" stroke-width="3.5"
               stroke-dasharray="${agentPct.toFixed(1)} ${(100-agentPct).toFixed(1)}"
-              stroke-dashoffset="25" transform="rotate(-90 18 18)"/>
+              stroke-dashoffset="25" transform="rotate(-90 18 18)"/>`}
           </svg>
           <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1">
-            <div style="font-size:1.4rem;font-weight:700;color:var(--text-1);font-variant-numeric:tabular-nums">${agentPct.toFixed(0)}%</div>
-            <div style="font-size:.62rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.10em;margin-top:4px">agents</div>
+            <div style="font-size:1.5rem;font-weight:700;color:${isZero ? 'var(--neg)' : 'var(--text-1)'};font-variant-numeric:tabular-nums">${agentPct.toFixed(1)}%</div>
+            <div style="font-size:.62rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.10em;margin-top:4px">are agents</div>
           </div>
         </div>
+        <div style="text-align:center;margin-top:6px;font-size:.66rem;color:var(--text-3)">of ${totalAnalyzed} merchants analyzed</div>
       </div>
       <div class="leg">
-        <div class="row"><span class="sw" style="background:var(--pos)"></span><span class="lbl">🤖 Registered</span><span class="val">${a.agent_count}</span></div>
-        <div class="row"><span class="sw" style="background:rgba(255,255,255,.06)"></span><span class="lbl">❓ Anonymous</span><span class="val">${a.anon_count}</span></div>
-        <div style="margin-top:8px;font-size:.7rem;color:var(--text-3)">Agent vol: <b style="color:var(--text-1)">${fmtUsd(a.agent_volume_usdc)}</b></div>
+        <div class="row"><span class="sw" style="background:var(--pos)"></span><span class="lbl">🤖 ERC-8004 agents</span><span class="val">${a.agent_count}</span></div>
+        <div class="row"><span class="sw" style="background:rgba(255,255,255,.10)"></span><span class="lbl">❓ Anonymous wallets</span><span class="val">${a.anon_count}</span></div>
+        <div style="margin-top:10px;font-size:.7rem;color:var(--text-3)">Agent vol: <b style="color:var(--text-1)">${fmtUsd(a.agent_volume_usdc)}</b></div>
         <div style="font-size:.7rem;color:var(--text-3)">Anon vol: <b style="color:var(--text-1)">${fmtUsd(a.anon_volume_usdc)}</b></div>
+        ${isZero ? `<div style="margin-top:12px;padding:8px 10px;background:var(--neg-soft);border-radius:6px;font-size:.7rem;color:var(--text-2);line-height:1.45"><b style="color:var(--neg)">Open trust gap.</b> None of the top ${totalAnalyzed} x402 earners are registered as ERC-8004 agents. The earning side of x402 is dominated by anonymous wallets/contracts. Opportunity: every <a href="https://thegraph.com/explorer?search=agent0" target="_blank" style="color:var(--accent)">ERC-8004</a> registration here becomes a public trust signal.</div>` : ''}
       </div>
     </div>`;
 }
