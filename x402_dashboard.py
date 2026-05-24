@@ -83,8 +83,12 @@ async def _query_subgraph(deployment_id: str, query: str) -> dict:
 
 
 async def fetch_omnigraph_data() -> dict:
-    """Pull canonical x402 data from Paul's omnigraph subgraph."""
-    # Facilitators + recent daily stats + recent payments
+    """Pull canonical x402 data from Paul's omnigraph subgraph.
+
+    The role enum is RECIPIENT (not RECEIVER as I first guessed). Server-side
+    filter works once you use the right enum literal — saves us pulling 500
+    rows just to client-side filter 200.
+    """
     data = await _query_subgraph(SUB_OMNIGRAPH, """
     {
       facilitators(first: 50, orderBy: totalSettlements, orderDirection: desc) {
@@ -93,7 +97,7 @@ async def fetch_omnigraph_data() -> dict:
       x402DailyStats(first: 90, orderBy: date, orderDirection: desc) {
         date totalPayments totalVolumeDecimal eip3009Payments permit2Payments
       }
-      x402AddressSummaries(first: 200, orderBy: totalVolume, orderDirection: desc, where: {role: RECEIVER}) {
+      x402AddressSummaries(first: 200, where: {role: RECIPIENT}, orderBy: totalVolume, orderDirection: desc) {
         id address role totalPayments totalVolumeDecimal firstPaymentTimestamp lastPaymentTimestamp
       }
     }
