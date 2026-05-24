@@ -93,7 +93,7 @@ async def fetch_omnigraph_data() -> dict:
       x402DailyStats(first: 90, orderBy: date, orderDirection: desc) {
         date totalPayments totalVolumeDecimal eip3009Payments permit2Payments
       }
-      x402AddressSummaries(first: 200, orderBy: totalVolume, orderDirection: desc, where: {role: "receiver"}) {
+      x402AddressSummaries(first: 200, orderBy: totalVolume, orderDirection: desc, where: {role: RECEIVER}) {
         id address role totalPayments totalVolumeDecimal firstPaymentTimestamp lastPaymentTimestamp
       }
     }
