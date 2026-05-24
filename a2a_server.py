@@ -4878,7 +4878,7 @@ async def chat_post(request: Request):
         log.error(f"CHAT error: {exc}")
         reply = "Sorry, I hit an error. Please try again."
 
-    _log_request(f"chat:{session_id[:8]}", message, "chat", "n/a", "haiku")
+    _log_request(f"chat:{session_id[:8]}", message, "chat", "n/a", "haiku", response={"reply": reply})
 
     resp = JSONResponse({"reply": reply})
     resp.set_cookie("ga_session", session_id, max_age=3600, httponly=True, samesite="lax")
