@@ -1,0 +1,41 @@
+service_id,name,category,pay_to,endpoint_url
+exa-ai,Exa,Search,0x6d6e695b09861467c7d462f5aaf31cf3540b9192,https://api.exa.ai/contents
+docs-anthropic-com,Claude,Inference,0x2670b922ef37c7df47158725c0cc407b5382293f,https://api.venice.ai/api/v1/chat/completions
+tripadvisor-content-api-readme-io,Tripadvisor,Data,0x6302d9e6dbb22fec3c350551568bb39b4b35ad57,https://tripadvisor.x402.paysponge.com/api/v1/location/:locationId/details
+thegraph-com,The Graph,Data,0x79dc34e41b2b591078d3de222c43ecaabd52fccb,https://gateway.thegraph.com/api/x402/subgraphs/id/{subgraph_id}
+developers-deepgram-com,Deepgram,Media,0x6302d9e6dbb22fec3c350551568bb39b4b35ad57,https://deepgram.x402.paysponge.com/v1/listen
+coinmarketcap-com,CoinMarketCap,Data,0x271189c860db25bc43173b0335784ad68a680908,https://pro-api.coinmarketcap.com/x402/v3/cryptocurrency/quotes/latest
+x402-alchemy-com,Alchemy,Infra,0x0573c4da7fc31e944e5ff959fef3b42199c308b2,https://x402.alchemy.com/{chainNetwork}/v2
+parallel-ai,Parallel,Data,0x95ecddd90a8ac8c54aee1db469f14babc2cb43f9,https://parallelmpp.dev/api/search
+docs-perplexity-ai,Perplexity,Search,0x6302d9e6dbb22fec3c350551568bb39b4b35ad57,https://pplx.x402.paysponge.com/search
+pro-api-coingecko-com,CoinGecko,Data,0x110cdbba7fe6434ec4ce3464cc523942ad6fb784,https://pro-api.coingecko.com/api/v3/x402/onchain/search/pools
+deepseek-com,DeepSeek,Inference,0x2670b922ef37c7df47158725c0cc407b5382293f,https://api.venice.ai/api/v1/chat/completions
+developers-amadeus-com,Amadeus,Travel,0xdd257723b86b4947483905cdacbbbc70facf2ec0,https://stabletravel.dev/api/flights/search
+www-flightaware-com,FlightAware,Travel,0xdd257723b86b4947483905cdacbbbc70facf2ec0,https://stabletravel.dev/api/flightaware/flights/search
+products-wolframalpha-com,Wolfram|Alpha,Data,0x6302d9e6dbb22fec3c350551568bb39b4b35ad57,https://wolframalpha.x402.paysponge.com/v1/result
+api-firecrawl-dev,Firecrawl,Search,0xa112c9c8bf655c678c768b6fd42a1c6fbfed7d60,https://mesh.heurist.xyz/x402/agents/FirecrawlSearchDigestAgent/firecrawl_web_search
+x402-quicknode-com,QuickNode,Data,0xf46394addda95a3d5bcc1124605e3d15d204623c,https://x402.quicknode.com/ethereum-mainnet
+api-messari-io,Messari,Data,0x75ddd3c42eace13c59ea0cd1141b886a1c70d2a5,https://api.messari.io/metrics/v2/assets/details
+x402-browserbase-com,Browserbase,Search,0xdc2329848aba00ea45ea7f3aa234614e55df068e,https://x402.browserbase.com/browser/session/create
+agents-allium-so,Allium,Data,0x3ac38d7ab7c9da15417a15bc0be576720b19f835,https://agents.allium.so/api/v1/explorer/queries/run-async
+stableupload-dev,StableUpload,Storage,0x06dff3c8380b5d1799874ada903fc3422882fd6f,https://stableupload.dev/api/upload
+public-zapper-xyz,Zapper,Data,0x43a2a720cd0911690c248075f4a29a5e7716f758,https://public.zapper.xyz/x402/token-ranking
+api-slamai-dev,SLAMai,Data,0xd85096faec1ac03075667b4c1a1661f5623bf111,https://api.slamai.dev/wallet/trades
+www-capminal-ai,Capminal,Data,0xf9d1d63f362bbf1ee08ab9acb36fe74afc48d5f1,https://www.capminal.ai/api/x402/research
+minifetch-com,Minifetch,Data,0xffa9155a0e4b3d8d42351da226cc1feee449686f,https://minifetch.com/api/v1/x402/extract/url-preview
+x402-blackswan-wtf,BlackSwan,Data,0x154b1006435e5cfe2206e7777c1003f9438119b1,https://x402.blackswan.wtf/smart-agents/flare
+fanfare-run,Fanfare,Data,0x41adee1eba2c276be5e8cabe0ce523e4dd792170,https://fanfare.run/mlb/schedule
+emc2ai-io,EMC2 AI,Data,0xc9368b30bd620164fd1a05a5d99dcaf8ae754775,https://emc2ai.io/x402/bitquery/bagcheck/raw
+postalform-com,PostalForm,Social,0xdae3bebab546660de64ebabe3eef035957c5c6ef,https://postalform.com/api/machine/orders
+api-nansen-ai,Nansen,Data,0x93053f1e7a5efeda532fe69cbbe43cbec3a0f13f,https://api.nansen.ai/api/v1/tgm/jup-dca
+api-itsgloria-ai,Gloria AI,Data,0xca1271e777c209e171826a681855351f4989cd0c,https://api.itsgloria.ai/news-ticker-summary
+notify-melis-ai,Melis Notify,Social,0x1c680703d6cf7dfc9feabb5aa28e64b869ddb3bc,https://notify.melis.ai/email
+gen-portalfoundation-ai,Portal Foundation,Media,0xe68e6015f540c9778ad130e155a4c0265ea65d40,https://gen.portalfoundation.ai/api/generate-video
+mesh-heurist-xyz,Heurist Mesh,Data,0xa112c9c8bf655c678c768b6fd42a1c6fbfed7d60,https://mesh.heurist.xyz/x402/agents/ElfaTwitterIntelligenceAgent/search_mentions
+groq-com,Groq,Inference,0x2670b922ef37c7df47158725c0cc407b5382293f,https://api.venice.ai/api/v1/chat/completions
+hunter-io,Hunter,Data,0x325bdf6f7efab24a2210c48c1b64cab2eae1d430,https://stableenrich.dev/api/hunter/email-verifier
+venice-ai,Venice,Inference,0x2670b922ef37c7df47158725c0cc407b5382293f,https://api.venice.ai/api/v1/chat/completions
+stableemail-dev,StableEmail,Social,0xdb5aa553feeb2c3e3d03e8360b36fb0f7e480671,https://stableemail.dev/api/inbox/buy
+docs-clado-ai,Clado,Data,0x325bdf6f7efab24a2210c48c1b64cab2eae1d430,https://stableenrich.dev/api/clado/contacts-enrich
+cambrian-network,Cambrian,Data,0x4c3b0b1cab290300bd5a36ad5f33a607acbd7ac3,https://x402.cambrian.network/x402/api/v1/evm/price-current
+screenshotone-com,ScreenshotOne,Data,0x6302d9e6dbb22fec3c350551568bb39b4b35ad57,https://screenshotone.x402.paysponge.com/animate
