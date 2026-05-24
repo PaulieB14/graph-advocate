@@ -5846,6 +5846,35 @@ def build_app():
             "access-control-allow-origin": "*",
         })
 
+    # ── /x402 ecosystem dashboard ──────────────────────────────────────────
+    _X402_DASH_HTML = None
+    try:
+        _x4path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "demo", "x402-dashboard.html")
+        with open(_x4path, "r", encoding="utf-8") as f:
+            _X402_DASH_HTML = f.read()
+    except Exception as e:
+        log.warning(f"x402-dashboard.html not found: {e}")
+
+    async def x402_dashboard_endpoint(request):
+        """GET /x402 — x402 ecosystem dashboard page (HTML)."""
+        if _X402_DASH_HTML is None:
+            return JSONResponse({"error": "dashboard not available"}, status_code=404)
+        return HTMLResponse(_X402_DASH_HTML, headers={
+            "cache-control": "public, max-age=300",
+            "access-control-allow-origin": "*",
+        })
+
+    async def x402_data_endpoint(request):
+        """GET /x402/data — JSON snapshot of the x402 ecosystem (cached
+        once-daily). Pure JSON for agents; same data the dashboard renders."""
+        import x402_dashboard
+        snap = x402_dashboard.snapshot()
+        return JSONResponse(snap, headers={
+            "cache-control": "public, max-age=3600",
+            "access-control-allow-origin": "*",
+        })
+
     # ── x402-protected /route endpoint via PaymentMiddlewareASGI ────────────
     # This is the OFFICIAL way to accept x402 payments per the SDK docs.
     # The middleware handles: 402 challenge → verify → settle → respond.
@@ -6860,6 +6889,8 @@ def build_app():
         Route("/copytrade/data", copytrade_data_endpoint, methods=["GET"]),
         Route("/copytrade/vault/{vault}", copytrade_vault_endpoint, methods=["GET"]),
         Route("/hyperliquid-live", hyperliquid_live_endpoint, methods=["GET"]),
+        Route("/x402", x402_dashboard_endpoint, methods=["GET"]),
+        Route("/x402/data", x402_data_endpoint, methods=["GET"]),
     ])
 
     # ── Remote MCP endpoint (Claude.ai + any MCP client) ─────────────────────
@@ -6912,6 +6943,15 @@ def build_app():
                         t.start()
                         state["fetch_thread"] = t
                         log.info("Fetch.ai uAgent background task started")
+                    # x402 ecosystem dashboard — once-daily data pipeline,
+                    # cheap + self-isolated. Pulls from Paul's omnigraph subgraph,
+                    # Agent0 ERC-8004 subgraph, agentic.market catalog.
+                    try:
+                        import x402_dashboard
+                        asyncio.create_task(x402_dashboard.run())
+                        log.info("x402 dashboard refresh loop started (24h interval)")
+                    except Exception as e:
+                        log.warning(f"x402_dashboard not started: {e}")
                     await send({"type": "lifespan.startup.complete"})
                 elif message["type"] == "lifespan.shutdown":
                     # daemon thread will die with the process
@@ -6951,7 +6991,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip")

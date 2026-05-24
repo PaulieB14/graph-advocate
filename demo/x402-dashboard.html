@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coinbase Agentic Market · x402 on Base</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-0:#0a0d14; --bg-1:#0e1119; --surface:#11141d; --surface-2:#161a26;
+    --surface-hover:#1a1f2e; --border:rgba(255,255,255,.055);
+    --border-strong:rgba(255,255,255,.10);
+    --text-1:#e7eaf2; --text-2:#9aa3b8; --text-3:#5a6275; --text-mute:#3e4456;
+    --accent:#7c8cf6; --accent-soft:rgba(124,140,246,.12);
+    --pos:#1ac999; --pos-soft:rgba(26,201,153,.12);
+    --neg:#ef5b73; --neg-soft:rgba(239,91,115,.10);
+    --warn:#d9a35a; --warn-soft:rgba(217,163,90,.10);
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg-0);
+    color:var(--text-1);min-height:100vh;padding:32px 24px 80px;
+    -webkit-font-smoothing:antialiased}
+  body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:radial-gradient(900px 600px at 10% -10%, rgba(124,140,246,.07), transparent 60%),
+               radial-gradient(700px 500px at 90% 5%, rgba(26,201,153,.04), transparent 65%)}
+  .wrap{max-width:1240px;margin:0 auto;position:relative;z-index:1}
+
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:18px}
+  .tag{display:inline-flex;align-items:center;gap:7px;font-size:.66rem;font-weight:600;
+    letter-spacing:.10em;text-transform:uppercase;color:var(--pos);
+    border:1px solid rgba(26,201,153,.25);background:rgba(26,201,153,.05);
+    padding:4px 10px;border-radius:999px;margin-bottom:12px}
+  .tag .dot{width:5px;height:5px;border-radius:50%;background:var(--pos);
+    box-shadow:0 0 8px var(--pos);animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+  h1{font-family:'Inter Tight',sans-serif;font-size:2rem;font-weight:700;
+    letter-spacing:-.025em;line-height:1.1;color:var(--text-1);margin-bottom:6px}
+  h1 .accent{color:var(--accent)}
+  .sub{color:var(--text-2);font-size:.93rem;max-width:760px;line-height:1.55}
+  .sub a{color:var(--accent);text-decoration:none}
+  .sub a:hover{text-decoration:underline}
+  .brand-row{display:flex;align-items:center;gap:8px;font-size:.74rem;
+    color:var(--text-3);font-family:var(--mono);flex-wrap:wrap}
+  .brand-row a{color:var(--text-2);text-decoration:none}
+  .brand-row a:hover{color:var(--accent)}
+  .agent-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;
+    background:var(--surface);border:1px solid var(--border-strong);border-radius:6px;
+    color:var(--text-2)!important;font-size:.7rem;letter-spacing:.02em;transition:all .15s}
+  .agent-pill:hover{border-color:var(--accent);color:var(--accent)!important;background:var(--accent-soft)}
+  .agent-pill-icon{color:var(--accent);font-weight:600}
+
+  /* Hero stat tiles */
+  .hero{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:22px 0 18px}
+  @media(max-width:900px){.hero{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:560px){.hero{grid-template-columns:repeat(2,1fr)}}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:14px 16px;transition:border-color .2s}
+  .stat:hover{border-color:var(--border-strong)}
+  .stat .l{font-size:.62rem;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--text-3);margin-bottom:8px}
+  .stat .v{font-size:1.45rem;font-weight:700;color:var(--text-1);
+    font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.1}
+  .stat .sub-v{font-size:.7rem;color:var(--text-3);margin-top:6px}
+
+  /* Section grid */
+  .grid{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:16px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:18px 20px;overflow:hidden}
+  .panel h2{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.10em;
+    color:var(--text-3);margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+  .panel h2 .badge{font-size:.62rem;color:var(--text-3);letter-spacing:.02em;text-transform:none;font-weight:500}
+
+  /* Tables */
+  table{width:100%;border-collapse:separate;border-spacing:0;font-size:.83rem}
+  thead th{text-align:right;padding:9px 10px 9px 0;font-weight:600;font-size:.62rem;
+    text-transform:uppercase;letter-spacing:.10em;color:var(--text-3);
+    border-bottom:1px solid var(--border);white-space:nowrap;background:transparent}
+  thead th:first-child,tbody td:first-child{text-align:left;padding-left:0}
+  thead th:last-child,tbody td:last-child{padding-right:0}
+  tbody td{padding:10px 10px 10px 0;text-align:right;border-bottom:1px solid var(--border);
+    font-variant-numeric:tabular-nums;color:var(--text-1)}
+  tbody tr:last-child td{border-bottom:none}
+  .nm{font-weight:600;color:var(--text-1)}
+  .ad{font-family:var(--mono);font-size:.7rem;color:var(--text-3)}
+  .pos{color:var(--pos)}.neg{color:var(--neg)}.dim{color:var(--text-3)}
+  .badge-pill{display:inline-block;padding:2px 7px;border-radius:5px;font-size:.66rem;
+    font-weight:600;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+  .b-pos{background:var(--pos-soft);color:var(--pos)}
+  .b-warn{background:var(--warn-soft);color:var(--warn)}
+  .b-neg{background:var(--neg-soft);color:var(--neg)}
+  .b-info{background:var(--accent-soft);color:var(--accent)}
+
+  /* Bar mini chart */
+  .barchart{display:flex;flex-direction:column;gap:6px;font-size:.78rem}
+  .barchart .row{display:grid;grid-template-columns:1fr 90px 60px;align-items:center;gap:10px}
+  .barchart .row .nm{font-weight:500;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .barchart .row .track{height:8px;background:rgba(255,255,255,.04);border-radius:4px;overflow:hidden}
+  .barchart .row .track .fill{height:100%;background:linear-gradient(90deg,var(--accent),#a5b4fc);border-radius:4px;transition:width .8s ease}
+  .barchart .row .v{font-variant-numeric:tabular-nums;color:var(--text-1);text-align:right;font-weight:600}
+
+  /* Sparkline area chart */
+  .area-wrap{margin-top:6px}
+  .area-wrap .meta{display:flex;justify-content:space-between;font-size:.7rem;color:var(--text-3);
+    text-transform:uppercase;letter-spacing:.10em;margin-bottom:6px}
+
+  /* Donut chart for agent vs anon */
+  .donut{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:center}
+  .donut .leg{display:flex;flex-direction:column;gap:6px;font-size:.78rem}
+  .donut .leg .row{display:flex;align-items:center;gap:8px}
+  .donut .leg .sw{width:10px;height:10px;border-radius:2px}
+  .donut .leg .lbl{color:var(--text-1);font-weight:500}
+  .donut .leg .val{margin-left:auto;color:var(--text-2);font-variant-numeric:tabular-nums}
+
+  /* Status / footer */
+  .meta-bar{margin-top:24px;font-size:.74rem;color:var(--text-3);line-height:1.75;
+    padding-top:18px;border-top:1px solid var(--border)}
+  .meta-bar code{background:var(--surface-2);padding:1px 6px;border-radius:4px;
+    font-family:var(--mono);font-size:.72rem;color:var(--accent)}
+  .meta-bar a{color:var(--accent);text-decoration:none}
+  .meta-bar a:hover{text-decoration:underline}
+
+  .empty{padding:40px 20px;text-align:center;color:var(--text-3);font-size:.88rem}
+  .loading{padding:24px;text-align:center;color:var(--text-3);font-size:.82rem}
+  .skel{display:inline-block;height:14px;width:64px;background:linear-gradient(90deg,rgba(255,255,255,.02),rgba(255,255,255,.08),rgba(255,255,255,.02));background-size:200% 100%;animation:skel 1.4s linear infinite;border-radius:4px;vertical-align:middle}
+  @keyframes skel{0%{background-position:100% 0}100%{background-position:-100% 0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <span class="tag"><span class="dot"></span> Live · refreshed daily</span>
+      <h1>Coinbase Agentic Market · <span class="accent">x402</span> on Base</h1>
+      <p class="sub">Who is paying who, how much, and how often. Live view of <a href="https://docs.cdp.coinbase.com/x402/welcome" target="_blank">Coinbase's x402 facilitator</a> plus 26 others settling micropayments on Base — combined with the curated <a href="https://agentic.market" target="_blank">agentic.market</a> service catalog.</p>
+    </div>
+    <div class="brand-row">
+      <a href="/x402/data" target="_blank" class="agent-pill" title="JSON feed for agents"><span class="agent-pill-icon">{ }</span> JSON</a>
+      <a href="/llms.txt" target="_blank" class="agent-pill">llms.txt</a>
+      <span style="color:var(--text-mute)">·</span>
+      <a href="https://graphadvocate.com" target="_blank">graphadvocate.com</a>
+    </div>
+  </div>
+
+  <!-- Hero stats -->
+  <div class="hero">
+    <div class="stat"><div class="l">30D Transactions</div><div class="v" id="heroTx"><span class="skel"></span></div><div class="sub-v">x402 settlements</div></div>
+    <div class="stat"><div class="l">30D Volume</div><div class="v" id="heroVol"><span class="skel"></span></div><div class="sub-v">USDC settled</div></div>
+    <div class="stat"><div class="l">Active Facilitators</div><div class="v" id="heroFac"><span class="skel"></span></div><div class="sub-v">routing payments</div></div>
+    <div class="stat"><div class="l">EIP-3009 Share</div><div class="v" id="heroEIP"><span class="skel"></span></div><div class="sub-v" id="heroEIPSub">vs Permit2</div></div>
+    <div class="stat"><div class="l">Services Indexed</div><div class="v" id="heroSvc"><span class="skel"></span></div><div class="sub-v" id="heroSvcSub">on agentic.market</div></div>
+  </div>
+
+  <!-- Top row: daily area + facilitator share -->
+  <div class="grid">
+    <div class="panel">
+      <h2>Daily x402 Volume <span class="badge" id="dailyBadge">last 90 days</span></h2>
+      <div id="areaChart" class="area-wrap" style="height:240px"><div class="loading">loading…</div></div>
+    </div>
+    <div class="panel">
+      <h2>Facilitator Share <span class="badge">by tx count, lifetime</span></h2>
+      <div id="facBars" class="barchart"><div class="loading">loading…</div></div>
+    </div>
+  </div>
+
+  <!-- Middle: top merchants + agent share -->
+  <div class="grid">
+    <div class="panel">
+      <h2>Top Merchants <span class="badge">enriched · last 30d</span></h2>
+      <div id="merchTable"><div class="loading">loading…</div></div>
+    </div>
+    <div class="panel">
+      <h2>Registered Agents vs Anonymous <span class="badge">of top 50</span></h2>
+      <div id="agentSplit"><div class="loading">loading…</div></div>
+      <h2 style="margin-top:18px">Service Categories <span class="badge">on agentic.market</span></h2>
+      <div id="catBars" class="barchart"><div class="loading">loading…</div></div>
+    </div>
+  </div>
+
+  <div class="meta-bar">
+    <b>Data:</b> <code>GET /x402/data</code> (server-cached, refreshed daily). Pure JSON for agents.<br>
+    <b>Sources:</b>
+    <a href="https://github.com/PaulieB14/x402-omnigraph" target="_blank">PaulieB14/x402-omnigraph</a> subgraph (X402Payment, Facilitator, X402DailyStat — pre-indexed on The Graph Network on Base) ·
+    <a href="https://thegraph.com/explorer?search=agent0" target="_blank">Agent0 ERC-8004</a> Base subgraph (53k registered agents — JOIN key for "🤖 Registered agent" vs "❓ Anon") ·
+    <a href="https://api.agentic.market/v1/services" target="_blank">agentic.market /v1/services</a> (curated catalog + per-endpoint x402-probed payTo for category/name enrichment) ·
+    facilitator registry from <a href="https://github.com/Merit-Systems/x402scan" target="_blank">Merit-Systems/x402scan</a>.<br>
+    <b>Companion Dune view:</b> <a href="https://dune.com/paulieb/coinbase-agentic-market-x402-base" target="_blank">dune.com/paulieb/coinbase-agentic-market-x402-base</a>.<br>
+    <b>Refresh status:</b> <span id="metaStatus" class="dim">loading…</span>
+  </div>
+</div>
+
+<script>
+const fmtUsd = (n, d=0) => {
+  if(n==null||isNaN(n)) return '—';
+  const a = Math.abs(n);
+  if(a >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
+  if(a >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+  if(a >= 1e3) return '$' + (n/1e3).toFixed(1) + 'K';
+  return '$' + n.toLocaleString('en-US',{maximumFractionDigits:d});
+};
+const fmtN = n => (n==null||isNaN(n)) ? '—' : (
+  Math.abs(n) >= 1e6 ? (n/1e6).toFixed(2)+'M' :
+  Math.abs(n) >= 1e3 ? (n/1e3).toFixed(1)+'K' :
+  n.toLocaleString('en-US')
+);
+const shortAddr = a => a ? a.slice(0,6) + '…' + a.slice(-4) : '—';
+const fmtAgo = ts => {
+  if(!ts) return '—';
+  const ago = Math.floor(Date.now()/1000) - ts;
+  if(ago < 3600) return Math.floor(ago/60) + 'm ago';
+  if(ago < 86400) return Math.floor(ago/3600) + 'h ago';
+  return Math.floor(ago/86400) + 'd ago';
+};
+
+function renderSparkArea(arr, accessor, color){
+  if(!arr || arr.length < 2) return '<div class="empty">No data yet.</div>';
+  const pts = arr.map((d,i) => [i, accessor(d) || 0]).filter(p => !isNaN(p[1]));
+  if(pts.length < 2) return '<div class="empty">No data yet.</div>';
+  const vals = pts.map(p => p[1]);
+  const mx = Math.max(...vals);
+  const w = 800, h = 220, pad = 6;
+  const xRange = pts.length - 1 || 1;
+  const xy = pts.map((p,i) => {
+    const x = pad + (i / xRange) * (w - 2*pad);
+    const y = pad + (1 - (mx ? p[1]/mx : 0)) * (h - 2*pad);
+    return [x, y];
+  });
+  const path = xy.map((p,i) => (i===0?'M':'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const area = path + ` L ${xy[xy.length-1][0].toFixed(1)} ${h-pad} L ${xy[0][0].toFixed(1)} ${h-pad} Z`;
+  const last = vals[vals.length-1];
+  return `
+    <div class="meta"><span>${arr[0].date} → ${arr[arr.length-1].date}</span><span>peak ${fmtN(mx)}</span></div>
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:${h}px;display:block">
+      <path d="${area}" fill="${color}" fill-opacity="0.08"/>
+      <path d="${path}" fill="none" stroke="${color}" stroke-width="1.6"/>
+    </svg>`;
+}
+
+function renderBars(rows, nameKey, valueKey, fmt){
+  if(!rows || !rows.length) return '<div class="empty">No data.</div>';
+  const mx = Math.max(...rows.map(r => r[valueKey] || 0));
+  return rows.slice(0, 10).map(r => {
+    const v = r[valueKey] || 0;
+    const pct = mx ? (v / mx * 100) : 0;
+    return `<div class="row">
+      <span class="nm" title="${r[nameKey]}">${r[nameKey]}</span>
+      <span class="track"><span class="fill" style="width:${pct.toFixed(1)}%"></span></span>
+      <span class="v">${fmt(v)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderMerchants(rows){
+  if(!rows || !rows.length) return '<div class="empty">No merchants yet.</div>';
+  return `<table>
+    <thead><tr>
+      <th>Service / Address</th><th>Category</th><th>Volume</th><th>Txs</th><th>Last</th>
+    </tr></thead>
+    <tbody>${rows.slice(0,15).map(m => {
+      const agentBadge = m.is_registered_agent
+        ? `<span class="badge-pill b-pos" title="ERC-8004 agent #${m.agent_id||'?'}">🤖</span>`
+        : '';
+      const nameLine = m.service_name
+        ? `<span class="nm">${m.service_name}</span> ${agentBadge}<br><span class="ad">${shortAddr(m.address)}</span>`
+        : `<span class="nm">${shortAddr(m.address)}</span> ${agentBadge}`;
+      const cat = m.category
+        ? `<span class="badge-pill b-info">${m.category}</span>`
+        : `<span class="dim">—</span>`;
+      return `<tr>
+        <td>${nameLine}</td>
+        <td>${cat}</td>
+        <td>${fmtUsd(m.volume_usdc)}</td>
+        <td>${fmtN(m.tx_count)}</td>
+        <td class="dim">${fmtAgo(m.last_seen_ts)}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+function renderAgentSplit(a){
+  if(!a) return '<div class="empty">No data.</div>';
+  const total = (a.agent_count||0) + (a.anon_count||0);
+  const agentPct = total ? (a.agent_count/total*100) : 0;
+  const anonPct = 100 - agentPct;
+  return `
+    <div class="donut">
+      <div>
+        <div style="position:relative;width:140px;height:140px;margin:0 auto">
+          <svg viewBox="0 0 36 36" style="width:100%;height:100%">
+            <circle cx="18" cy="18" r="15.915" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="3.5"/>
+            <circle cx="18" cy="18" r="15.915" fill="none"
+              stroke="var(--pos)" stroke-width="3.5"
+              stroke-dasharray="${agentPct.toFixed(1)} ${(100-agentPct).toFixed(1)}"
+              stroke-dashoffset="25" transform="rotate(-90 18 18)"/>
+          </svg>
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1">
+            <div style="font-size:1.4rem;font-weight:700;color:var(--text-1);font-variant-numeric:tabular-nums">${agentPct.toFixed(0)}%</div>
+            <div style="font-size:.62rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.10em;margin-top:4px">agents</div>
+          </div>
+        </div>
+      </div>
+      <div class="leg">
+        <div class="row"><span class="sw" style="background:var(--pos)"></span><span class="lbl">🤖 Registered</span><span class="val">${a.agent_count}</span></div>
+        <div class="row"><span class="sw" style="background:rgba(255,255,255,.06)"></span><span class="lbl">❓ Anonymous</span><span class="val">${a.anon_count}</span></div>
+        <div style="margin-top:8px;font-size:.7rem;color:var(--text-3)">Agent vol: <b style="color:var(--text-1)">${fmtUsd(a.agent_volume_usdc)}</b></div>
+        <div style="font-size:.7rem;color:var(--text-3)">Anon vol: <b style="color:var(--text-1)">${fmtUsd(a.anon_volume_usdc)}</b></div>
+      </div>
+    </div>`;
+}
+
+async function load(){
+  try {
+    const r = await fetch('/x402/data');
+    const d = await r.json();
+    if(d.status !== 'ok'){
+      document.getElementById('metaStatus').textContent =
+        `${d.status} · first refresh runs in background after deploy${d.last_error ? ' · ' + d.last_error : ''}`;
+      return;
+    }
+    const h = d.hero_30d;
+    document.getElementById('heroTx').textContent  = fmtN(h.tx_count);
+    document.getElementById('heroVol').textContent = fmtUsd(h.volume_usdc);
+    document.getElementById('heroFac').textContent = h.active_facilitators;
+    document.getElementById('heroEIP').textContent = h.eip3009_share_pct.toFixed(1) + '%';
+    document.getElementById('heroEIPSub').textContent =
+      `${fmtN(h.eip3009_count)} EIP-3009 · ${fmtN(h.permit2_count)} Permit2`;
+    document.getElementById('heroSvc').textContent = h.agentic_market_services;
+    document.getElementById('heroSvcSub').textContent =
+      `+ ${fmtN(h.registered_agents_indexed)} ERC-8004 agents`;
+
+    // Daily area
+    document.getElementById('areaChart').innerHTML = renderSparkArea(
+      d.daily_stats || [], r => r.volume_usdc, '#1ac999');
+
+    // Facilitator bars
+    document.getElementById('facBars').innerHTML = renderBars(
+      d.facilitators || [], 'facilitator', 'tx_count', fmtN);
+
+    // Top merchants
+    document.getElementById('merchTable').innerHTML = renderMerchants(d.top_merchants);
+
+    // Agent vs anon donut + category bars
+    document.getElementById('agentSplit').innerHTML = renderAgentSplit(d.agent_vs_anon);
+    document.getElementById('catBars').innerHTML = renderBars(
+      d.category_breakdown || [], 'category', 'service_count', n => n);
+
+    const refreshedAgo = fmtAgo(d.refreshed_at);
+    document.getElementById('metaStatus').textContent =
+      `last refresh ${refreshedAgo} · next in ~24h`;
+  } catch(e) {
+    document.getElementById('metaStatus').textContent = 'fetch error: ' + e.message;
+  }
+}
+load();
+setInterval(load, 15 * 60 * 1000);  // re-render every 15 min in case daily cycle just landed
+</script>
+</body>
+</html>
