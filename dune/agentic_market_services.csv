@@ -1,0 +1,996 @@
+service_id,name,domain,category,integration_type,is_new,endpoint_url,endpoint_method,pay_to,amount,currency,network,networks_csv
+exa-ai,Exa,exa.ai,Search,1P,False,https://api.exa.ai/contents,POST,,0.001,USDC,Base,Base
+exa-ai,Exa,exa.ai,Search,1P,False,https://api.exa.ai/search,POST,,0.007,USDC,Base,Base
+docs-anthropic-com,Claude,docs.anthropic.com,Inference,3P,False,https://api.venice.ai/api/v1/chat/completions,POST,,0.001,USDC,Base,"Base,Solana"
+docs-anthropic-com,Claude,docs.anthropic.com,Inference,3P,False,https://api.venice.ai/api/v1/responses,POST,,0.001,USDC,Base,"Base,Solana"
+docs-anthropic-com,Claude,docs.anthropic.com,Inference,3P,False,https://llm.bankr.bot/v1/models,GET,,,USDC,Base,"Base,Solana"
+docs-anthropic-com,Claude,docs.anthropic.com,Inference,3P,False,https://llm.bankr.bot/v1/messages,POST,,,USDC,Base,"Base,Solana"
+docs-anthropic-com,Claude,docs.anthropic.com,Inference,3P,False,https://blockrun.ai/v1/models,GET,,,USDC,Base,"Base,Solana"
+docs-anthropic-com,Claude,docs.anthropic.com,Inference,3P,False,https://blockrun.ai/v1/chat/completions,POST,,,USDC,Base,"Base,Solana"
+tripadvisor-content-api-readme-io,Tripadvisor,tripadvisor-content-api.readme.io,Data,3P,False,https://tripadvisor.x402.paysponge.com/api/v1/location/:locationId/details,GET,,0.01,USDC,Base,Base
+tripadvisor-content-api-readme-io,Tripadvisor,tripadvisor-content-api.readme.io,Data,3P,False,https://tripadvisor.x402.paysponge.com/api/v1/location/:locationId/photos,GET,,0.01,USDC,Base,Base
+tripadvisor-content-api-readme-io,Tripadvisor,tripadvisor-content-api.readme.io,Data,3P,False,https://tripadvisor.x402.paysponge.com/api/v1/location/:locationId/reviews,GET,,0.01,USDC,Base,Base
+tripadvisor-content-api-readme-io,Tripadvisor,tripadvisor-content-api.readme.io,Data,3P,False,https://tripadvisor.x402.paysponge.com/api/v1/location/nearby_search,GET,,0.01,USDC,Base,Base
+tripadvisor-content-api-readme-io,Tripadvisor,tripadvisor-content-api.readme.io,Data,3P,False,https://tripadvisor.x402.paysponge.com/api/v1/location/search,GET,,0.01,USDC,Base,Base
+thegraph-com,The Graph,thegraph.com,Data,1P,True,https://gateway.thegraph.com/api/x402/subgraphs/id/{subgraph_id},POST,,,USDC,Base,Base
+thegraph-com,The Graph,thegraph.com,Data,1P,True,https://gateway.thegraph.com/api/x402/deployments/id/{deployment_id},POST,,,USDC,Base,Base
+platform-openai-com,ChatGPT,platform.openai.com,Inference,3P,False,https://api.venice.ai/api/v1/models,GET,,,USDC,Base,"Base,Solana"
+platform-openai-com,ChatGPT,platform.openai.com,Inference,3P,False,https://api.venice.ai/api/v1/audio/speech,POST,,0.001,USDC,Base,"Base,Solana"
+platform-openai-com,ChatGPT,platform.openai.com,Inference,3P,False,https://api.venice.ai/api/v1/audio/transcriptions,POST,,0.001,USDC,Base,"Base,Solana"
+platform-openai-com,ChatGPT,platform.openai.com,Inference,3P,False,https://api.venice.ai/api/v1/chat/completions,POST,,0.001,USDC,Base,"Base,Solana"
+platform-openai-com,ChatGPT,platform.openai.com,Inference,3P,False,https://api.venice.ai/api/v1/images/generations,POST,,0.001,USDC,Base,"Base,Solana"
+platform-openai-com,ChatGPT,platform.openai.com,Inference,3P,False,https://api.venice.ai/api/v1/responses,POST,,0.001,USDC,Base,"Base,Solana"
+platform-openai-com,ChatGPT,platform.openai.com,Inference,3P,False,https://blockrun.ai/v1/models,GET,,,USDC,Base,"Base,Solana"
+platform-openai-com,ChatGPT,platform.openai.com,Inference,3P,False,https://blockrun.ai/v1/chat/completions,POST,,,USDC,Base,"Base,Solana"
+platform-openai-com,ChatGPT,platform.openai.com,Inference,3P,False,https://blockrun.ai/v1/images/generations,POST,,,USDC,Base,"Base,Solana"
+developers-deepgram-com,Deepgram,developers.deepgram.com,Media,3P,False,https://deepgram.x402.paysponge.com/v1/listen,POST,,1.00,USDC,Base,Base
+developers-deepgram-com,Deepgram,developers.deepgram.com,Media,3P,False,https://deepgram.x402.paysponge.com/v1/models/{model_id},GET,,,USDC,Base,Base
+developers-deepgram-com,Deepgram,developers.deepgram.com,Media,3P,False,https://deepgram.x402.paysponge.com/v1/read,POST,,0.01,USDC,Base,Base
+developers-deepgram-com,Deepgram,developers.deepgram.com,Media,3P,False,https://deepgram.x402.paysponge.com/v1/speak,POST,,0.01,USDC,Base,Base
+coinmarketcap-com,CoinMarketCap,coinmarketcap.com,Data,1P,False,https://pro-api.coinmarketcap.com/x402/v3/cryptocurrency/quotes/latest,GET,,0.01,USDC,Base,Base
+coinmarketcap-com,CoinMarketCap,coinmarketcap.com,Data,1P,False,https://pro-api.coinmarketcap.com/x402/v3/cryptocurrency/listing/latest,GET,,0.01,USDC,Base,Base
+coinmarketcap-com,CoinMarketCap,coinmarketcap.com,Data,1P,False,https://pro-api.coinmarketcap.com/x402/v4/dex/pairs/quotes/latest,GET,,0.01,USDC,Base,Base
+coinmarketcap-com,CoinMarketCap,coinmarketcap.com,Data,1P,False,https://pro-api.coinmarketcap.com/x402/v1/dex/search,GET,,0.01,USDC,Base,Base
+coinmarketcap-com,CoinMarketCap,coinmarketcap.com,Data,1P,False,https://pro-api.coinmarketcap.com/x402/mcp,,,0.01,USDC,Base,Base
+x402-alchemy-com,Alchemy,x402.alchemy.com,Infra,1P,False,https://x402.alchemy.com/{chainNetwork}/v2,POST,,,USDC,Base,"Base,Solana"
+x402-alchemy-com,Alchemy,x402.alchemy.com,Infra,1P,False,https://x402.alchemy.com/{chainNetwork}/nft/v3/getNFTsForOwner,GET,,,USDC,Base,"Base,Solana"
+x402-alchemy-com,Alchemy,x402.alchemy.com,Infra,1P,False,https://x402.alchemy.com/{chainNetwork}/nft/v3/getNFTMetadata,GET,,,USDC,Base,"Base,Solana"
+x402-alchemy-com,Alchemy,x402.alchemy.com,Infra,1P,False,https://x402.alchemy.com/{chainNetwork}/nft/v3/getContractMetadata,GET,,,USDC,Base,"Base,Solana"
+x402-alchemy-com,Alchemy,x402.alchemy.com,Infra,1P,False,https://x402.alchemy.com/data/v1/assets/tokens/by-address,POST,,,USDC,Base,"Base,Solana"
+x402-alchemy-com,Alchemy,x402.alchemy.com,Infra,1P,False,https://x402.alchemy.com/data/v1/assets/nfts/by-address,POST,,,USDC,Base,"Base,Solana"
+x402-alchemy-com,Alchemy,x402.alchemy.com,Infra,1P,False,https://x402.alchemy.com/prices/v1/tokens/by-symbol,GET,,,USDC,Base,"Base,Solana"
+x402-alchemy-com,Alchemy,x402.alchemy.com,Infra,1P,False,https://x402.alchemy.com/prices/v1/tokens/by-address,POST,,,USDC,Base,"Base,Solana"
+x402-alchemy-com,Alchemy,x402.alchemy.com,Infra,1P,False,https://x402.alchemy.com/prices/v1/tokens/historical,POST,,,USDC,Base,"Base,Solana"
+parallel-ai,Parallel,parallel.ai,Data,1P,True,https://parallelmpp.dev/api/search,POST,,0.01,USDC,Base,Base
+parallel-ai,Parallel,parallel.ai,Data,1P,True,https://parallelmpp.dev/api/extract,POST,,0.01,USDC,Base,Base
+parallel-ai,Parallel,parallel.ai,Data,1P,True,https://parallelmpp.dev/api/task,POST,,0.30,USDC,Base,Base
+docs-perplexity-ai,Perplexity,docs.perplexity.ai,Search,3P,False,https://pplx.x402.paysponge.com/search,POST,,0.01,USDC,Base,Base
+docs-perplexity-ai,Perplexity,docs.perplexity.ai,Search,3P,False,https://pplx.x402.paysponge.com/v1/agent,POST,,0.01,USDC,Base,Base
+docs-perplexity-ai,Perplexity,docs.perplexity.ai,Search,3P,False,https://pplx.x402.paysponge.com/v1/async/sonar,POST,,0.01,USDC,Base,Base
+docs-perplexity-ai,Perplexity,docs.perplexity.ai,Search,3P,False,https://pplx.x402.paysponge.com/v1/async/sonar/{api_request},GET,,,USDC,Base,Base
+docs-perplexity-ai,Perplexity,docs.perplexity.ai,Search,3P,False,https://pplx.x402.paysponge.com/v1/sonar,POST,,0.10,USDC,Base,Base
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,https://pro-api.coingecko.com/api/v3/x402/onchain/search/pools,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/ethereum,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/eth/token_price/:address,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b,0x4200000000000000000000000000000000000006",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/solana/token_price/:solana_address,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/:address,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x4200000000000000000000000000000000000006,0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b,0x940181a94a35a4569e4529a3cdfb74e38fd98631,0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf,0x95ccfd2b81a9667b0cc979992632f98fc853eba3,0x9b5e262cf9bb04869ab40b19af91d2dc85761722,0xed664536023d8e4b1640c394777d34abaff1df8f,0x9a26f5433671751c3276a065f57e5a02d2817973",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x4200000000000000000000000000000000000006,0x940181a94a35a4569e4529a3cdfb74e38fd98631,0x9b5e262cf9bb04869ab40b19af91d2dc85761722",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x940181a94a35a4569e4529a3cdfb74e38fd98631,0x311935cd80b76769bf2ecc9d8ab7635b2139cf82,0x4200000000000000000000000000000000000006,0x9b5e262cf9bb04869ab40b19af91d2dc85761722,0x16ee7ecac70d1028e7712751e2ee6ba808a7dd92,0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca,0x5ab3d4c385b400f3abb49e80de2faf6a88a7b691,0xeb466342c4d449bc9f53a865d5cb90586f405215",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x4200000000000000000000000000000000000006,0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf,0x940181a94a35a4569e4529a3cdfb74e38fd98631,0x9b5e262cf9bb04869ab40b19af91d2dc85761722,0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf,0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca,0x0000000000000000000000000000000000000000,0x16ee7ecac70d1028e7712751e2ee6ba808a7dd92,0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b,0x5ab3d4c385b400f3abb49e80de2faf6a88a7b691,0xc1cba3fcea344f92d9239c08c0568f6f2f0ee452,0xeb466342c4d449bc9f53a865d5cb90586f405215",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x4200000000000000000000000000000000000006,0x884b59ac68b03d86d9a339ce7a4b6ea4d86b074f,0xff8104251e7761163fac3211ef5583fb3f8583d6,0xac1bd2486aaf3b5c0fc3fd868558b082a531b2b4,0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf,0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00,0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3,0x9a26f5433671751c3276a065f57e5a02d2817973,0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07,0xc0634090f2fe6c6d75e61be2b949464abb498973,0x22af33fe49fd1fa80c7149773dde5890d3c76f3b,0x940181a94a35a4569e4529a3cdfb74e38fd98631",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x4200000000000000000000000000000000000006,0xff8104251e7761163fac3211ef5583fb3f8583d6,0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf,0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00,0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3,0xc0634090f2fe6c6d75e61be2b949464abb498973,0x9a26f5433671751c3276a065f57e5a02d2817973,0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07,0x22af33fe49fd1fa80c7149773dde5890d3c76f3b,0x940181a94a35a4569e4529a3cdfb74e38fd98631,0x1bc0c42215582d5a085795f4badbac3ff36d1bcb,0xbaa5cc21fd487b8fcc2f632f3f4e8d37262a0842",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x4200000000000000000000000000000000000006,0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf,0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00,0x0086cff0c1e5d17b19f5bcd4c8840a5b4251d959,0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3,0x16332535e2c27da578bc2e82beb09ce9d3c8eb07,0xc0634090f2fe6c6d75e61be2b949464abb498973,0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07,0x940181a94a35a4569e4529a3cdfb74e38fd98631,0x6b2504a03ca4d43d0d73776f6ad46dab2f2a4cfd,0xde61878b0b21ce395266c44d4d548d1c72a3eb07,0x7b0ee9dcb5c1d4d7cd630c652959951936512ba3",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x4200000000000000000000000000000000000006,0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf,0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00,0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3,0x0086cff0c1e5d17b19f5bcd4c8840a5b4251d959,0x16332535e2c27da578bc2e82beb09ce9d3c8eb07,0xc0634090f2fe6c6d75e61be2b949464abb498973,0xff8104251e7761163fac3211ef5583fb3f8583d6,0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07,0xa1f72459dfa10bad200ac160ecd78c6b77a747be,0x940181a94a35a4569e4529a3cdfb74e38fd98631,0xc78fabc2cb5b9cf59e0af3da8e3bc46d47753a4e",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/polygon_pos/token_price/:address,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/avax/token_price/:address,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,"https://pro-api.coingecko.com/api/v3/x402/onchain/simple/networks/base/token_price/0x4200000000000000000000000000000000000006,0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3,0x00000e7efa313f4e11bfff432471ed9423ac6b30,0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf,0x16332535e2c27da578bc2e82beb09ce9d3c8eb07,0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07,0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00,0x4c433f4ef87fe506a7eed2fd1d822cbed411eba3,0xbf8e8f0e8866a7052f948c16508644347c57aba3,0x797f214a2cd64a4963a91fa21c8c55ec3eba4714,0x09be1692ca16e06f536f0038ff11d1da8524adb1,0xc0634090f2fe6c6d75e61be2b949464abb498973",GET,,0.01,USDC,eip155:8453,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,https://pro-api.coingecko.com/api/v3/x402/onchain/networks/{network_id}/trending_pools,GET,,0.01,USDC,Base,"Base,Solana"
+pro-api-coingecko-com,CoinGecko,pro-api.coingecko.com,Data,1P,False,https://pro-api.coingecko.com/api/v3/x402/onchain/networks/{network_id}/tokens/{contract_address},GET,,0.01,USDC,Base,"Base,Solana"
+deepseek-com,DeepSeek,deepseek.com,Inference,3P,False,https://api.venice.ai/api/v1/chat/completions,POST,,0.001,USDC,Base,Base
+deepseek-com,DeepSeek,deepseek.com,Inference,3P,False,https://api.venice.ai/api/v1/responses,POST,,0.001,USDC,Base,Base
+deepseek-com,DeepSeek,deepseek.com,Inference,3P,False,https://blockrun.ai/v1/models,GET,,,USDC,Base,Base
+deepseek-com,DeepSeek,deepseek.com,Inference,3P,False,https://blockrun.ai/v1/chat/completions,POST,,,USDC,Base,Base
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/search,"GET, POST",,0.05,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/price,POST,,0.03,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/book,POST,,0.09,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/orders,GET,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/orders/cancel,POST,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/seatmap,"GET, POST",,0.03,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/upsell,POST,,0.03,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/availability,POST,,0.03,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/status,GET,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/flights/checkin-links,GET,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/hotels/list,GET,,0.03,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/hotels/list/by-geocode,GET,,0.03,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/hotels/search,GET,,0.03,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/hotels/search/by-hotel,GET,,0.03,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/hotels/offer,GET,,0.03,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/hotels/book,POST,,0.002,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/hotels/autocomplete,GET,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/hotels/ratings,GET,,0.05,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/activities/search,GET,,0.05,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/activities/by-square,GET,,0.05,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/activities/details,GET,,0.05,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/transfers/search,POST,,0.003,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/transfers/book,POST,,0.002,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/transfers/cancel,POST,,0.002,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/reference/locations,GET,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/reference/airports,GET,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/reference/airlines,GET,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/reference/airline-routes,GET,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/reference/airport-routes,GET,,0.005,USDC,Base,"Base,Solana"
+developers-amadeus-com,Amadeus,developers.amadeus.com,Travel,3P,False,https://stabletravel.dev/api/reference/cities,GET,,0.005,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/search,GET,,0.10,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/search/positions,GET,,0.10,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/search/count,GET,,0.04,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/search/advanced,GET,,0.10,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/{ident}/canonical,GET,,0.002,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/{ident}/intents,POST,,0.001,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/{id}/position,GET,,0.02,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/{id}/track,GET,,0.024,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/{id}/route-info,GET,,0.02,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/{id}/map,GET,,0.06,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports,GET,,0.01,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/nearby,GET,,0.008,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/delays,GET,,0.10,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/{id}/canonical,GET,,0.002,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/{id}/nearby,GET,,0.008,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/{id}/flights,GET,,0.04,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/{id}/flights/scheduled-departures,GET,,0.01,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/{id}/flights/scheduled-arrivals,GET,,0.01,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/{id}/flights/counts,GET,,0.20,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/{id}/weather/forecast,GET,,0.004,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/{id}/routes/{dest_id},GET,,0.04,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/history/flights/{ident},GET,,0.04,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/history/flights/{id}/track,GET,,0.12,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/history/flights/{id}/map,GET,,0.28,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/history/flights/{id}/route-info,GET,,0.08,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/history/airports/{id}/flights/arrivals,GET,,0.04,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/history/airports/{id}/flights/departures,GET,,0.04,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/history/airports/{id}/flights/to/{dest_id},GET,,0.24,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/history/aircraft/{registration}/last-flight,GET,,0.40,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/history/operators/{id}/flights,GET,,0.04,USDC,Base,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/cgk/flights/to/kno,GET,,0.1,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/KJFK,GET,,0.03,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/KJFK/flights/to/KLAX,GET,,0.1,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/KMIA,GET,,0.03,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/KMIA/delays,GET,,0.02,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/KMIA/flights/arrivals,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/KMIA/flights/departures,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/KMIA/weather/observations,GET,,0.004,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/ksna/flights/to/ksfo,GET,,0.1,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/MAD,GET,,0.03,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/airports/MAD/delays,GET,,0.02,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/disruption-counts/airline,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/disruption-counts/airline/UAL,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/AA95,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/AT973,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/IBE6275,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/N746YX,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/UAL123,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+www-flightaware-com,FlightAware,www.flightaware.com,Travel,3P,False,https://stabletravel.dev/api/flightaware/flights/UX1503,GET,,0.01,USDC,eip155:8453,"Base,Solana"
+products-wolframalpha-com,Wolfram|Alpha,products.wolframalpha.com,Data,3P,False,https://wolframalpha.x402.paysponge.com/v1/result,GET,,0.01,USDC,Base,Base
+products-wolframalpha-com,Wolfram|Alpha,products.wolframalpha.com,Data,3P,False,https://wolframalpha.x402.paysponge.com/v1/simple,GET,,0.01,USDC,Base,Base
+products-wolframalpha-com,Wolfram|Alpha,products.wolframalpha.com,Data,3P,False,https://wolframalpha.x402.paysponge.com/v2/query,GET,,0.02,USDC,Base,Base
+api-firecrawl-dev,Firecrawl,api.firecrawl.dev,Search,1P,False,https://mesh.heurist.xyz/x402/agents/FirecrawlSearchDigestAgent/firecrawl_web_search,POST,,0.01,USDC,Base,Base
+api-firecrawl-dev,Firecrawl,api.firecrawl.dev,Search,1P,False,https://mesh.heurist.xyz/x402/agents/FirecrawlSearchDigestAgent/firecrawl_extract_web_data,POST,,0.01,USDC,Base,Base
+api-firecrawl-dev,Firecrawl,api.firecrawl.dev,Search,1P,False,https://mesh.heurist.xyz/x402/agents/FirecrawlSearchDigestAgent/firecrawl_scrape_url,POST,,0.01,USDC,Base,Base
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/ethereum-mainnet,POST,,10,USDC,eip155:8453,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/hype-mainnet/hypercore,POST,,10,USDC,eip155:8453,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/base-mainnet,POST,,10,USDC,eip155:8453,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/solana-mainnet,POST,,10,USDC,eip155:8453,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/0g-galileo/,POST,,0.00,USDC,0g-galileo,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/0g-mainnet/,POST,,0.00,USDC,0g-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/abstract-mainnet/,POST,,0.00,USDC,abstract-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/abstract-testnet/,POST,,0.00,USDC,abstract-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/aptos-mainnet/,POST,,0.00,USDC,aptos-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/aptos-testnet/,POST,,0.00,USDC,aptos-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/arbitrum-mainnet/,POST,,0.00,USDC,arbitrum-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/arbitrum-sepolia/,POST,,0.00,USDC,arbitrum-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/arc-testnet/,POST,,0.00,USDC,arc-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/avalanche-mainnet/,POST,,0.00,USDC,avalanche-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/avalanche-testnet/,POST,,0.00,USDC,avalanche-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/b3-mainnet/,POST,,0.00,USDC,b3-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/b3-sepolia/,POST,,0.00,USDC,b3-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/base-sepolia/,POST,,0.00,USDC,Base Sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/bch-mainnet/,POST,,0.00,USDC,bch-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/bch-testnet/,POST,,0.00,USDC,bch-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/bera-bepolia/,POST,,0.00,USDC,bera-bepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/bera-mainnet/,POST,,0.00,USDC,bera-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/blast-mainnet/,POST,,0.00,USDC,blast-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/blast-sepolia/,POST,,0.00,USDC,blast-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/bsc-mainnet/,POST,,0.00,USDC,bsc-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/bsc-testnet/,POST,,0.00,USDC,bsc-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/btc-mainnet/,POST,,0.00,USDC,btc-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/btc-testnet4/,POST,,0.00,USDC,btc-testnet4,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/celestia-mainnet/,POST,,0.00,USDC,celestia-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/celestia-mocha/,POST,,0.00,USDC,celestia-mocha,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/celo-mainnet/,POST,,0.00,USDC,celo-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/cosmos-mainnet/,POST,,0.00,USDC,cosmos-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/cyber-mainnet/,POST,,0.00,USDC,cyber-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/cyber-sepolia/,POST,,0.00,USDC,cyber-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/doge-mainnet/,POST,,0.00,USDC,doge-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/dot-mainnet/,POST,,0.00,USDC,dot-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/ethereum-hoodi/,POST,,0.00,USDC,Ethereum,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/ethereum-sepolia/,POST,,0.00,USDC,Ethereum,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/fantom-mainnet/,POST,,0.00,USDC,fantom-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/flare-coston2/,POST,,0.00,USDC,flare-coston2,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/flare-mainnet/,POST,,0.00,USDC,flare-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/flow-mainnet/,POST,,0.00,USDC,flow-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/flow-testnet/,POST,,0.00,USDC,flow-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/fraxtal-mainnet/,POST,,0.00,USDC,fraxtal-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/fuel-mainnet/,POST,,0.00,USDC,fuel-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/fuel-sepolia/,POST,,0.00,USDC,fuel-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/gravity-alpham/,POST,,0.00,USDC,gravity-alpham,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/hedera-mainnet/,POST,,0.00,USDC,hedera-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/hedera-testnet/,POST,,0.00,USDC,hedera-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/hemi-mainnet/,POST,,0.00,USDC,hemi-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/hemi-testnet/,POST,,0.00,USDC,hemi-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/hype-mainnet/,POST,,0.00,USDC,hype-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/hype-testnet/,POST,,0.00,USDC,hype-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/imx-mainnet/,POST,,0.00,USDC,imx-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/imx-testnet/,POST,,0.00,USDC,imx-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/injective-mainnet/,POST,,0.00,USDC,injective-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/injective-testnet/,POST,,0.00,USDC,injective-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/ink-mainnet/,POST,,0.00,USDC,ink-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/ink-sepolia/,POST,,0.00,USDC,ink-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/joc-mainnet/,POST,,0.00,USDC,joc-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/kaia-kairos/,POST,,0.00,USDC,kaia-kairos,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/kaia-mainnet/,POST,,0.00,USDC,kaia-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/lens-mainnet/,POST,,0.00,USDC,lens-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/lens-testnet/,POST,,0.00,USDC,lens-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/linea-mainnet/,POST,,0.00,USDC,linea-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/lisk-mainnet/,POST,,0.00,USDC,lisk-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/ltc-mainnet/,POST,,0.00,USDC,ltc-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/ltc-testnet/,POST,,0.00,USDC,ltc-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/mantle-mainnet/,POST,,0.00,USDC,mantle-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/mantle-sepolia/,POST,,0.00,USDC,mantle-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/matic-amoy/,POST,,0.00,USDC,matic-amoy,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/matic-mainnet/,POST,,0.00,USDC,matic-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/mode-mainnet/,POST,,0.00,USDC,mode-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/monad-mainnet/,POST,,0.00,USDC,monad-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/monad-testnet/,POST,,0.00,USDC,monad-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/morph-hoodi/,POST,,0.00,USDC,morph-hoodi,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/morph-mainnet/,POST,,0.00,USDC,morph-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/near-mainnet/,POST,,0.00,USDC,near-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/near-testnet/,POST,,0.00,USDC,near-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/nova-mainnet/,POST,,0.00,USDC,nova-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/omni-mainnet/,POST,,0.00,USDC,omni-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/omni-omega/,POST,,0.00,USDC,omni-omega,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/optimism-mainnet/,POST,,0.00,USDC,optimism-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/optimism-sepolia/,POST,,0.00,USDC,optimism-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/osmosis-mainnet/,POST,,0.00,USDC,osmosis-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/peaq-mainnet/,POST,,0.00,USDC,peaq-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/plasma-mainnet/,POST,,0.00,USDC,plasma-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/plasma-testnet/,POST,,0.00,USDC,plasma-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/redstone-mainnet/,POST,,0.00,USDC,redstone-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/sahara-testnet/,POST,,0.00,USDC,sahara-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/scroll-mainnet/,POST,,0.00,USDC,scroll-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/scroll-testnet/,POST,,0.00,USDC,scroll-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/sei-atlantic/,POST,,0.00,USDC,sei-atlantic,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/sei-pacific/,POST,,0.00,USDC,sei-pacific,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/solana-devnet/,POST,,0.00,USDC,Solana,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/solana-testnet/,POST,,0.00,USDC,Solana,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/soneium-mainnet/,POST,,0.00,USDC,soneium-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/sonic-mainnet/,POST,,0.00,USDC,sonic-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/sophon-mainnet/,POST,,0.00,USDC,sophon-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/sophon-testnet/,POST,,0.00,USDC,sophon-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/stacks-mainnet/,POST,,0.00,USDC,stacks-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/stacks-testnet/,POST,,0.00,USDC,stacks-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/stellar-mainnet/,POST,,0.00,USDC,stellar-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/stellar-testnet/,POST,,0.00,USDC,stellar-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/story-aeneid/,POST,,0.00,USDC,story-aeneid,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/story-mainnet/,POST,,0.00,USDC,story-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/strk-mainnet/,POST,,0.00,USDC,strk-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/strk-sepolia/,POST,,0.00,USDC,strk-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/sui-mainnet/,POST,,0.00,USDC,sui-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/sui-testnet/,POST,,0.00,USDC,sui-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/tempo-mainnet/,POST,,0.00,USDC,Base,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/tempo-testnet/,POST,,0.00,USDC,Base,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/ton-mainnet/,POST,,0.00,USDC,ton-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/tron-mainnet/,POST,,0.00,USDC,tron-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/unichain-mainnet/,POST,,0.00,USDC,unichain-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/unichain-sepolia/,POST,,0.00,USDC,unichain-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/vana-mainnet/,POST,,0.00,USDC,vana-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/vana-moksha/,POST,,0.00,USDC,vana-moksha,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/worldchain-mainnet/,POST,,0.00,USDC,worldchain-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/worldchain-sepolia/,POST,,0.00,USDC,worldchain-sepolia,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/xai-mainnet/,POST,,0.00,USDC,xai-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/xai-testnet/,POST,,0.00,USDC,xai-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/xdai-mainnet/,POST,,0.00,USDC,xdai-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/xlayer-mainnet/,POST,,0.00,USDC,xlayer-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/xlayer-testnet/,POST,,0.00,USDC,xlayer-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/xrp-mainnet/,POST,,0.00,USDC,xrp-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/xrp-testnet/,POST,,0.00,USDC,xrp-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/xrplevm-mainnet/,POST,,0.00,USDC,xrplevm-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/xrplevm-testnet/,POST,,0.00,USDC,xrplevm-testnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/zkevm-cardona/,POST,,0.00,USDC,zkevm-cardona,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/zkevm-mainnet/,POST,,0.00,USDC,zkevm-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/zksync-mainnet/,POST,,0.00,USDC,zksync-mainnet,"Base,Solana,Polygon"
+x402-quicknode-com,QuickNode,x402.quicknode.com,Data,1P,False,https://x402.quicknode.com/zksync-sepolia/,POST,,0.00,USDC,zksync-sepolia,"Base,Solana,Polygon"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/metrics/v2/assets/details,GET,,0.1,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/metrics/v2/assets/roi,GET,,0.1,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/funding/v1/organizations,GET,,0.25,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/funding/v1/rounds,GET,,0.15,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/funding/v1/mergers-and-acquisitions,GET,,0.25,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/news/v1/news/feed,GET,,0.55,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/signal/v1/assets/mindshare-gainers-24h,GET,,0.35,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/signal/v1/assets/mindshare-gainers-7d,GET,,0.35,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/funding/v1/rounds/investors,GET,,0.25,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/signal/v1/assets,GET,,0.55,USDC,eip155:8453,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/ai/v2/chat/completions,POST,,0.25,USDC,Base,"Base,Solana"
+api-messari-io,Messari,api.messari.io,Data,1P,False,https://api.messari.io/metrics/v2/networks/,GET,,0,USDC,Base,"Base,Solana"
+x402-browserbase-com,Browserbase,x402.browserbase.com,Search,1P,False,https://x402.browserbase.com/browser/session/create,,,0.002,USDC,eip155:8453,Base
+x402-browserbase-com,Browserbase,x402.browserbase.com,Search,1P,False,https://x402.browserbase.com/browser/session/:id/extend,,,0.002,USDC,eip155:8453,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/api-keys/{api_key_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/domains/{domain_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/api-keys/{api_key_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/drafts/{draft_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/lists/{direction}/{type}/{entry},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages/{message_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/threads/{thread_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/lists/{direction}/{type}/{entry},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/api-keys/{api_key_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/domains/{domain_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/inboxes/{inbox_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/lists/{direction}/{type}/{entry},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/threads/{thread_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/threads/{thread_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/webhooks/{webhook_id},DELETE,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/domains,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/domains/{domain_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/domains/{domain_id}/zone-file,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/drafts,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/drafts/{draft_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/drafts/{draft_id}/attachments/{attachment_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/api-keys,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/drafts,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/drafts/{draft_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/drafts/{draft_id}/attachments/{attachment_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/lists/{direction}/{type},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/lists/{direction}/{type}/{entry},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages/{message_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages/{message_id}/attachments/{attachment_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages/{message_id}/raw,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/metrics,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/threads,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/threads/{thread_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/threads/{thread_id}/attachments/{attachment_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/lists/{direction}/{type},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/lists/{direction}/{type}/{entry},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/metrics,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/organizations,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/api-keys,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/domains,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/domains/{domain_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/domains/{domain_id}/zone-file,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/drafts,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/drafts/{draft_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/drafts/{draft_id}/attachments/{attachment_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/inboxes,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/inboxes/{inbox_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/lists/{direction}/{type},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/lists/{direction}/{type}/{entry},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/metrics,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/threads,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/threads/{thread_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/threads/{thread_id}/attachments/{attachment_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/threads,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/threads/{thread_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/threads/{thread_id}/attachments/{attachment_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/webhooks,GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/webhooks/{webhook_id},GET,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/domains/{domain_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/drafts/{draft_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages/{message_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/threads/{thread_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/domains/{domain_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/inboxes/{inbox_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/threads/{thread_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/threads/{thread_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/webhooks/{webhook_id},PATCH,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/agent/sign-up,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/agent/verify,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/domains,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/domains/{domain_id}/verify,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/api-keys,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/drafts,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/drafts/{draft_id}/send,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/lists/{direction}/{type},POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages/send,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages/{message_id}/forward,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages/{message_id}/reply,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/inboxes/{inbox_id}/messages/{message_id}/reply-all,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/lists/{direction}/{type},POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/api-keys,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/domains,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/domains/{domain_id}/verify,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/inboxes,POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/pods/{pod_id}/lists/{direction}/{type},POST,,,USDC,Base,Base
+api-agentmail-to,AgentMail,api.agentmail.to,Social,1P,False,https://x402.api.agentmail.to/v0/webhooks,POST,,,USDC,Base,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/explorer/queries/run-async,POST,,0.01,USDC,eip155:8453,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/prices/at-timestamp,POST,,0.02,USDC,eip155:8453,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/prices/history,POST,,0.02,USDC,eip155:8453,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/wallet/balances/history,POST,,0.01,USDC,eip155:8453,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/tokens,GET,,0.03,USDC,Base,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/tokens/search,GET,,0.03,USDC,Base,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/prices,POST,,0.02,USDC,Base,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/prices/stats,POST,,0.02,USDC,Base,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/tokens/chain-address,POST,,0.02,USDC,Base,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/wallet/balances,POST,,0.03,USDC,Base,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/wallet/pnl,POST,,0.03,USDC,Base,Base
+agents-allium-so,Allium,agents.allium.so,Data,1P,False,https://agents.allium.so/api/v1/developer/wallet/transactions,POST,,0.03,USDC,Base,Base
+stableupload-dev,StableUpload,stableupload.dev,Storage,3P,False,https://stableupload.dev/api/upload,POST,,0.005,USDC,eip155:8453,"Base,Solana"
+stableupload-dev,StableUpload,stableupload.dev,Storage,3P,False,https://stableupload.dev/api/site,POST,,0.005,USDC,eip155:8453,"Base,Solana"
+dripstack-xyz,Dripstack,dripstack.xyz,Data,1P,False,https://dripstack.xyz/api/v1/publications/:publicationSlug/:postSlug,GET,,0.1,USDC,eip155:8453,Base
+api-run402-com,Run402,api.run402.com,Infra,1P,False,https://api.run402.com/tiers/v1/subscribe/prototype,POST,,0.1,USDC,eip155:8453,Base
+api-run402-com,Run402,api.run402.com,Infra,1P,False,https://api.run402.com/tiers/v1/hobby,POST,,5,USDC,eip155:8453,Base
+api-run402-com,Run402,api.run402.com,Infra,1P,False,https://api.run402.com/tiers/v1/prototype,POST,,0.1,USDC,eip155:8453,Base
+api-run402-com,Run402,api.run402.com,Infra,1P,False,https://api.run402.com/generate-image/v1,POST,,0.03,USDC,Base,Base
+api-run402-com,Run402,api.run402.com,Infra,1P,False,https://api.run402.com/tiers/v1/team,POST,,20.00,USDC,Base,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/x/trending,POST,,0.002,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/x/articles/rising,POST,,0.05,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/dflow/trades,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/binance/ticks/ETHUSDT,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/matching-markets/pairs,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/orderbooks,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/kalshi/orderbooks,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/matching-markets,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/market/:hash/top-holders,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/candlesticks/:hash,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/market/:hash/smart-money,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/modal/sandbox/create,POST,,0.01,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/crypto-updown,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/wallet/:address,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/leaderboard,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/markets,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/positions,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/exa/search,POST,,0.01,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/exa/contents,POST,,0.002,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/exa/answer,POST,,0.01,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/wallet/positions/:address,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/binance/candles/BTCUSDT,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/kalshi/markets,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/activity,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/exa/find-similar,POST,,0.01,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/kalshi/trades,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/trades,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/cohorts/stats,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/markets/smart-activity,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/events,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/markets,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/markets/listings,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/sports/categories,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/sports/markets,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/markets/keyset,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/events/keyset,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/wallet/identity/:address,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/wallet/:address/cluster,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/wallet/identities,POST,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/markets/search,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/outcomes/px-xz7fw6lsywv2rnwr,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/limitless/markets,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,"https://blockrun.ai/api/v1/defillama/prices/coingecko:bitcoin,coingecko:ethereum",GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/defillama/protocols,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/defillama/yields,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/phone/numbers/list,POST,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/phone/numbers/buy,POST,,5,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/market/ranking,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/market/fear-greed,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/social/ranking,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/news/feed,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/search/polymarket,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/onchain/sql,POST,,0.02,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/search/project,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/search/news,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/onchain/schema,GET,,0.02,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/market/onchain-indicator,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/prediction-market/polymarket/markets,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/social/mindshare,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/search/web,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/market/liquidation/chart,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/project/defi/ranking,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/prediction-market/polymarket/events,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/fund/ranking,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/onchain/bridge/ranking,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/search/events,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/market/price,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/web/fetch,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/search/social/posts,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/defillama/prices/coingecko:solana,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/pm/polymarket/wallets/filter,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/token/tokenomics,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/defillama/chains,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/wallet/labels/batch,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/wallet/detail,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/wallet/net-worth,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/prediction-market/polymarket/positions,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/wallet/history,GET,,0.005,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/surf/prediction-market/polymarket/trades,GET,,0.001,USDC,eip155:8453,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/v1/x/accounts/{username},GET,,,USDC,Base,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/v1/x/search,GET,,,USDC,Base,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/v1/x/tweets/{id},GET,,,USDC,Base,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/modal/sandbox/exec,POST,,0.001,USDC,Base,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/modal/sandbox/status,POST,,0.001,USDC,Base,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/api/v1/modal/sandbox/terminate,POST,,0.001,USDC,Base,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/v1/chat/completions,POST,,,USDC,Base,Base
+blockrun-ai,BlockRun.AI,blockrun.ai,Inference,1P,False,https://blockrun.ai/v1/images/generations,POST,,,USDC,Base,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/token-ranking,POST,,0.0045,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/token-holders,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/transaction-details,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/defi-balances,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/transaction-history,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/portfolio-totals,POST,,0.001875,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/search,POST,,0.0045,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/token-balances,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/general-swap-feed,POST,,0.00375,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/token-activity-feed,POST,,0.00375,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/nft-balances,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/token-price,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/historical-token-price,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/nft-collection-metadata,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/nft-token-metadata,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/account-identity,POST,,0.001125,USDC,eip155:8453,Base
+public-zapper-xyz,Zapper,public.zapper.xyz,Data,1P,False,https://public.zapper.xyz/x402/nft-ranking,POST,,0.0045,USDC,eip155:8453,Base
+api-slamai-dev,SLAMai,api.slamai.dev,Data,1P,False,https://api.slamai.dev/wallet/trades,,,0.001,USDC,eip155:8453,Base
+api-slamai-dev,SLAMai,api.slamai.dev,Data,1P,False,https://api.slamai.dev/wallet/reputation/full,,,0.001,USDC,eip155:8453,Base
+api-slamai-dev,SLAMai,api.slamai.dev,Data,1P,False,https://api.slamai.dev/token/price,,,0.001,USDC,eip155:8453,Base
+api-slamai-dev,SLAMai,api.slamai.dev,Data,1P,False,https://api.slamai.dev/chain/tokens/trending,,,0.001,USDC,eip155:8453,Base
+api-slamai-dev,SLAMai,api.slamai.dev,Data,1P,False,https://api.slamai.dev/chain/tokens/newest,,,0.001585,USDC,eip155:8453,Base
+api-slamai-dev,SLAMai,api.slamai.dev,Data,1P,False,https://api.slamai.dev/token/price/exotic,,,0.001,USDC,eip155:8453,Base
+www-capminal-ai,Capminal,www.capminal.ai,Data,1P,False,https://www.capminal.ai/api/x402/research,GET,,0.01,USDC,eip155:8453,Base
+minifetch-com,Minifetch,minifetch.com,Data,1P,False,https://minifetch.com/api/v1/x402/extract/url-preview,GET,,0.001,USDC,eip155:8453,"Base,Solana"
+minifetch-com,Minifetch,minifetch.com,Data,1P,False,https://minifetch.com/api/v1/x402/extract/url-links,GET,,0.002,USDC,eip155:8453,"Base,Solana"
+minifetch-com,Minifetch,minifetch.com,Data,1P,False,https://minifetch.com/api/v1/x402/extract/url-content,GET,,0.002,USDC,eip155:8453,"Base,Solana"
+minifetch-com,Minifetch,minifetch.com,Data,1P,False,https://minifetch.com/api/v1/x402/extract/url-metadata,GET,,0.002,USDC,eip155:8453,"Base,Solana"
+x402-blackswan-wtf,BlackSwan,x402.blackswan.wtf,Data,1P,False,https://x402.blackswan.wtf/smart-agents/flare,POST,,0.01,USDC,eip155:8453,Base
+x402-blackswan-wtf,BlackSwan,x402.blackswan.wtf,Data,1P,False,https://x402.blackswan.wtf/smart-agents/core,POST,,0.03,USDC,eip155:8453,Base
+x402-blackswan-wtf,BlackSwan,x402.blackswan.wtf,Data,1P,False,https://x402.blackswan.wtf/,GET,,,USDC,Base,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/schedule,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/teams,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/standings,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/players,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/player/:player_id,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/venues,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/venue-nearby,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/venue-weather,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nba/schedule,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nba/teams,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nba/standings,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nba/players,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nba/player/:player_id,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nba/venue-nearby,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nba/venue-weather,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/wnba/schedule,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/wnba/teams,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/wnba/standings,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/wnba/players,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/wnba/player/:player_id,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/wnba/venue-nearby,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/wnba/venue-weather,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nhl/schedule,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nhl/teams,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nhl/standings,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nhl/player/:player_id,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nhl/venue-nearby,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nhl/venue-weather,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nfl/scoreboard,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nfl/schedule,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nfl/teams,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nfl/standings,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nfl/game/:event_id,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nfl/venue-nearby,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nfl/venue-weather,GET,,0.001,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/flights,GET,,0.25,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/mlb/hotels,GET,,0.25,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nba/flights,GET,,0.25,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nba/hotels,GET,,0.25,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/wnba/flights,GET,,0.25,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/wnba/hotels,GET,,0.25,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nhl/flights,GET,,0.25,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nhl/hotels,GET,,0.25,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nfl/flights,GET,,0.25,USDC,eip155:8453,Base
+fanfare-run,Fanfare,fanfare.run,Data,3P,False,https://fanfare.run/nfl/hotels,GET,,0.25,USDC,eip155:8453,Base
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/bagcheck/raw,,,0.4,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/flowtrack/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/alphaleaders/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/pixelstats/raw,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/poolmoves/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/earlybirds/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/pricegaps/raw,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/topvolume/raw,,,0.4,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/hotshots/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/candles/raw,,,0.25,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/deepdive/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/earlysignals/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/frontrunwatch/raw,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/top-tokens/raw,,,0.4,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/bscalpha/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/holderconcentration/raw,,,0.4,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/pumpfun-volume/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/liquidityshifts/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/toptraders/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/nftanalytics/raw,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/polymarket-chain-compare/raw,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/arbitragescanner/raw,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/mevdetection/raw,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/tokensniping/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/bscalpha,,,0.75,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/zora-launches/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/whale-intel/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/investment-report/raw,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/pumpfun-launches/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/virtual-pools/raw,,,0.4,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/token-sniping/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/smart-money,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/pumpfun-graduation/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/whale-intel,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/pumpfun-launches,,,0.75,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/token-sniping,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/rug-pull-scanner,,,1.15,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/pumpfun-graduation,,,0.75,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/zora-launches,,,0.75,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/zora-volume,,,0.75,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/virtual-pools,,,0.55,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/topvolume,,,0.55,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/ohlcv,,,0.5,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/tokenchart,,,0.4,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/polymarket-chain-compare,,,1.15,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/whaleintel/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/smartmoney/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/whaleintel,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/smartmoney,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/top-tokens,,,0.55,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/tokenchart/raw,,,0.25,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/holderconcentration,,,0.55,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/investment-report,,,1.15,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/liquidityshifts,,,0.75,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/wallet-holdings/raw,,,0.4,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/rug-pull-scanner/raw,,,1,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/smart-money/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/zora-volume/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/liquidity-shifts/raw,,,0.6,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/movers/raw,,,0.4,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/latest-pairs/raw,,,0.25,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/dexcapital/raw,,,0.85,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/arbitragescanner,,,1.15,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/einstein/report,,,0.5,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/latest-pairs,,,0.4,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/wallet-holdings,,,0.55,USDC,eip155:8453,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/dexcapital,POST,,1.00,USDC,Base,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/mevdetection,POST,,1.15,USDC,Base,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/pumpfun-volume,POST,,0.75,USDC,Base,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/tokensniping,POST,,1.00,USDC,Base,"Base,Solana"
+emc2ai-io,EMC2 AI,emc2ai.io,Data,1P,False,https://emc2ai.io/x402/bitquery/toptraders,POST,,1.00,USDC,Base,"Base,Solana"
+x402stt-dtelecom-org,dTelecom STT,x402stt.dtelecom.org,Media,1P,False,https://x402stt.dtelecom.org/v1/session,POST,,0.025,USDC,eip155:8453,"Base,Solana"
+x402stt-dtelecom-org,dTelecom STT,x402stt.dtelecom.org,Media,1P,False,https://x402stt.dtelecom.org/v1/session/{id}/status,GET,,,USDC,Base,"Base,Solana"
+x402stt-dtelecom-org,dTelecom STT,x402stt.dtelecom.org,Media,1P,False,https://x402stt.dtelecom.org/v1/session/extend,POST,,,USDC,Base,"Base,Solana"
+postalform-com,PostalForm,postalform.com,Social,1P,False,https://postalform.com/api/machine/orders,POST,,3.4,USDC,eip155:8453,eip155:8453
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/jup-dca,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/pnl-by-address,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/smart-money/holdings,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/smart-money/netflow,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/smart-money/perp-trades,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/smart-money/dex-trades,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/holders,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/perp-leaderboard,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/pnl-leaderboard,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/dex-trades,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/profiler/address/transactions,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/who-bought-sold,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/profiler/address/current-balance,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/profiler/address/counterparties,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/perp-screener,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/market-screener,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/indicators,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/categories,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/token-information,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/trades-by-address,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/profiler/perp-positions,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/profiler/address/related-wallets,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/transfers,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/profiler/address/pnl-summary,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/perp-pnl-leaderboard,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/profiler/address/historical-balances,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/position-intelligence,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/smart-money/historical-holdings,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/position-detail,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/trades-by-market,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/orderbook,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/token-ohlcv,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/profiler/address/pnl,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/event-screener,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/ohlcv,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/top-holders,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/transaction-with-token-transfer-lookup,POST,,0.01,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/smart-money/dcas,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/pnl-by-market,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1beta1/tgm/historical-dex-trades,POST,,0.05,USDC,eip155:8453,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/agent/expert,POST,,7.50,USDC,Base,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/agent/fast,POST,,2.00,USDC,Base,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/prediction-market/address-summary,POST,,0.01,USDC,Base,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/profiler/perp-trades,POST,,0.01,USDC,Base,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/flow-intelligence,POST,,0.01,USDC,Base,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/flows,POST,,0.01,USDC,Base,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/perp-positions,POST,,0.05,USDC,Base,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/tgm/perp-trades,POST,,0.01,USDC,Base,"Base,Solana"
+api-nansen-ai,Nansen,api.nansen.ai,Data,1P,False,https://api.nansen.ai/api/v1/token-screener,POST,,0.01,USDC,Base,"Base,Solana"
+api-itsgloria-ai,Gloria AI,api.itsgloria.ai,Data,1P,False,https://api.itsgloria.ai/news-ticker-summary,,,0.031,USDC,eip155:8453,Base
+api-itsgloria-ai,Gloria AI,api.itsgloria.ai,Data,1P,False,https://api.itsgloria.ai/news-by-keyword,,,0.05,USDC,eip155:8453,Base
+api-itsgloria-ai,Gloria AI,api.itsgloria.ai,Data,1P,False,https://api.itsgloria.ai/recaps,,,0.1,USDC,eip155:8453,Base
+api-itsgloria-ai,Gloria AI,api.itsgloria.ai,Data,1P,False,https://api.itsgloria.ai/news,,,0.03,USDC,eip155:8453,Base
+notify-melis-ai,Melis Notify,notify.melis.ai,Social,1P,False,https://notify.melis.ai/email,,,0.005,USDC,eip155:8453,Base
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/market/quote/AAPL,GET,,0.001,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/market/ticker/AAPL,GET,,0.001,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/market/financials/AAPL,GET,,0.001,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/market/risk-factors/AAPL,GET,,0.001,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/market/top-movers,GET,,0.002,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/market/short-interest/AAPL,GET,,0.001,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/market/short-volume/AAPL,GET,,0.001,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/market/ipos,GET,,0.002,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/signals/news/market,GET,,0.002,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/signals/news/AAPL,GET,,0.002,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/market/float/AAPL,GET,,0.001,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/trade-alerts,GET,,0.002,USDC,eip155:8453,"Base,Solana"
+jeetscreener-io,JeetScreener,jeetscreener.io,Data,1P,False,https://jeetscreener.io/api/sec-filings,GET,,0.002,USDC,eip155:8453,"Base,Solana"
+api-questflow-ai,Questflow,api.questflow.ai,Inference,1P,False,https://api.questflow.ai/x402/swarm/:swarmId,POST,,,USDC,Base,Base
+api-questflow-ai,Questflow,api.questflow.ai,Inference,1P,False,https://api.questflow.ai/x402/agent/:agentId,POST,,,USDC,Base,Base
+gen-portalfoundation-ai,Portal Foundation,gen.portalfoundation.ai,Media,1P,False,https://gen.portalfoundation.ai/api/generate-video,,,1,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ElfaTwitterIntelligenceAgent/search_mentions,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FirecrawlSearchDigestAgent/firecrawl_extract_web_data,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FirecrawlSearchDigestAgent/firecrawl_scrape_url,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/EtherscanAgent/get_address_history,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/indicator_snapshot,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/PondWalletAnalysisAgent/analyze_base_wallet,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/AIXBTProjectInfoAgent/search_projects,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/EtherscanAgent/get_erc20_token_transfers,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/TwitterIntelligenceAgent/tweet_detail,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/TrendingTokenAgent/get_trending_tokens,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/PumpFunTokenAgent/query_recent_token_creation,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ElfaTwitterIntelligenceAgent/get_trending_tokens,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/EtherscanAgent/get_erc20_top_holders,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FundingRateAgent/get_all_funding_rates,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ZerionWalletAnalysisAgent/fetch_wallet_tokens,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/MoniTwitterInsightAgent/get_smart_mentions_feed,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/GoplusAnalysisAgent/fetch_security_details,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/EtherscanAgent/get_transaction_details,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/EvmTokenInfoAgent/get_recent_large_trades,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FundingRateAgent/get_symbol_oi_and_funding,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/fetch_price_history,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ZerionWalletAnalysisAgent/fetch_wallet_nfts,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FundingRateAgent/find_spot_futures_opportunities,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ExaSearchDigestAgent/exa_scrape_url,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FundingRateAgent/get_symbol_funding_rates,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/PumpFunTokenAgent/query_latest_graduated_tokens,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/PondWalletAnalysisAgent/analyze_ethereum_wallet,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/TwitterIntelligenceAgent/user_timeline,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/BaseUSDCForensicsAgent/usdc_basic_profile,,,0.03,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ElfaTwitterIntelligenceAgent/search_account,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/TwitterIntelligenceAgent/twitter_search,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/UnifaiWeb3NewsAgent/get_web3_news,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ExaSearchDigestAgent/exa_web_search,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/AIXBTProjectInfoAgent/get_market_summary,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FirecrawlSearchDigestAgent/firecrawl_web_search,,,0.01,USDC,eip155:8453,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/AskHeuristAgent/ask_heurist,POST,,0.1,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/AskHeuristAgent/check_job_status,POST,,0.001,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/BaseUSDCForensicsAgent/usdc_daily_activity,POST,,0.005,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/BaseUSDCForensicsAgent/usdc_hourly_pair_activity,POST,,0.005,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/BaseUSDCForensicsAgent/usdc_net_counterparties,POST,,0.005,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/BaseUSDCForensicsAgent/usdc_top_funders,POST,,0.005,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/BaseUSDCForensicsAgent/usdc_top_sinks,POST,,0.005,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/CaesarResearchAgent/caesar_research,POST,,0.1,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/CaesarResearchAgent/get_research_result,POST,,0.001,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ChainbaseAddressLabelAgent/get_address_labels,POST,,0.005,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/DefiLlamaAgent/get_chain_metrics,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/DefiLlamaAgent/get_protocol_metrics,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/DefiLlamaAgent/search_yield_pools,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FredMacroAgent/macro_regime_context,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FredMacroAgent/macro_release_calendar,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FredMacroAgent/macro_release_context,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FredMacroAgent/macro_series_history,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FredMacroAgent/macro_series_snapshot,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/FredMacroAgent/macro_vintage_history,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/MoniTwitterInsightAgent/get_smarts_categories,POST,,0.01,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ProjectKnowledgeAgent/get_project,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/ProjectKnowledgeAgent/semantic_search_projects,POST,,0.003,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/SallyHealthAgent/ask_health_advice,POST,,0.01,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/SecEdgarAgent/activist_watch,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/SecEdgarAgent/filing_diff,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/SecEdgarAgent/filing_timeline,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/SecEdgarAgent/insider_activity,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/SecEdgarAgent/institutional_holders,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/SecEdgarAgent/resolve_company,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/SecEdgarAgent/xbrl_fact_trends,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/TokenResolverAgent/token_profile,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/TokenResolverAgent/token_search,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/TrendingTokenAgent/get_market_summary,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/WanVideoGenAgent/get_video_status,POST,,0.001,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/WanVideoGenAgent/image_to_video_flash_480p_5s,POST,,0.10,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/WanVideoGenAgent/image_to_video_plus_480p_5s,POST,,0.15,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/WanVideoGenAgent/image_to_video_with_audio_480p_5s,POST,,0.25,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/WanVideoGenAgent/text_to_video_480p_5s,POST,,0.15,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/WanVideoGenAgent/text_to_video_with_audio_480p_5s,POST,,0.25,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/analyst_snapshot,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/company_fundamentals,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/equity_screen,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/fund_snapshot,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/futures_snapshot,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/market_overview,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/news_search,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/options_chain,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/options_expirations,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/price_history,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/quote_snapshot,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/resolve_symbol,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/agents/YahooFinanceAgent/technical_snapshot,POST,,0.002,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/debug,POST,,0.001,USDC,Base,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/AIXBTProjectInfoAgent/get_market_summary,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/AIXBTProjectInfoAgent/search_projects,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/AskHeuristAgent/ask_heurist,POST,,0.1,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/AskHeuristAgent/check_job_status,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/BaseUSDCForensicsAgent/usdc_basic_profile,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/BaseUSDCForensicsAgent/usdc_daily_activity,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/BaseUSDCForensicsAgent/usdc_hourly_pair_activity,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/BaseUSDCForensicsAgent/usdc_net_counterparties,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/BaseUSDCForensicsAgent/usdc_top_funders,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/BaseUSDCForensicsAgent/usdc_top_sinks,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/CaesarResearchAgent/caesar_research,POST,,0.1,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/CaesarResearchAgent/get_research_result,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ChainbaseAddressLabelAgent/get_address_labels,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/DefiLlamaAgent/get_chain_metrics,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/DefiLlamaAgent/get_protocol_metrics,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/DefiLlamaAgent/search_yield_pools,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ElfaTwitterIntelligenceAgent/get_trending_tokens,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ElfaTwitterIntelligenceAgent/search_account,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ElfaTwitterIntelligenceAgent/search_mentions,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/EtherscanAgent/get_address_history,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/EtherscanAgent/get_erc20_token_transfers,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/EtherscanAgent/get_erc20_top_holders,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/EtherscanAgent/get_transaction_details,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/EvmTokenInfoAgent/get_recent_large_trades,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ExaSearchDigestAgent/exa_scrape_url,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ExaSearchDigestAgent/exa_web_search,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FirecrawlSearchDigestAgent/firecrawl_extract_web_data,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FirecrawlSearchDigestAgent/firecrawl_scrape_url,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FirecrawlSearchDigestAgent/firecrawl_web_search,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FredMacroAgent/macro_regime_context,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FredMacroAgent/macro_release_calendar,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FredMacroAgent/macro_release_context,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FredMacroAgent/macro_series_history,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FredMacroAgent/macro_series_snapshot,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FredMacroAgent/macro_vintage_history,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FundingRateAgent/find_spot_futures_opportunities,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FundingRateAgent/get_all_funding_rates,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FundingRateAgent/get_symbol_funding_rates,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/FundingRateAgent/get_symbol_oi_and_funding,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/GoplusAnalysisAgent/fetch_security_details,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/MoniTwitterInsightAgent/get_smart_mentions_feed,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/MoniTwitterInsightAgent/get_smarts_categories,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/PondWalletAnalysisAgent/analyze_base_wallet,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/PondWalletAnalysisAgent/analyze_ethereum_wallet,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ProjectKnowledgeAgent/get_project,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ProjectKnowledgeAgent/semantic_search_projects,POST,,0.003,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/PumpFunTokenAgent/query_latest_graduated_tokens,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/PumpFunTokenAgent/query_recent_token_creation,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/SallyHealthAgent/ask_health_advice,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/SecEdgarAgent/activist_watch,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/SecEdgarAgent/filing_diff,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/SecEdgarAgent/filing_timeline,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/SecEdgarAgent/insider_activity,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/SecEdgarAgent/institutional_holders,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/SecEdgarAgent/resolve_company,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/SecEdgarAgent/xbrl_fact_trends,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/TokenResolverAgent/token_profile,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/TokenResolverAgent/token_search,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/TrendingTokenAgent/get_market_summary,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/TrendingTokenAgent/get_trending_tokens,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/TwitterIntelligenceAgent/tweet_detail,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/TwitterIntelligenceAgent/twitter_search,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/TwitterIntelligenceAgent/user_timeline,POST,,0.01,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/UnifaiWeb3NewsAgent/get_web3_news,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/WanVideoGenAgent/get_video_status,POST,,0.001,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/WanVideoGenAgent/image_to_video_flash_480p_5s,POST,,0.10,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/WanVideoGenAgent/image_to_video_plus_480p_5s,POST,,0.15,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/WanVideoGenAgent/image_to_video_with_audio_480p_5s,POST,,0.25,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/WanVideoGenAgent/text_to_video_480p_5s,POST,,0.15,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/WanVideoGenAgent/text_to_video_with_audio_480p_5s,POST,,0.25,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/analyst_snapshot,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/company_fundamentals,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/equity_screen,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/fund_snapshot,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/futures_snapshot,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/market_overview,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/news_search,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/options_chain,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/options_expirations,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/price_history,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/quote_snapshot,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/resolve_symbol,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/YahooFinanceAgent/technical_snapshot,POST,,0.002,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ZerionWalletAnalysisAgent/fetch_wallet_nfts,POST,,0.005,USDC,Solana,Base
+mesh-heurist-xyz,Heurist Mesh,mesh.heurist.xyz,Data,1P,False,https://mesh.heurist.xyz/x402/solana/agents/ZerionWalletAnalysisAgent/fetch_wallet_tokens,POST,,0.005,USDC,Solana,Base
+groq-com,Groq,groq.com,Inference,3P,False,https://api.venice.ai/api/v1/chat/completions,POST,,0.001,USDC,Base,Base
+groq-com,Groq,groq.com,Inference,3P,False,https://api.venice.ai/api/v1/responses,POST,,0.001,USDC,Base,Base
+groq-com,Groq,groq.com,Inference,3P,False,https://blockrun.ai/v1/models,GET,,,USDC,Base,Base
+groq-com,Groq,groq.com,Inference,3P,False,https://blockrun.ai/v1/chat/completions,POST,,,USDC,Base,Base
+hunter-io,Hunter,hunter.io,Data,3P,False,https://stableenrich.dev/api/hunter/email-verifier,POST,,0.03,USDC,Base,"Base,Solana"
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/chat/completions,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/responses,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/embeddings,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/image/generate,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/images/generations,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/image/upscale,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/image/edit,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/image/multi-edit,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/image/background-remove,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/audio/speech,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/audio/transcriptions,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/audio/queue,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/audio/retrieve,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/audio/complete,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/video/queue,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/video/retrieve,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/video/complete,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/video/transcriptions,POST,,0.001,USDC,Base,Base
+venice-ai,Venice,venice.ai,Inference,1P,False,https://api.venice.ai/api/v1/x402/top-up,POST,,,USDC,Base,Base
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/inbox/buy,POST,,1,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/inbox/messages,POST,,0.001,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/inbox/messages/read,POST,,0.001,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/inbox/send,POST,,0.005,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/inbox/topup,POST,,1,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/inbox/topup/quarter,POST,,2.50,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/inbox/topup/year,POST,,8,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/send,POST,,0.02,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/subdomain/buy,POST,,5,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/subdomain/inbox/create,POST,,0.25,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/subdomain/inbox/messages,POST,,0.001,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/subdomain/inbox/messages/read,POST,,0.001,USDC,Base,"Base,Solana"
+stableemail-dev,StableEmail,stableemail.dev,Social,3P,False,https://stableemail.dev/api/subdomain/send,POST,,0.005,USDC,Base,"Base,Solana"
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/accounts_api/v2/usage/month/:usageDate,GET,,,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/accounts_api/v2/usage/month/:usageDate/daily,GET,,,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/accounts_api/v2/usage/month/:usageDate/method,GET,,,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/cloud_ad_history_api/v2/domain/getDomainAdHistory,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/cloud_ad_history_api/v2/term/getTermAdHistory,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/cloud_ad_history_api/v2/term/getTermAdHistoryWithStats,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/competitors_api/v2/combined/getCombinedTopCompetitors,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/competitors_api/v2/ppc/getTopCompetitors,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/competitors_api/v2/seo/getTopCompetitors,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/domain_stats_api/v2/getActiveDatesForDomain,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/domain_stats_api/v2/getAllDomainStats,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/domain_stats_api/v2/getBulkDomainStats,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/domain_stats_api/v2/getDomainStatsForExactDate,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/domain_stats_api/v2/getLatestDomainStats,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/domain_stats_api/v2/getMatchingDomains,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/kombat/getCompetingPpcKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/kombat/getCompetingSeoKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/ppc/getMostSuccessful,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/ppc/getNewKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/related/getAlsoBuysAdsForKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/related/getAlsoRanksForKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/related/getKeywordExpansions,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/related/getKeywordInformation,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/related/getKeywordInformation,POST,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/related/getQuestionKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/related/getRelatedKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/keyword_api/v2/related/getTransactionKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/organic_history_api/v2/historic/getHistoricRankingsForDomain,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/organic_history_api/v2/historic/getHistoricRankingsForDomainOnKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/organic_history_api/v2/historic/getHistoricRankingsForKeywordOnDomains,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/ppc/getPaidSerps,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getGainedClicksKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getGainedRanksKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getJustFellOffKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getJustMadeItKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getLiveSeoStats,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getLostClicksKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getLostRanksKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getMostTrafficTopPages,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getMostValuableKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getNewTopPages,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getNewlyRankedKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getOrganicOutrankingKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getSeoKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getSerpAnalysisKeywords,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getTopPages,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getWhereTheyJustSurpassedYou,GET,,0.01,USDC,Base,Base
+www-spyfu-com,SpyFu,www.spyfu.com,Data,3P,False,https://spyfu.x402.paysponge.com/apis/serp_api/v2/seo/getWhereTheyOutRankYou,GET,,0.01,USDC,Base,Base
+myceliasignal-com,Mycelia Signal,myceliasignal.com,Trading,1P,False,https://api.myceliasignal.com/sho/info,GET,,,USDC,Base,Base
+myceliasignal-com,Mycelia Signal,myceliasignal.com,Trading,1P,False,https://api.myceliasignal.com/oracle/price/btc/usd,GET,,0.01,USDC,Base,Base
+docs-clado-ai,Clado,docs.clado.ai,Data,3P,False,https://stableenrich.dev/api/clado/contacts-enrich,POST,,0.20,USDC,Base,"Base,Solana"
+cambrian-network,Cambrian,cambrian.network,Data,1P,False,https://x402.cambrian.network/x402/api/v1/evm/price-current,GET,,0.05,USDC,Base,"Base,Solana"
+cambrian-network,Cambrian,cambrian.network,Data,1P,False,https://x402.cambrian.network/x402/api/v1/solana/latest-block,GET,,0.05,USDC,Base,"Base,Solana"
+screenshotone-com,ScreenshotOne,screenshotone.com,Data,3P,False,https://screenshotone.x402.paysponge.com/animate,GET,,0.02,USDC,Base,Base
+screenshotone-com,ScreenshotOne,screenshotone.com,Data,3P,False,https://screenshotone.x402.paysponge.com/take,GET,,0.02,USDC,Base,Base
+screenshotone-com,ScreenshotOne,screenshotone.com,Data,3P,False,https://screenshotone.x402.paysponge.com/take,POST,,0.02,USDC,Base,Base
