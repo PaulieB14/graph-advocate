@@ -313,7 +313,8 @@ function renderAgentSplit(a){
 
 async function load(){
   try {
-    const r = await fetch('/x402/data');
+    // cache-bust per-load — server caches 1h but we want fresh every page load
+    const r = await fetch('/x402/data?_=' + Date.now(), {cache: 'no-store'});
     const d = await r.json();
     if(d.status !== 'ok'){
       document.getElementById('metaStatus').textContent =

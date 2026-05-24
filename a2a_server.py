@@ -5869,11 +5869,13 @@ def build_app():
 
     async def x402_data_endpoint(request):
         """GET /x402/data — JSON snapshot of the x402 ecosystem (cached
-        once-daily). Pure JSON for agents; same data the dashboard renders."""
+        once-daily server-side). Pure JSON for agents; same data the dashboard renders."""
         import x402_dashboard
         snap = x402_dashboard.snapshot()
         return JSONResponse(snap, headers={
-            "cache-control": "public, max-age=3600",
+            # Don't let browsers serve stale data — we want them to always hit
+            # the (server-cached) snapshot. Server-side cache TTL is 24h anyway.
+            "cache-control": "no-store, must-revalidate",
             "access-control-allow-origin": "*",
         })
 
