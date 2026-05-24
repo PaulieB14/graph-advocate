@@ -85,13 +85,16 @@ async def _query_subgraph(deployment_id: str, query: str) -> dict:
 async def fetch_omnigraph_data() -> dict:
     """Pull canonical x402 data from Paul's omnigraph subgraph.
 
-    The role enum is RECIPIENT (not RECEIVER as I first guessed). Server-side
-    filter works once you use the right enum literal — saves us pulling 500
-    rows just to client-side filter 200.
+    Coverage notes (verified via curl-test):
+      - facilitators: 105 total → bumped to first:200 to catch them all
+      - daily stats: ~400 days available; 90d sufficient for the dashboard
+      - recipients: top 200 by volume captures 98.4% of the top-1000 value;
+        no pagination needed for the merchants table
+      - role enum is RECIPIENT (uppercase, unquoted)
     """
     data = await _query_subgraph(SUB_OMNIGRAPH, """
     {
-      facilitators(first: 50, orderBy: totalSettlements, orderDirection: desc) {
+      facilitators(first: 200, orderBy: totalSettlements, orderDirection: desc) {
         id address name totalSettlements isActive
       }
       x402DailyStats(first: 90, orderBy: date, orderDirection: desc) {
@@ -105,12 +108,19 @@ async def fetch_omnigraph_data() -> dict:
     return data
 
 
-async def fetch_agent0_agents(limit: int = 1000) -> list:
-    """Pull top Base agents from Agent0 subgraph (most recently active).
-    Capped at `limit` for once-daily refresh — we only need the active set."""
+async def fetch_agent0_agents(limit: int = 100000) -> list:
+    """Pull ALL Base agents from Agent0 subgraph via cursor pagination.
+
+    There are ~53k Base agents; capping below that broke the merchant↔agent
+    JOIN coverage (3.7% hit rate at 2k cap). With a 100k cap, all current
+    agents are pulled in ~55 pages = ~55 free-tier queries per daily
+    refresh. Bumped from prior 2k cap after Paul flagged the coverage gap.
+    """
     agents = []
     last_id = 0
-    while len(agents) < limit:
+    page_count = 0
+    MAX_PAGES = 100  # safety stop (~100k agents = far above current 53k)
+    while len(agents) < limit and page_count < MAX_PAGES:
         q = (
             "{ agents(first:1000, where:{agentId_gt:" + str(last_id) +
             "}, orderBy:agentId, orderDirection:asc)"
@@ -123,11 +133,13 @@ async def fetch_agent0_agents(limit: int = 1000) -> list:
                 break
             agents.extend(page)
             last_id = int(page[-1]["agentId"])
+            page_count += 1
             if len(page) < 1000:
                 break
         except Exception as e:
-            log.warning(f"agent0 page failed: {e}")
+            log.warning(f"agent0 page {page_count} failed: {e}")
             break
+    log.info(f"agent0: pulled {len(agents)} agents in {page_count} pages")
     return agents[:limit]
 
 
@@ -279,7 +291,7 @@ async def refresh_once() -> bool:
     try:
         omnigraph, agents, services = await asyncio.gather(
             fetch_omnigraph_data(),
-            fetch_agent0_agents(limit=2000),
+            fetch_agent0_agents(),  # full pagination — ~53k agents
             fetch_agentic_market(),
             return_exceptions=False,
         )
