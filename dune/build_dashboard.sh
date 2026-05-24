@@ -42,17 +42,17 @@ run() {
   eval "$@"
 }
 
-# Helper: create query → echo ID
+# Helper: create query → echo ID to STDOUT only. Status messages go to STDERR.
 mkquery() {
   local NAME="$1"; local SQL="$2"; local DESC="$3"
   local QID
-  QID=$($DUNE query create --name "$NAME" --description "$DESC" --sql "$SQL" -o json 2>&1 | \
+  QID=$($DUNE query create --name "$NAME" --description "$DESC" --sql "$SQL" -o json 2>/dev/null | \
     /usr/bin/python3 -c "import json,sys;print(json.load(sys.stdin).get('query_id',''))")
   if [ -z "$QID" ]; then
-    echo "  ✗ failed to create '$NAME'" >&2
+    echo "  ✗ failed to create query '$NAME'" >&2
     exit 1
   fi
-  echo "  ✓ query $QID: $NAME"
+  echo "  ✓ query $QID: $NAME" >&2
   echo "$QID"
 }
 
@@ -60,13 +60,13 @@ mkquery() {
 mkviz() {
   local QID="$1"; local NAME="$2"; local TYPE="$3"; local OPTS="$4"
   local VID
-  VID=$($DUNE viz create --query-id "$QID" --name "$NAME" --type "$TYPE" --options "$OPTS" -o json 2>&1 | \
-    /usr/bin/python3 -c "import json,sys;print(json.load(sys.stdin).get('visualization_id',''))")
+  VID=$($DUNE viz create --query-id "$QID" --name "$NAME" --type "$TYPE" --options "$OPTS" -o json 2>/dev/null | \
+    /usr/bin/python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('id') or d.get('visualization_id') or '')")
   if [ -z "$VID" ]; then
-    echo "  ✗ failed to create viz '$NAME'" >&2
+    echo "  ✗ failed to create viz '$NAME' (query $QID)" >&2
     exit 1
   fi
-  echo "  ✓ viz $VID: $NAME"
+  echo "  ✓ viz $VID: $NAME" >&2
   echo "$VID"
 }
 
@@ -187,12 +187,15 @@ TEXT_WIDGETS=$(cat <<'EOF'
 EOF
 )
 
-DASH_ID=$($DUNE dashboard create \
+DASH_OUT=$($DUNE dashboard create \
   --name "$DASH_NAME" \
   --visualization-ids "$ALL_VIZ" \
   --text-widgets "$TEXT_WIDGETS" \
   --columns-per-row 2 \
-  -o json 2>&1 | /usr/bin/python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('dashboard_id',d.get('id','')))")
+  -o json 2>&1)
+echo "$DASH_OUT" | /usr/bin/head -10
+DASH_ID=$(echo "$DASH_OUT" | /usr/bin/python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('dashboard_id') or d.get('id') or '')")
+DASH_URL=$(echo "$DASH_OUT" | /usr/bin/python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('dashboard_url') or d.get('url') or '')")
 
 if [ -z "$DASH_ID" ]; then
   echo "  ✗ failed to create dashboard"
@@ -204,7 +207,7 @@ echo ""
 echo "═══════════════════════════════════════════════════"
 echo "  ✅ Dashboard created!"
 echo "  Dashboard ID: $DASH_ID"
-echo "  URL: https://dune.com/dashboards/$DASH_ID  (or visit your /<user>/dashboards page)"
+echo "  URL: ${DASH_URL:-https://dune.com/dashboards/$DASH_ID}"
 echo ""
 echo "  Query IDs:"
 echo "    Q1 hero stats:        $Q1_ID"
