@@ -5861,7 +5861,9 @@ def build_app():
         if _X402_DASH_HTML is None:
             return JSONResponse({"error": "dashboard not available"}, status_code=404)
         return HTMLResponse(_X402_DASH_HTML, headers={
-            "cache-control": "public, max-age=300",
+            # Short cache so HTML updates land quickly during active iteration;
+            # JSON endpoint stays cached longer.
+            "cache-control": "public, max-age=60, must-revalidate",
             "access-control-allow-origin": "*",
         })
 
