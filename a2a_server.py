@@ -2268,6 +2268,85 @@ async def outreach_pay_endpoint(request: Request):
     return JSONResponse(result)
 
 
+async def self_test_paid_endpoint(request: Request):
+    """POST /admin/self-test-paid — make GA pay GA for one paid endpoint.
+
+    Calls https://graphadvocate.com/<endpoint> from the outbound wallet
+    using the x402 client, lets the inbound paid handler run, and returns
+    the upstream JSON. After this fires successfully you should see a new
+    paid row in /dashboard whose expand panel contains the real response.
+
+    Body: {
+        "endpoint": "hyperliquid/score"     // default; any paid HL/PM path works
+        "user":     "0xecb63caa…"           // wallet to profile; default Vitalik
+        "max_usdc": "0.05"                  // safety cap
+    }
+    """
+    if not _check_admin(request):
+        return _unauthorized()
+    try:
+        body = await request.json() if request.method == "POST" else {}
+    except Exception:
+        body = {}
+
+    endpoint = (body.get("endpoint") or "hyperliquid/score").lstrip("/")
+    user = (body.get("user") or "0xd8da6bf26964af9d7eed9e03e53415d37aa96045").lower()
+    from decimal import Decimal
+    try:
+        max_usdc = Decimal(str(body.get("max_usdc", "0.05")))
+    except Exception:
+        max_usdc = Decimal("0.05")
+    if max_usdc > Decimal("1.00"):
+        return JSONResponse({"error": "max_usdc capped at $1.00"}, status_code=400)
+
+    # Reuse the outreach x402 client — same signer, same scheme registration.
+    try:
+        from x402_outreach import _bootstrap
+        _client, http, wallet = _bootstrap()
+    except Exception as exc:
+        return JSONResponse(
+            {"ok": False, "error": str(exc), "stage": "bootstrap"},
+            status_code=500,
+        )
+
+    # Call our own public URL so the request actually traverses the inbound
+    # paid handler (logging the request + response). Calling the local
+    # handler in-process would skip the x402 settlement entirely.
+    public_base = os.environ.get("ADVOCATE_PUBLIC_URL", "https://graphadvocate.com").rstrip("/")
+    target_url = f"{public_base}/{endpoint}"
+    payload = {"user": user, "wallet": user}
+
+    try:
+        resp = await http.post(
+            target_url, json=payload, timeout=60.0,
+            headers={"User-Agent": "ga-self-test/1.0"},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            {"ok": False, "error": str(exc), "stage": "http", "wallet": wallet,
+             "target_url": target_url},
+            status_code=500,
+        )
+
+    out = {
+        "ok": 200 <= resp.status_code < 300,
+        "status": resp.status_code,
+        "wallet": wallet,
+        "target_url": target_url,
+        "pay_to": X402_WALLET,
+        "max_usdc": str(max_usdc),
+    }
+    try:
+        out["body"] = resp.json()
+    except Exception:
+        out["body"] = resp.text[:2000]
+    pay_resp = resp.headers.get("x-payment-response")
+    if pay_resp:
+        out["x_payment_response"] = pay_resp[:200]
+    log.info(f"SELF-TEST-PAID target={target_url} status={resp.status_code} wallet={wallet[:10]}…")
+    return JSONResponse(out)
+
+
 # ── Feedback endpoint ────────────────────────────────────────────────────────
 
 async def feedback_endpoint(request: Request):
@@ -6924,6 +7003,7 @@ def build_app():
         Route("/export/csv", export_csv_endpoint),
         Route("/export/stats", export_stats_endpoint),
         Route("/admin/outreach-pay", outreach_pay_endpoint, methods=["POST"]),
+        Route("/admin/self-test-paid", self_test_paid_endpoint, methods=["POST"]),
         Route("/feedback", feedback_endpoint, methods=["POST"]),
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
@@ -7054,7 +7134,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/admin/self-test-paid", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip")
