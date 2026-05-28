@@ -3075,6 +3075,7 @@ def _build_dashboard_data() -> dict:
         subgraphs = []
         alternatives = []
         query_tool = ""
+        response_preview = ""
         if isinstance(resp, dict):
             reason = str(resp.get("reason", "") or "")[:300]
             subgraphs = [str(s) for s in (resp.get("graph_subgraphs") or [])]
@@ -3083,6 +3084,13 @@ def _build_dashboard_data() -> dict:
             for alt in (resp.get("alternatives") or [])[:2]:
                 if isinstance(alt, dict):
                     alternatives.append(f'{alt.get("service","?")} ({alt.get("confidence","?")})')
+            # Compact JSON preview for the expand panel — capped to keep rows light.
+            try:
+                response_preview = json.dumps(resp, ensure_ascii=False, indent=2)
+                if len(response_preview) > 1500:
+                    response_preview = response_preview[:1500] + "\n… (truncated)"
+            except Exception:
+                response_preview = ""
         seen_keys[dedup_key] = len(recent)
         recent.append({
             "ts": ts,
@@ -3095,6 +3103,7 @@ def _build_dashboard_data() -> dict:
             "subgraphs": subgraphs,
             "alternatives": alternatives,
             "query_tool": query_tool,
+            "response_preview": response_preview,
             "dup_count": 1,
         })
 
@@ -4045,7 +4054,7 @@ function renderFeed(recent) {
   }
   let html = '';
   recent.slice(0, 25).forEach((r, idx) => {
-    const hasDetail = !!(r.reason || r.query_tool || (r.subgraphs && r.subgraphs.length) || (r.alternatives && r.alternatives.length));
+    const hasDetail = !!(r.reason || r.query_tool || (r.subgraphs && r.subgraphs.length) || (r.alternatives && r.alternatives.length) || r.response_preview);
     const display = expandState[idx] ? 'block' : 'none';
 
     html += `<div class="feed-row" ${hasDetail ? `onclick="toggleFeedRow(${idx})" style="cursor:pointer"` : ''}>
@@ -4059,6 +4068,7 @@ function renderFeed(recent) {
       if (r.query_tool) detail += `<div style="margin-top:6px"><strong>Tool:</strong> <code style="color:var(--green);font-family:'JetBrains Mono',monospace">${escapeHtml(r.query_tool)}</code></div>`;
       if (r.subgraphs && r.subgraphs.length) detail += `<div style="margin-top:6px"><strong>Subgraphs:</strong> ${r.subgraphs.map(s => `<code style="color:var(--green);font-size:0.7rem">${escapeHtml(s)}</code>`).join(' · ')}</div>`;
       if (r.alternatives && r.alternatives.length) detail += `<div style="margin-top:6px"><strong>Alternatives:</strong> ${r.alternatives.map(a => `<span style="background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:6px;font-size:0.7rem;margin-right:4px">${escapeHtml(a)}</span>`).join('')}</div>`;
+      if (r.response_preview) detail += `<div style="margin-top:8px"><strong>Response:</strong><pre style="margin-top:4px;padding:8px;background:rgba(0,0,0,0.35);border-radius:6px;font-size:0.7rem;line-height:1.4;color:var(--text);font-family:'JetBrains Mono',monospace;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word">${escapeHtml(r.response_preview)}</pre></div>`;
       html += `<div class="feed-detail" id="feed-detail-${idx}" style="display:${display}">${detail}</div>`;
     }
     html += `</div>`;
