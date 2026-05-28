@@ -142,6 +142,51 @@ async def fetch_top_traders_by_coin(coin: str, n: int = 10) -> list[dict]:
     )
 
 
+async def fetch_market_activity(coin: str, limit: int | None = None) -> list[dict]:
+    """Recent fill stream for a coin via /v1/hyperliquid/markets/activity.
+
+    Returns the most recent N fills with full per-fill detail: side, price,
+    size, notional, fee, direction (OPEN_SHORT, CLOSE_LONG, …), trader address,
+    closed_pnl, timestamp. Distinct from /users (aggregate trader stats) —
+    this is the raw event stream.
+    """
+    return _data(
+        await _pinax("/markets/activity", coin=coin, limit=limit or _USERS_LIMIT)
+    )
+
+
+def summarize_fills(fills: list[dict]) -> dict:
+    """Lightweight aggregate over a raw fill list. Bid/ask flow, avg size,
+    notional sum, and a flag for whale fills (notional ≥ $10k).
+    """
+    if not fills:
+        return {
+            "fill_count": 0, "unique_users": 0,
+            "buy_count": 0, "sell_count": 0,
+            "notional_usdc": 0.0, "whale_fill_count": 0,
+            "avg_notional_usdc": 0.0, "avg_price": 0.0,
+        }
+    buys = [f for f in fills if (f.get("side") or "").upper() == "BID"]
+    sells = [f for f in fills if (f.get("side") or "").upper() == "ASK"]
+    notionals = [float(f.get("notional") or 0) for f in fills]
+    prices = [float(f.get("price") or 0) for f in fills if f.get("price")]
+    users = {(f.get("user") or "").lower() for f in fills if f.get("user")}
+    notional_sum = sum(notionals)
+    whales = sum(1 for n in notionals if n >= 10_000)
+    return {
+        "fill_count": len(fills),
+        "unique_users": len(users),
+        "buy_count": len(buys),
+        "sell_count": len(sells),
+        "buy_notional_usdc": round(sum(float(f.get("notional") or 0) for f in buys), 2),
+        "sell_notional_usdc": round(sum(float(f.get("notional") or 0) for f in sells), 2),
+        "notional_usdc": round(notional_sum, 2),
+        "whale_fill_count": whales,
+        "avg_notional_usdc": round(notional_sum / len(fills), 2),
+        "avg_price": round(sum(prices) / len(prices), 4) if prices else 0.0,
+    }
+
+
 async def fetch_vault(vault: str) -> dict | None:
     rows = _data(await _pinax("/vaults", vault=vault, limit=1))
     return rows[0] if rows else None

@@ -6396,6 +6396,8 @@ def build_app():
             fetch_user_positions as hl_fetch_user_positions,
             fetch_user_activity as hl_fetch_user_activity,
             fetch_top_traders_by_coin as hl_fetch_top_traders,
+            fetch_market_activity as hl_fetch_market_activity,
+            summarize_fills as hl_summarize_fills,
             fetch_vault as hl_fetch_vault,
             fetch_vault_depositors as hl_fetch_vault_depositors,
             compute_user_score as hl_compute_user_score,
@@ -6581,6 +6583,44 @@ def build_app():
                                    "exception_type": type(exc).__name__,
                                    "message": str(exc)[:200]}, status_code=502)
 
+        async def _hl_fills_handler(request):
+            """$0.02 — Recent fill stream for a coin with bid/ask flow summary.
+
+            Pulls /v1/hyperliquid/markets/activity and returns the raw fills
+            plus a lightweight aggregate (buy/sell counts, notional flow,
+            whale-fill flag for fills ≥ $10k). Different shape from hl-screen
+            (which returns top *traders*); this returns top *events*.
+            """
+            data = await _pm_read_body(request)
+            coin = hl_normalize_coin(data.get("coin"))
+            try:
+                n_raw = data.get("n") or data.get("limit") or 10
+                n = max(1, min(10, int(n_raw)))  # Pinax free-tier caps limit at 10
+            except (TypeError, ValueError):
+                n = 10
+            if not coin:
+                return _RouteJSON({"error": "invalid_coin"}, status_code=400)
+            try:
+                fills = await hl_fetch_market_activity(coin, limit=n)
+                summary = hl_summarize_fills(fills)
+                payload = {
+                    "coin": coin,
+                    "fill_count": summary["fill_count"],
+                    "summary": summary,
+                    "fills": fills,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _log_request("x402-paid", f"hl-fills {coin} n={n}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
+            except Exception as exc:
+                log.exception(f"hl-fills crashed: {coin}")
+                _log_paid_failure(f"hl-fills {coin}", exc)
+                return _RouteJSON({"error": "upstream_error",
+                                   "exception_type": type(exc).__name__,
+                                   "message": str(exc)[:200]}, status_code=502)
+
         # POST-only — GETs were hanging for ~10s on `await request.body()` because
         # the payment middleware only registers POST routes (per RouteConfig keys),
         # so GETs bypass payment and fall through to the inner handler which blocks
@@ -6597,6 +6637,7 @@ def build_app():
             _RouteRoute("/hyperliquid/screen", _hl_screen_handler, methods=["POST"]),
             _RouteRoute("/hyperliquid/vault", _hl_vault_handler, methods=["POST"]),
             _RouteRoute("/hyperliquid/risk", _hl_risk_handler, methods=["POST"]),
+            _RouteRoute("/hyperliquid/fills", _hl_fills_handler, methods=["POST"]),
         ])
 
         x402_server = _get_x402_server()
@@ -6987,6 +7028,26 @@ def build_app():
                             input_schema={"type":"object","properties":{"user":{"type":"string"}},"required":["user"]},
                             body_type="json",
                             output=OutputConfig(example={"user":"0xecb63caa…","risk_level":"low","liquidation_count":0,"funding_paid_per_volume_bps":-0.33,"skill_score":62.4,"recent_24h_outflow_flag":False},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /hyperliquid/fills": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.02",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Recent fill stream for a Hyperliquid perp coin. POST {coin, n}. "
+                            "Returns the last N fills (direction, side, price, size, notional, "
+                            "fee, trader address) plus an aggregate summary (buy/sell notional "
+                            "split, whale_fill_count for fills ≥ $10k, avg price). Distinct from "
+                            "hl-screen (top traders by lifetime volume) — this is recent trade "
+                            "events as they happen, for whale-watching + flow-following bots."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"coin":"BTC","n":10},
+                            input_schema={"type":"object","properties":{"coin":{"type":"string"},"n":{"type":"integer","minimum":1,"maximum":10,"default":10}},"required":["coin"]},
+                            body_type="json",
+                            output=OutputConfig(example={"coin":"BTC","fill_count":10,"summary":{"buy_count":4,"sell_count":6,"notional_usdc":2342.15,"whale_fill_count":0,"unique_users":8},"fills":[{"side":"ASK","price":73430,"size":0.00084,"notional":61.68,"user":"0x1738e6cb…","direction":"OPEN_SHORT","fee":0.048,"timestamp":"2026-05-28 17:22:28"}]},schema={"type":"object"}),
                         )},
                     ),
                 },
