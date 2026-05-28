@@ -82,7 +82,11 @@ def _pinax_key() -> str:
 
 async def _pinax(path: str, **params: Any) -> Any:
     key = _pinax_key()
-    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    # Per Pinax SKILL.md, /v1/polymarket/markets is free and unauthenticated.
+    # Sub-paths (/markets/ohlc, /markets/oi, /markets/activity, /markets/positions)
+    # are NOT free — they require auth and burn $25 credit.
+    is_free_path = path == "/markets"
+    headers = {} if is_free_path else ({"Authorization": f"Bearer {key}"} if key else {})
     url = f"{_pinax_base()}{path}"
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         r = await client.get(url, headers=headers, params=params)

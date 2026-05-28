@@ -80,7 +80,12 @@ def _pinax_key() -> str:
 
 async def _pinax(path: str, **params: Any) -> Any:
     key = _pinax_key()
-    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    # Per Pinax SKILL.md, the bare /markets and /dexes discovery paths on
+    # /v1/hyperliquid are free and unauthenticated. Sub-paths (/markets/ohlc,
+    # /markets/activity, /markets/liquidations, etc.) are NOT free — they
+    # require auth and burn $25 credit like everything else.
+    is_free_path = path in ("/markets", "/dexes")
+    headers = {} if is_free_path else ({"Authorization": f"Bearer {key}"} if key else {})
     url = f"{_pinax_base()}{path}"
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         r = await client.get(url, headers=headers, params=params)
