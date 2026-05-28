@@ -4058,23 +4058,25 @@ function renderFeed(recent) {
   }
   let html = '';
   recent.slice(0, 25).forEach((r, idx) => {
-    const hasDetail = !!(r.reason || r.query_tool || (r.subgraphs && r.subgraphs.length) || (r.alternatives && r.alternatives.length) || r.response_preview);
+    // Every row is clickable. When there is no recorded detail, the expanded
+    // panel shows a small "no response captured" hint so old rows degrade
+    // cleanly instead of looking broken.
     const display = expandState[idx] ? 'block' : 'none';
 
-    html += `<div class="feed-row" ${hasDetail ? `onclick="toggleFeedRow(${idx})" style="cursor:pointer"` : ''}>
+    html += `<div class="feed-row" onclick="toggleFeedRow(${idx})" style="cursor:pointer">
       <div class="feed-time">${r.time}</div>
       <div class="feed-req" title="${escapeHtml(r.request)}">${escapeHtml(r.request.slice(0, 100))}${r.request.length > 100 ? '…' : ''}</div>
       ${svcBadge(r.service)}
       <div class="feed-from">${senderLabel(r.task_id)}</div>`;
-    if (hasDetail) {
-      let detail = '';
-      if (r.reason) detail += `<div><strong>Reason:</strong> ${escapeHtml(r.reason)}</div>`;
-      if (r.query_tool) detail += `<div style="margin-top:6px"><strong>Tool:</strong> <code style="color:var(--green);font-family:'JetBrains Mono',monospace">${escapeHtml(r.query_tool)}</code></div>`;
-      if (r.subgraphs && r.subgraphs.length) detail += `<div style="margin-top:6px"><strong>Subgraphs:</strong> ${r.subgraphs.map(s => `<code style="color:var(--green);font-size:0.7rem">${escapeHtml(s)}</code>`).join(' · ')}</div>`;
-      if (r.alternatives && r.alternatives.length) detail += `<div style="margin-top:6px"><strong>Alternatives:</strong> ${r.alternatives.map(a => `<span style="background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:6px;font-size:0.7rem;margin-right:4px">${escapeHtml(a)}</span>`).join('')}</div>`;
-      if (r.response_preview) detail += `<div style="margin-top:8px"><strong>Response:</strong><pre style="margin-top:4px;padding:8px;background:rgba(0,0,0,0.35);border-radius:6px;font-size:0.7rem;line-height:1.4;color:var(--text);font-family:'JetBrains Mono',monospace;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word">${escapeHtml(r.response_preview)}</pre></div>`;
-      html += `<div class="feed-detail" id="feed-detail-${idx}" style="display:${display}">${detail}</div>`;
-    }
+    let detail = '';
+    if (r.request && r.request.length > 100) detail += `<div><strong>Full request:</strong> <span style="color:var(--text-muted)">${escapeHtml(r.request)}</span></div>`;
+    if (r.reason) detail += `<div style="margin-top:6px"><strong>Reason:</strong> ${escapeHtml(r.reason)}</div>`;
+    if (r.query_tool) detail += `<div style="margin-top:6px"><strong>Tool:</strong> <code style="color:var(--green);font-family:'JetBrains Mono',monospace">${escapeHtml(r.query_tool)}</code></div>`;
+    if (r.subgraphs && r.subgraphs.length) detail += `<div style="margin-top:6px"><strong>Subgraphs:</strong> ${r.subgraphs.map(s => `<code style="color:var(--green);font-size:0.7rem">${escapeHtml(s)}</code>`).join(' · ')}</div>`;
+    if (r.alternatives && r.alternatives.length) detail += `<div style="margin-top:6px"><strong>Alternatives:</strong> ${r.alternatives.map(a => `<span style="background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:6px;font-size:0.7rem;margin-right:4px">${escapeHtml(a)}</span>`).join('')}</div>`;
+    if (r.response_preview) detail += `<div style="margin-top:8px"><strong>Response:</strong><pre style="margin-top:4px;padding:8px;background:rgba(0,0,0,0.35);border-radius:6px;font-size:0.7rem;line-height:1.4;color:var(--text);font-family:'JetBrains Mono',monospace;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word">${escapeHtml(r.response_preview)}</pre></div>`;
+    if (!detail) detail = `<div style="color:var(--text-muted);font-size:0.78rem;font-style:italic">No response captured for this row (logged before the response-logging change).</div>`;
+    html += `<div class="feed-detail" id="feed-detail-${idx}" style="display:${display}">${detail}</div>`;
     html += `</div>`;
   });
   el.innerHTML = html;
