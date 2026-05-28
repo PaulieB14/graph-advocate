@@ -2291,6 +2291,10 @@ async def self_test_paid_endpoint(request: Request):
 
     endpoint = (body.get("endpoint") or "hyperliquid/score").lstrip("/")
     user = (body.get("user") or "0xd8da6bf26964af9d7eed9e03e53415d37aa96045").lower()
+    # Optional caller-supplied body for endpoints that don't take {user,wallet}
+    # (e.g. hyperliquid/screen wants {coin, n}; polymarket/screen wants
+    # {condition_id, n}). When provided, completely replaces the default.
+    custom_body = body.get("body") if isinstance(body.get("body"), dict) else None
     from decimal import Decimal
     try:
         max_usdc = Decimal(str(body.get("max_usdc", "0.05")))
@@ -2314,7 +2318,7 @@ async def self_test_paid_endpoint(request: Request):
     # handler in-process would skip the x402 settlement entirely.
     public_base = os.environ.get("ADVOCATE_PUBLIC_URL", "https://graphadvocate.com").rstrip("/")
     target_url = f"{public_base}/{endpoint}"
-    payload = {"user": user, "wallet": user}
+    payload = custom_body if custom_body is not None else {"user": user, "wallet": user}
 
     try:
         resp = await http.post(
