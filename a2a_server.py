@@ -4328,6 +4328,24 @@ CHAT_HTML = """<!DOCTYPE html>
   .option-code .cp:hover { border-color: var(--accent); color: var(--accent-hover); }
   .option-works { font-size: .72rem; color: var(--text-muted); margin-top: 8px; }
 
+  /* Routing-only notice — persistent banner above the welcome card */
+  .chat-notice {
+    position: relative; z-index: 1;
+    margin: 16px auto 0;
+    max-width: 720px;
+    padding: 12px 16px;
+    background: rgba(99,102,241,.08);
+    border: 1px solid rgba(99,102,241,.28);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    font-size: .82rem;
+    line-height: 1.55;
+    color: var(--text);
+  }
+  .chat-notice strong { color: var(--text-bright); }
+  .chat-notice a { color: var(--accent); text-decoration: none; }
+  .chat-notice a:hover { text-decoration: underline; }
+
   /* Welcome card */
   .welcome {
     position: relative; z-index: 1;
@@ -4595,9 +4613,16 @@ CHAT_HTML = """<!DOCTYPE html>
 
 <!-- Messages -->
 <div class="messages" id="messages">
+  <!-- Persistent banner: clarify chat is routing-only; data lives behind x402 for agents -->
+  <div class="chat-notice" role="note">
+    <strong>This chat doesn't fetch data.</strong> It explains GA's capabilities and points you to the right
+    subgraph, Token API, or Substream. To actually run a query and get data back,
+    <a href="/.well-known/agent-card.json" target="_blank" rel="noopener">connect an agent</a>
+    that pays x402 — three free queries per sender per day, then $0.01 USDC on Base per call.
+  </div>
   <div class="welcome" id="welcome">
-    <h2>What onchain data do you need?</h2>
-    <p>I know every Graph Protocol service inside out. Tell me what you're looking for and I'll point you to the exact right tool, API, or subgraph.</p>
+    <h2>What can Graph Advocate do?</h2>
+    <p>I route agents and humans to the right Graph Protocol service — Token API, subgraphs, Substreams, MCP servers — given a plain-English data question. I don't execute the query for you; I tell you exactly which tool to call and how.</p>
     <div class="suggestions">
       <button class="suggestion" onclick="useSuggestion(this)">What Token API endpoints are available?</button>
       <button class="suggestion" onclick="useSuggestion(this)">Find me Uniswap subgraphs</button>
@@ -6043,13 +6068,15 @@ def build_app():
                 return _RouteJSON({"error": "invalid_wallet"}, status_code=400)
             try:
                 scores = await score_wallet(wallet)
-                _log_request("x402-paid", f"pm-pnl-quick {wallet[:10]}",
-                             "polymarket-pnl-quick", "high", "polymarket-token-api")
-                return _RouteJSON({
+                payload = {
                     "wallet": wallet,
                     **scores,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                _log_request("x402-paid", f"pm-pnl-quick {wallet[:10]}",
+                             "polymarket-pnl-quick", "high", "polymarket-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
             except Exception as exc:
                 log.exception(f"pm-pnl-quick crashed: {wallet}")
                 _log_paid_failure(f"pm-pnl-quick {wallet[:10]}", exc)
@@ -6068,9 +6095,7 @@ def build_app():
             try:
                 positions = await fetch_user_positions(wallet)
                 scores = compute_scores(positions)
-                _log_request("x402-paid", f"pm-pnl {wallet[:10]}",
-                             "polymarket-pnl", "high", "polymarket-token-api")
-                return _RouteJSON({
+                payload = {
                     "wallet": wallet,
                     "scores": scores,
                     "positions": [
@@ -6104,7 +6129,11 @@ def build_app():
                         "/markets/activity feed has no buy/sell side field."
                     ),
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                _log_request("x402-paid", f"pm-pnl {wallet[:10]}",
+                             "polymarket-pnl", "high", "polymarket-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
             except Exception as exc:
                 log.exception(f"pm-pnl crashed: {wallet}")
                 _log_paid_failure(f"pm-pnl {wallet[:10]}", exc)
@@ -6194,9 +6223,7 @@ def build_app():
                         risk_counts.get(h.get("ghost_fill_risk") or "unknown", 0) + 1
                     )
 
-                _log_request("x402-paid", f"pm-screen {condition_id[:10]} n={n}",
-                             "polymarket-screen", "high", "polymarket-token-api")
-                return _RouteJSON({
+                payload = {
                     "condition_id": condition_id,
                     "market_slug": meta.get("market_slug"),
                     "question": meta.get("question"),
@@ -6214,7 +6241,11 @@ def build_app():
                     },
                     "holders": list(scored),
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                _log_request("x402-paid", f"pm-screen {condition_id[:10]} n={n}",
+                             "polymarket-screen", "high", "polymarket-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
             except Exception as exc:
                 log.exception(f"pm-screen crashed: {condition_id}")
                 _log_paid_failure(f"pm-screen {str(condition_id)[:10]}", exc)
@@ -6232,9 +6263,7 @@ def build_app():
                 return _RouteJSON({"error": "invalid_wallet"}, status_code=400)
             try:
                 wallet_info = await detect_wallet_type(wallet)
-                _log_request("x402-paid", f"pm-risk {wallet[:10]}",
-                             "polymarket-risk", "high", "polymarket-token-api")
-                return _RouteJSON({
+                payload = {
                     "wallet": wallet,
                     "wallet_type": wallet_info["type"],
                     "ghost_fill_risk": wallet_info["ghost_fill_risk"],
@@ -6256,7 +6285,11 @@ def build_app():
                         "docs": "https://docs.polymarket.com — Deposit Wallet Migration",
                     },
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                _log_request("x402-paid", f"pm-risk {wallet[:10]}",
+                             "polymarket-risk", "high", "polymarket-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
             except Exception as exc:
                 log.exception(f"pm-risk crashed: {wallet}")
                 _log_paid_failure(f"pm-risk {wallet[:10]}", exc)
@@ -6294,10 +6327,12 @@ def build_app():
             try:
                 stats = await hl_fetch_user(user)
                 score = hl_compute_user_score(stats)
+                payload = {"user": user, **score,
+                           "generated_at": datetime.now(timezone.utc).isoformat()}
                 _log_request("x402-paid", f"hl-score {user[:10]}",
-                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
-                return _RouteJSON({"user": user, **score,
-                                   "generated_at": datetime.now(timezone.utc).isoformat()})
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
             except Exception as exc:
                 log.exception(f"hl-score crashed: {user}")
                 _log_paid_failure(f"hl-score {user[:10]}", exc)
@@ -6318,15 +6353,17 @@ def build_app():
                     hl_fetch_user_activity(user, limit=10),
                 )
                 score = hl_compute_user_score(stats)
-                _log_request("x402-paid", f"hl-pnl {user[:10]}",
-                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
-                return _RouteJSON({
+                payload = {
                     "user": user,
                     "scores": score,
                     "open_positions": positions,
                     "recent_activity": activity,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                _log_request("x402-paid", f"hl-pnl {user[:10]}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
             except Exception as exc:
                 log.exception(f"hl-pnl crashed: {user}")
                 _log_paid_failure(f"hl-pnl {user[:10]}", exc)
@@ -6362,9 +6399,7 @@ def build_app():
                 holders = await _hl_gather(*(_score_one((i, t)) for i, t in enumerate(top)))
                 from collections import Counter
                 cls = Counter(h.get("classification") or "?" for h in holders)
-                _log_request("x402-paid", f"hl-screen {coin} n={n}",
-                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
-                return _RouteJSON({
+                payload = {
                     "coin": coin, "traders_screened": len(holders),
                     "sharp_count": cls.get("sharp", 0),
                     "retail_count": cls.get("retail", 0),
@@ -6372,7 +6407,11 @@ def build_app():
                     "insufficient_data_count": cls.get("insufficient_data", 0),
                     "traders": list(holders),
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                _log_request("x402-paid", f"hl-screen {coin} n={n}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
             except Exception as exc:
                 log.exception(f"hl-screen crashed: {coin}")
                 _log_paid_failure(f"hl-screen {coin}", exc)
@@ -6402,15 +6441,17 @@ def build_app():
                     except Exception as e:
                         log.debug(f"leader score lookup failed: {e}")
                 vs = hl_compute_vault_score(vault_data, depositors, leader_score)
-                _log_request("x402-paid", f"hl-vault {vault[:10]}",
-                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
-                return _RouteJSON({
+                payload = {
                     "vault": vault,
                     **vs,
                     "leader_score": leader_score,
                     "top_depositors": depositors[:5],
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                _log_request("x402-paid", f"hl-vault {vault[:10]}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
             except Exception as exc:
                 log.exception(f"hl-vault crashed: {vault}")
                 _log_paid_failure(f"hl-vault {vault[:10]}", exc)
@@ -6430,9 +6471,7 @@ def build_app():
                     hl_fetch_user_activity(user, limit=10),
                 )
                 risk = hl_compute_risk(stats or {"user": user}, activity or [])
-                _log_request("x402-paid", f"hl-risk {user[:10]}",
-                             "hyperliquid-token-api", "high", "hyperliquid-token-api")
-                return _RouteJSON({
+                payload = {
                     **risk,
                     "methodology": {
                         "liquidation_rate": "liquidation_fills / transactions across full /users history",
@@ -6441,7 +6480,11 @@ def build_app():
                         "docs": "https://docs.hyperliquid.xyz",
                     },
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                _log_request("x402-paid", f"hl-risk {user[:10]}",
+                             "hyperliquid-token-api", "high", "hyperliquid-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
             except Exception as exc:
                 log.exception(f"hl-risk crashed: {user}")
                 _log_paid_failure(f"hl-risk {user[:10]}", exc)
