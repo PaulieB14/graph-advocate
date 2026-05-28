@@ -3085,12 +3085,16 @@ def _build_dashboard_data() -> dict:
                 if isinstance(alt, dict):
                     alternatives.append(f'{alt.get("service","?")} ({alt.get("confidence","?")})')
             # Compact JSON preview for the expand panel — capped to keep rows light.
-            try:
-                response_preview = json.dumps(resp, ensure_ascii=False, indent=2)
-                if len(response_preview) > 1500:
-                    response_preview = response_preview[:1500] + "\n… (truncated)"
-            except Exception:
-                response_preview = ""
+            # Skip when the response payload is empty: pre-fix rows have
+            # response_json=NULL → resp coerced to {} by the upstream `or {}`,
+            # which would otherwise render as "Response: {}" and look broken.
+            if resp:
+                try:
+                    response_preview = json.dumps(resp, ensure_ascii=False, indent=2)
+                    if len(response_preview) > 1500:
+                        response_preview = response_preview[:1500] + "\n… (truncated)"
+                except Exception:
+                    response_preview = ""
         seen_keys[dedup_key] = len(recent)
         recent.append({
             "ts": ts,
