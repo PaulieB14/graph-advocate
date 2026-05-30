@@ -73,6 +73,7 @@ def _pinax_key() -> str:
         or os.environ.get("TOKEN_API_ACCESS_TOKEN", "")
         or os.environ.get("JWT", "")
         or os.environ.get("PINAX_API_KEY", "")
+        or os.environ.get("TOKEN_API_JWT_BACKUP", "")
         or _FALLBACK_JWT
     )
 

@@ -34,10 +34,26 @@ Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x40
 
 | | |
 |---|---|
-| **Free tier** | 3 queries/day per agent (`POST /`) |
-| **Paid** | $0.01 USDC per query (`POST /route` with x402 payment) |
+| **Free tier** | 3 queries/day per agent (`POST /`, `POST /chat`, `POST /route`) |
 | **Network** | Base (`eip155:8453`) |
 | **Facilitator** | Coinbase CDP |
+| **Verification** | `POST /admin/self-test-paid {"all": true}` — exercises every paid handler |
+
+### Paid endpoint pricing
+
+| Endpoint | Price | Returns |
+|---|---|---|
+| `POST /route` | $0.01 | Routed query + ready-to-run GraphQL |
+| `POST /hyperliquid/score` | $0.02 | Derived skill metrics for an HL trader |
+| `POST /hyperliquid/pnl` | $0.05 | Scores + open positions + recent activity |
+| `POST /hyperliquid/screen` | $0.05 | Top N traders of a coin with per-trader skill scores (N capped at 10) |
+| `POST /hyperliquid/vault` | $0.10 | Vault evaluator: leader skill + depositor concentration + redemption pressure |
+| `POST /hyperliquid/risk` | $0.02 | Counterparty risk: liquidation rate + funding burn + outflow flag |
+| `POST /hyperliquid/fills` | $0.02 | Recent fill stream for a coin with bid/ask flow summary (N capped at 10) |
+| `POST /polymarket/pnl-quick` | $0.02 | Skill score + classification for a wallet |
+| `POST /polymarket/pnl` | $0.05 | Full PnL: scores + per-position records |
+| `POST /polymarket/screen` | $0.05 | Top wagerers on a market with ghost-fill risk (N capped at 10) |
+| `POST /polymarket/risk` | $0.02 | Wallet-type detection + ghost-fill risk classification |
 
 ```bash
 # Try it

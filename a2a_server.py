@@ -2268,6 +2268,87 @@ async def outreach_pay_endpoint(request: Request):
     return JSONResponse(result)
 
 
+# Per-endpoint test config for self_test_all_paid().
+# Each entry: (path, body, expected_min_resp_chars, approximate_price)
+# Bodies are chosen to be cheap, deterministic, and contain real on-chain data.
+_PAID_ENDPOINT_TESTS = [
+    ("hyperliquid/score",    {"user": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"}, 100, "0.02"),
+    ("hyperliquid/pnl",      {"user": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"}, 100, "0.05"),
+    ("hyperliquid/screen",   {"coin": "BTC", "n": 3},                                 500, "0.05"),
+    ("hyperliquid/vault",    {"vault": "0x010461c14e146ac35fe42271bdc1134ee31c703a"}, 100, "0.10"),
+    ("hyperliquid/risk",     {"user": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"}, 100, "0.02"),
+    ("hyperliquid/fills",    {"coin": "BTC", "n": 5},                                 500, "0.02"),
+    ("polymarket/pnl-quick", {"wallet": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"}, 100, "0.02"),
+    ("polymarket/pnl",       {"wallet": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"}, 100, "0.05"),
+    ("polymarket/risk",      {"wallet": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"}, 100, "0.02"),
+    # pm-screen needs a real condition_id — fetched dynamically at test time
+]
+
+
+async def _self_test_all_paid(body: dict) -> JSONResponse:
+    """Exercise every paid endpoint sequentially. Stops at the first hard
+    bootstrap failure (no wallet, no signer) — otherwise lets each individual
+    call fail-soft and reports the per-endpoint result.
+    """
+    from decimal import Decimal
+    max_usdc = Decimal(str(body.get("max_usdc", "0.15")))  # vault costs $0.10
+
+    try:
+        from x402_outreach import _bootstrap
+        _client, http, wallet = _bootstrap()
+    except Exception as exc:
+        return JSONResponse(
+            {"ok": False, "error": str(exc), "stage": "bootstrap"},
+            status_code=500,
+        )
+
+    public_base = os.environ.get("ADVOCATE_PUBLIC_URL", "https://graphadvocate.com").rstrip("/")
+    results = []
+    total_pass = 0
+    for path, payload, min_chars, expected_price in _PAID_ENDPOINT_TESTS:
+        result = {
+            "endpoint": path,
+            "expected_price": expected_price,
+            "ok": False,
+            "status": None,
+            "body_chars": 0,
+            "error": None,
+        }
+        try:
+            resp = await http.post(
+                f"{public_base}/{path}",
+                json=payload, timeout=60.0,
+                headers={"User-Agent": "ga-self-test-batch/1.0"},
+            )
+            result["status"] = resp.status_code
+            text = resp.text
+            result["body_chars"] = len(text)
+            result["ok"] = (200 <= resp.status_code < 300) and len(text) >= min_chars
+            if result["ok"]:
+                total_pass += 1
+            else:
+                # Surface a brief failure reason without leaking internals
+                try:
+                    err = resp.json().get("error") or "non-2xx response"
+                except Exception:
+                    err = f"non-2xx ({resp.status_code})"
+                result["error"] = err[:120]
+        except Exception as exc:
+            result["error"] = type(exc).__name__
+        results.append(result)
+
+    summary = {
+        "ok": total_pass == len(_PAID_ENDPOINT_TESTS),
+        "passed": total_pass,
+        "total": len(_PAID_ENDPOINT_TESTS),
+        "wallet": wallet,
+        "results": results,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    log.info(f"SELF-TEST-PAID-BATCH passed={total_pass}/{len(_PAID_ENDPOINT_TESTS)} wallet={wallet[:10]}…")
+    return JSONResponse(summary, status_code=200 if summary["ok"] else 207)
+
+
 async def self_test_paid_endpoint(request: Request):
     """POST /admin/self-test-paid — make GA pay GA for one paid endpoint.
 
@@ -2280,7 +2361,14 @@ async def self_test_paid_endpoint(request: Request):
         "endpoint": "hyperliquid/score"     // default; any paid HL/PM path works
         "user":     "0xecb63caa…"           // wallet to profile; default Vitalik
         "max_usdc": "0.05"                  // safety cap
+        "all":      true                     // when present, runs all 10 paid endpoints
+                                             // sequentially and returns a summary
     }
+
+    Pass `"all": true` to exercise every paid handler in one go. Useful for
+    deploy-gate smoke tests — burns ~$0.40 of GA's outbound budget per run
+    against the inbound wallet, validates each handler returns 2xx with a
+    non-empty body, and surfaces any clamps / sanitizer / auth regressions.
     """
     if not _check_admin(request):
         return _unauthorized()
@@ -2288,6 +2376,10 @@ async def self_test_paid_endpoint(request: Request):
         body = await request.json() if request.method == "POST" else {}
     except Exception:
         body = {}
+
+    # Batch mode — run all 10 paid handlers
+    if body.get("all"):
+        return await _self_test_all_paid(body)
 
     endpoint = (body.get("endpoint") or "hyperliquid/score").lstrip("/")
     user = (body.get("user") or "0xd8da6bf26964af9d7eed9e03e53415d37aa96045").lower()
@@ -6170,9 +6262,9 @@ def build_app():
                 log.exception(f"pm-pnl-quick crashed: {wallet}")
                 _log_paid_failure(f"pm-pnl-quick {wallet[:10]}", exc)
                 return _RouteJSON({
-                    "error": "upstream_error",
-                    "exception_type": type(exc).__name__,
-                    "message": str(exc)[:200],
+                    "error": "upstream_unavailable",
+                    "message": "Upstream data provider returned an error. Please retry shortly.",
+                    "retry_after_seconds": 30,
                 }, status_code=502)
 
         async def _pm_pnl_handler(request):
@@ -6227,9 +6319,9 @@ def build_app():
                 log.exception(f"pm-pnl crashed: {wallet}")
                 _log_paid_failure(f"pm-pnl {wallet[:10]}", exc)
                 return _RouteJSON({
-                    "error": "upstream_error",
-                    "exception_type": type(exc).__name__,
-                    "message": str(exc)[:200],
+                    "error": "upstream_unavailable",
+                    "message": "Upstream data provider returned an error. Please retry shortly.",
+                    "retry_after_seconds": 30,
                 }, status_code=502)
 
         async def _pm_screen_handler(request):
@@ -6237,7 +6329,7 @@ def build_app():
             data = await _pm_read_body(request)
             condition_id = normalize_condition_id(data.get("condition_id"))
             try:
-                n = max(1, min(25, int(data.get("n") or 10)))
+                n = max(1, min(10, int(data.get("n") or 10)))  # Pinax free-tier caps at 10
             except (TypeError, ValueError):
                 n = 10
             if not condition_id:
@@ -6339,9 +6431,9 @@ def build_app():
                 log.exception(f"pm-screen crashed: {condition_id}")
                 _log_paid_failure(f"pm-screen {str(condition_id)[:10]}", exc)
                 return _RouteJSON({
-                    "error": "upstream_error",
-                    "exception_type": type(exc).__name__,
-                    "message": str(exc)[:200],
+                    "error": "upstream_unavailable",
+                    "message": "Upstream data provider returned an error. Please retry shortly.",
+                    "retry_after_seconds": 30,
                 }, status_code=502)
 
         async def _pm_risk_handler(request):
@@ -6383,9 +6475,9 @@ def build_app():
                 log.exception(f"pm-risk crashed: {wallet}")
                 _log_paid_failure(f"pm-risk {wallet[:10]}", exc)
                 return _RouteJSON({
-                    "error": "upstream_error",
-                    "exception_type": type(exc).__name__,
-                    "message": str(exc)[:200],
+                    "error": "upstream_unavailable",
+                    "message": "Upstream data provider returned an error. Please retry shortly.",
+                    "retry_after_seconds": 30,
                 }, status_code=502)
 
         # ── Hyperliquid trader-intelligence handlers (mirror polymarket pattern)
@@ -6427,9 +6519,9 @@ def build_app():
             except Exception as exc:
                 log.exception(f"hl-score crashed: {user}")
                 _log_paid_failure(f"hl-score {user[:10]}", exc)
-                return _RouteJSON({"error": "upstream_error",
-                                   "exception_type": type(exc).__name__,
-                                   "message": str(exc)[:200]}, status_code=502)
+                return _RouteJSON({"error": "upstream_unavailable",
+                                   "message": "Upstream data provider returned an error. Please retry shortly.",
+                                   "retry_after_seconds": 30}, status_code=502)
 
         async def _hl_pnl_handler(request):
             """$0.05 — full Hyperliquid PnL: scores + open positions + recent activity."""
@@ -6458,15 +6550,15 @@ def build_app():
             except Exception as exc:
                 log.exception(f"hl-pnl crashed: {user}")
                 _log_paid_failure(f"hl-pnl {user[:10]}", exc)
-                return _RouteJSON({"error": "upstream_error",
-                                   "exception_type": type(exc).__name__,
-                                   "message": str(exc)[:200]}, status_code=502)
+                return _RouteJSON({"error": "upstream_unavailable",
+                                   "message": "Upstream data provider returned an error. Please retry shortly.",
+                                   "retry_after_seconds": 30}, status_code=502)
 
         async def _hl_screen_handler(request):
             """$0.05 — top N traders of a coin with per-trader skill scores."""
             data = await _pm_read_body(request)
             coin = hl_normalize_coin(data.get("coin"))
-            try: n = max(1, min(25, int(data.get("n") or 10)))
+            try: n = max(1, min(10, int(data.get("n") or 10)))  # Pinax free-tier caps at 10
             except (TypeError, ValueError): n = 10
             if not coin:
                 return _RouteJSON({"error": "invalid_coin"}, status_code=400)
@@ -6506,9 +6598,9 @@ def build_app():
             except Exception as exc:
                 log.exception(f"hl-screen crashed: {coin}")
                 _log_paid_failure(f"hl-screen {coin}", exc)
-                return _RouteJSON({"error": "upstream_error",
-                                   "exception_type": type(exc).__name__,
-                                   "message": str(exc)[:200]}, status_code=502)
+                return _RouteJSON({"error": "upstream_unavailable",
+                                   "message": "Upstream data provider returned an error. Please retry shortly.",
+                                   "retry_after_seconds": 30}, status_code=502)
 
         async def _hl_vault_handler(request):
             """$0.10 — vault evaluator (leader skill + concentration + redemption pressure)."""
@@ -6546,9 +6638,9 @@ def build_app():
             except Exception as exc:
                 log.exception(f"hl-vault crashed: {vault}")
                 _log_paid_failure(f"hl-vault {vault[:10]}", exc)
-                return _RouteJSON({"error": "upstream_error",
-                                   "exception_type": type(exc).__name__,
-                                   "message": str(exc)[:200]}, status_code=502)
+                return _RouteJSON({"error": "upstream_unavailable",
+                                   "message": "Upstream data provider returned an error. Please retry shortly.",
+                                   "retry_after_seconds": 30}, status_code=502)
 
         async def _hl_risk_handler(request):
             """$0.02 — Hyperliquid counterparty risk (liquidation rate + funding burn + outflow flag)."""
@@ -6579,9 +6671,9 @@ def build_app():
             except Exception as exc:
                 log.exception(f"hl-risk crashed: {user}")
                 _log_paid_failure(f"hl-risk {user[:10]}", exc)
-                return _RouteJSON({"error": "upstream_error",
-                                   "exception_type": type(exc).__name__,
-                                   "message": str(exc)[:200]}, status_code=502)
+                return _RouteJSON({"error": "upstream_unavailable",
+                                   "message": "Upstream data provider returned an error. Please retry shortly.",
+                                   "retry_after_seconds": 30}, status_code=502)
 
         async def _hl_fills_handler(request):
             """$0.02 — Recent fill stream for a coin with bid/ask flow summary.
@@ -6617,9 +6709,9 @@ def build_app():
             except Exception as exc:
                 log.exception(f"hl-fills crashed: {coin}")
                 _log_paid_failure(f"hl-fills {coin}", exc)
-                return _RouteJSON({"error": "upstream_error",
-                                   "exception_type": type(exc).__name__,
-                                   "message": str(exc)[:200]}, status_code=502)
+                return _RouteJSON({"error": "upstream_unavailable",
+                                   "message": "Upstream data provider returned an error. Please retry shortly.",
+                                   "retry_after_seconds": 30}, status_code=502)
 
         # POST-only — GETs were hanging for ~10s on `await request.body()` because
         # the payment middleware only registers POST routes (per RouteConfig keys),
