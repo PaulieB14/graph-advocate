@@ -1524,6 +1524,25 @@ SKILLS = [
         input_modes=["text"],
         output_modes=["text"],
     ),
+    AgentSkill(
+        id="hyperliquid_fills",
+        name="Hyperliquid recent fill stream + bid/ask flow",
+        description=(
+            "POST /hyperliquid/fills {coin, n?}. Recent perp fill stream for a Hyperliquid "
+            "coin (BTC, ETH, HYPE, etc.) — last N fills (max 10) with side, price, size, "
+            "notional, direction (OPEN_SHORT/CLOSE_LONG/…), payer, fee, liquidations. "
+            "Includes a flow summary: buy/sell counts, notional totals, whale-fill flag "
+            "(≥$10k notional). Distinct from /screen (which ranks traders); this surfaces "
+            "events for real-time tape-watching. $0.02 USDC per call on Base."
+        ),
+        tags=["hyperliquid", "perps", "fills", "flow", "whale", "real-time", "x402"],
+        examples=[
+            "Recent BTC perp fills on Hyperliquid",
+            "Show me the last 5 ETH fills with whale flags",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
 ]
 
 
@@ -2777,8 +2796,25 @@ Repository: https://github.com/PaulieB14/graph-advocate
 
 ## Pricing
 
-- 3 requests/day per sender — free
-- After 3/day — $0.01 USDC on Base via x402
+| Endpoint                       | Price        | Notes |
+|--------------------------------|--------------|-------|
+| POST /                         | free 3/day   | Then $0.01 USDC via x402 |
+| POST /route                    | free 3/day   | Then $0.01 USDC via x402 |
+| GET  /chat                     | free 3/day   | Routing-only; doesn't answer with data |
+| POST /tip                      | optional tip | Any amount |
+| POST /hyperliquid/score        | $0.02        | Skill score for an HL trader |
+| POST /hyperliquid/pnl          | $0.05        | Per-coin PnL breakdown |
+| POST /hyperliquid/screen       | $0.05        | Top N (≤10) HL traders by coin |
+| POST /hyperliquid/vault        | $0.10        | Vault evaluator (leader + concentration) |
+| POST /hyperliquid/risk         | $0.02        | Liquidation + funding burn risk |
+| POST /hyperliquid/fills        | $0.02        | Recent perp fill stream + flow summary |
+| POST /polymarket/pnl-quick     | $0.02        | Skill score for a PM wallet |
+| POST /polymarket/pnl           | $0.05        | Full PM PnL: scores + positions |
+| POST /polymarket/screen        | $0.05        | Top wagerers on a PM market |
+| POST /polymarket/risk          | $0.02        | Wallet-type + ghost-fill risk |
+
+All paid endpoints settle in USDC on Base via x402. Paid endpoints have no
+free tier — payment is required from call 1 regardless of sender metadata.
 
 ## Routing services
 
