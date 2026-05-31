@@ -294,6 +294,29 @@ async def fetch_recent_fills_hl(user_address: str, limit: int = 10) -> list[dict
         return []
 
 
+async def fetch_user_role_hl(user_address: str) -> dict | None:
+    """HL native /info userRole — returns {"role": "user|agent|vault|missing|...", "data": {...}}.
+
+    When an address has no fills, this disambiguates "never touched HL" from
+    "registered as a sub-key agent for another master account." For agent
+    wallets the response includes the master under data.user — callers can
+    re-query the master to find real activity. Free, no auth.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as cli:
+            r = await cli.post(
+                _HL_INFO_API,
+                json={"type": "userRole", "user": user_address.lower()},
+                headers={"Content-Type": "application/json"},
+            )
+            r.raise_for_status()
+            d = r.json()
+            return d if isinstance(d, dict) else None
+    except Exception as e:
+        log.debug(f"hl userRole failed for {user_address[:10]}…: {e}")
+        return None
+
+
 async def fetch_vault_details_hl(vault_address: str) -> dict | None:
     """Native Hyperliquid /info vaultDetails for a vault.
 

@@ -6523,6 +6523,7 @@ def build_app():
             fetch_user as hl_fetch_user,
             fetch_user_positions as hl_fetch_user_positions,
             fetch_user_activity as hl_fetch_user_activity,
+            fetch_user_role_hl as hl_fetch_user_role,
             fetch_top_traders_by_coin as hl_fetch_top_traders,
             fetch_market_activity as hl_fetch_market_activity,
             summarize_fills as hl_summarize_fills,
@@ -6537,6 +6538,49 @@ def build_app():
             _gather as _hl_gather,
         )
 
+        async def _hl_enrich_empty(user: str) -> dict:
+            """When upstream returns no trading data, do one HL native /info userRole
+            lookup so the caller learns whether the address is an agent sub-key
+            (and which master to query instead) vs. a wallet that has truly never
+            touched HL. Best-effort — failures degrade silently to role:'unknown'."""
+            role_info = await hl_fetch_user_role(user)
+            if not isinstance(role_info, dict):
+                return {"role": "unknown",
+                        "hint": "HL role lookup unavailable; address has no Pinax-indexed trading activity"}
+            raw_role = (role_info.get("role") or "").strip()
+            role = raw_role.lower() or "unknown"
+            data = role_info.get("data") if isinstance(role_info.get("data"), dict) else {}
+            out: dict = {"role": raw_role or "unknown"}
+            # Agent sub-key: HL returns {"role":"agent","data":{"user":"<master>"}}
+            if role == "agent":
+                master = data.get("user") or data.get("master")
+                if master:
+                    out["master_wallet"] = master.lower()
+                out["hint"] = (
+                    f"This address is a Hyperliquid agent sub-key. The master account is "
+                    f"{master.lower() if master else '(unknown)'}. Re-query the master for "
+                    f"actual trading activity."
+                )
+            # Sub-account: HL returns {"role":"subAccount","data":{"master":"<master>"}}
+            elif role == "subaccount":
+                master = data.get("master") or data.get("user")
+                if master:
+                    out["master_wallet"] = master.lower()
+                out["hint"] = (
+                    f"This address is a Hyperliquid sub-account. Activity rolls up under the "
+                    f"master account {master.lower() if master else '(unknown)'}."
+                )
+            elif role == "vault":
+                vault = data.get("vault") or data.get("address")
+                if vault:
+                    out["vault_address"] = vault.lower()
+                out["hint"] = "This address is a Hyperliquid vault. Use the hl-vault endpoint instead."
+            elif role == "missing":
+                out["hint"] = "This address has never interacted with Hyperliquid."
+            elif role == "user":
+                out["hint"] = "Wallet exists on HL but has no fills, positions, or activity yet."
+            return out
+
         async def _hl_score_handler(request):
             """$0.02 — derived skill metrics for a Hyperliquid trader."""
             data = await _pm_read_body(request)
@@ -6548,6 +6592,8 @@ def build_app():
                 score = hl_compute_user_score(stats)
                 payload = {"user": user, **score,
                            "generated_at": datetime.now(timezone.utc).isoformat()}
+                if not stats:
+                    payload["hyperliquid_role"] = await _hl_enrich_empty(user)
                 _log_request("x402-paid", f"hl-score {user[:10]}",
                              "hyperliquid-token-api", "high", "hyperliquid-token-api",
                              response=payload)
@@ -6579,6 +6625,8 @@ def build_app():
                     "recent_activity": activity,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                 }
+                if not stats and not positions and not activity:
+                    payload["hyperliquid_role"] = await _hl_enrich_empty(user)
                 _log_request("x402-paid", f"hl-pnl {user[:10]}",
                              "hyperliquid-token-api", "high", "hyperliquid-token-api",
                              response=payload)
@@ -6700,6 +6748,8 @@ def build_app():
                     },
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                 }
+                if not stats and not activity:
+                    payload["hyperliquid_role"] = await _hl_enrich_empty(user)
                 _log_request("x402-paid", f"hl-risk {user[:10]}",
                              "hyperliquid-token-api", "high", "hyperliquid-token-api",
                              response=payload)
