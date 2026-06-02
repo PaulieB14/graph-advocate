@@ -3242,18 +3242,27 @@ def _build_dashboard_data() -> dict:
     legit_pct  = int(legit / total * 100) if total else 0
 
     # ── Health signal ─────────────────────────────────────────────────────
-    health_color = "#475569"
+    # Two states reflecting *service health*, not *traffic activity*:
+    #   • Healthy (green) — real (non-noise) request within last 30 min
+    #   • Quiet  (gray)   — service is up but nothing's calling right now.
+    #                       This is NOT a fault; an agent endpoint with no
+    #                       paying traffic in the last hour is the same as
+    #                       a payments processor at 3am.
+    #
+    # Previously the dashboard went RED with "Stale" after just 30 min of
+    # quiet, which made GA look broken every time traffic was naturally
+    # slow. Restore a red state only when we wire in an actual failure
+    # signal (e.g., recent 5xx count from access logs).
+    health_color = "#64748b"  # neutral gray
     health_label = "No data yet"
     for r in logs:
         if r.get("service") not in ("introduction", "awaiting-request", "out-of-scope", "unknown"):
             try:
                 age = (datetime.now(timezone.utc) - datetime.fromisoformat(r["ts"])).total_seconds()
-                if age < 300:
+                if age < 1800:  # < 30 min — actively serving real traffic
                     health_color, health_label = "#10b981", "Healthy"
-                elif age < 1800:
-                    health_color, health_label = "#f59e0b", "Idle"
                 else:
-                    health_color, health_label = "#ef4444", "Stale"
+                    health_color, health_label = "#64748b", "Quiet"
             except Exception:
                 pass
             break
@@ -4274,9 +4283,18 @@ function renderFeed(recent) {
     // cleanly instead of looking broken.
     const display = expandState[idx] ? 'block' : 'none';
 
-    html += `<div class="feed-row" onclick="toggleFeedRow(${idx})" style="cursor:pointer">
+    // Paid-call badge: any x402-settled call (task_id literal "x402-paid"
+    // or "x402-tip"). Makes paid traffic visually obvious in the feed so
+    // it stops blending in with free /probe traffic.
+    const isPaid = r.task_id === 'x402-paid' || r.task_id === 'x402-tip';
+    const paidBadge = isPaid
+      ? `<span class="badge green" title="Settled on Base via x402" style="margin-left:6px">💰 paid</span>`
+      : '';
+    const rowClass = isPaid ? 'feed-row feed-row-paid' : 'feed-row';
+
+    html += `<div class="${rowClass}" onclick="toggleFeedRow(${idx})" style="cursor:pointer${isPaid ? ';background:rgba(16,185,129,0.06);border-left:2px solid #10b981' : ''}">
       <div class="feed-time">${r.time}</div>
-      <div class="feed-req" title="${escapeHtml(r.request)}">${escapeHtml(r.request.slice(0, 100))}${r.request.length > 100 ? '…' : ''}</div>
+      <div class="feed-req" title="${escapeHtml(r.request)}">${escapeHtml(r.request.slice(0, 100))}${r.request.length > 100 ? '…' : ''}${paidBadge}</div>
       ${svcBadge(r.service)}
       <div class="feed-from">${senderLabel(r.task_id)}</div>`;
     let detail = '';
