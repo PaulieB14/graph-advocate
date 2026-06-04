@@ -7695,9 +7695,10 @@ def build_app():
         elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/admin/self-test-paid", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
-            scope["path"] in ("/route", "/tip")
+            scope["path"] in ("/route", "/tip", "/ask")
             or scope["path"].startswith("/polymarket/")
             or scope["path"].startswith("/hyperliquid/")
+            or scope["path"].startswith("/onchain-x402/")
         ):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.
             # The middleware handles: 402 challenge, payment verification,
