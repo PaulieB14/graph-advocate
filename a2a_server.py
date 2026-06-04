@@ -1543,6 +1543,29 @@ SKILLS = [
         input_modes=["text"],
         output_modes=["text"],
     ),
+    AgentSkill(
+        id="x402_settlements_ask",
+        name="x402 Base settlements Q&A (NL→SQL)",
+        description=(
+            "POST /ask {question}. Natural-language Q&A over a custom 132M-row Cloudflare R2 "
+            "parquet warehouse of every x402 EIP-3009 USDC settlement on Base mainnet, "
+            "May 2025 → Jun 2026. Anthropic Sonnet + DuckDB translate plain-English to SQL "
+            "against two virtual tables: settlements (row-level) and daily_stats "
+            "(pre-aggregated, 388 days). Returns {answer, sql_trace, model, upstream_ms} — "
+            "sql_trace makes the data path inspectable so callers can verify the answer "
+            "wasn't hallucinated. $0.05 USDC per call on Base."
+        ),
+        tags=["x402", "settlements", "base", "natural-language-sql", "duckdb",
+              "agent-economy", "parquet", "trader-intelligence", "analytics"],
+        examples=[
+            "What were the top 10 recipient addresses by payment count in the last 30 days?",
+            "When did x402 settlement volume on Base inflect upward?",
+            "Show me the top payer-recipient pairs over the past 90 days",
+            "Plot daily settlement count and median USDC amount per day from May 2025 to June 2026",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
 ]
 
 
@@ -6817,6 +6840,63 @@ def build_app():
                                    "message": "Upstream data provider returned an error. Please retry shortly.",
                                    "retry_after_seconds": 30}, status_code=502)
 
+        async def _ask_x402_handler(request):
+            """$0.05 — NL→SQL Q&A over the x402 Base settlements parquet warehouse.
+
+            Proxies to x402-watch.vercel.app/api/ask which runs Anthropic Sonnet
+            + DuckDB over a 132M-row Cloudflare R2 parquet dataset. Two virtual
+            tables available to the model: settlements (row-level) and
+            daily_stats (pre-aggregated, 388 days, May 2025 → Jun 2026).
+            Returns the full {answer, sql_trace, model, upstream_ms} envelope so
+            the caller can verify the data path was real (sql_trace shows every
+            query that ran) and not hallucinated.
+            """
+            import httpx as _httpx_ask
+            data = await _pm_read_body(request)
+            question = str(data.get("question") or "").strip()
+            if not question:
+                return _RouteJSON({"error": "invalid_question",
+                                   "message": "POST {question: string} required"},
+                                  status_code=400)
+            if len(question) > 1000:
+                return _RouteJSON({"error": "question_too_long",
+                                   "message": "Max 1000 characters"},
+                                  status_code=400)
+            try:
+                async with _httpx_ask.AsyncClient(timeout=60.0) as client:
+                    r = await client.post(
+                        "https://x402-watch.vercel.app/api/ask",
+                        json={"question": question},
+                    )
+                    r.raise_for_status()
+                    upstream = r.json()
+                payload = {
+                    "question": question,
+                    "answer": upstream.get("answer", "(no answer produced)"),
+                    "sql_trace": upstream.get("trace", []),
+                    "model": upstream.get("model", "unknown"),
+                    "upstream_ms": upstream.get("total_ms"),
+                    "dataset": "base-x402-settlements via x402-watch.vercel.app",
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _log_request("x402-paid", f"ask {question[:80]}",
+                             "x402-settlements-ask", "high", "x402-watch",
+                             response=payload)
+                return _RouteJSON(payload)
+            except _httpx_ask.TimeoutException:
+                _log_paid_failure(f"ask {question[:80]}", "timeout")
+                return _RouteJSON({"error": "upstream_timeout",
+                                   "message": "x402-watch backend didn't respond in 60s. Retry.",
+                                   "retry_after_seconds": 30},
+                                  status_code=504)
+            except Exception as exc:
+                log.exception(f"ask crashed: {question[:80]}")
+                _log_paid_failure(f"ask {question[:80]}", exc)
+                return _RouteJSON({"error": "upstream_unavailable",
+                                   "message": "x402-watch backend returned an error.",
+                                   "retry_after_seconds": 30},
+                                  status_code=502)
+
         # POST-only — GETs were hanging for ~10s on `await request.body()` because
         # the payment middleware only registers POST routes (per RouteConfig keys),
         # so GETs bypass payment and fall through to the inner handler which blocks
@@ -6824,6 +6904,7 @@ def build_app():
         _inner_route_app = _RouteStarlette(routes=[
             _RouteRoute("/route", _route_handler, methods=["POST"]),
             _RouteRoute("/tip", _tip_handler, methods=["POST"]),
+            _RouteRoute("/ask", _ask_x402_handler, methods=["POST"]),
             _RouteRoute("/polymarket/pnl-quick", _pm_pnl_quick_handler, methods=["POST"]),
             _RouteRoute("/polymarket/pnl", _pm_pnl_handler, methods=["POST"]),
             _RouteRoute("/polymarket/screen", _pm_screen_handler, methods=["POST"]),
@@ -7224,6 +7305,39 @@ def build_app():
                             input_schema={"type":"object","properties":{"user":{"type":"string"}},"required":["user"]},
                             body_type="json",
                             output=OutputConfig(example={"user":"0xecb63caa…","risk_level":"low","liquidation_count":0,"funding_paid_per_volume_bps":-0.33,"skill_score":62.4,"recent_24h_outflow_flag":False},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /ask": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Natural-language Q&A over the x402 Base settlements warehouse. "
+                            "POST {question}. Backed by 132M settlement rows on Cloudflare R2 "
+                            "+ pre-aggregated daily_stats (388 days, May 2025 → Jun 2026), "
+                            "queried via Anthropic Sonnet + DuckDB. Returns "
+                            "{answer, sql_trace, model, upstream_ms} — sql_trace lets the "
+                            "caller verify the data path is real, not hallucinated. "
+                            "$0.05 USDC per call on Base. Examples: 'Top 10 recipient "
+                            "addresses last 30 days with USDC totals', 'When did x402 volume "
+                            "on Base inflect upward?', 'Top payer-recipient corridors'."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"question": "Top 10 recipient addresses by payment count in the last 30 days"},
+                            input_schema={"type": "object", "properties": {"question": {"type": "string", "maxLength": 1000, "description": "Plain-English question about x402 Base settlements"}}, "required": ["question"]},
+                            body_type="json",
+                            output=OutputConfig(
+                                example={
+                                    "question": "Top 10 recipient addresses last 30 days",
+                                    "answer": "# Top 10 recipients\n| Rank | Address | Count | USDC |\n...",
+                                    "sql_trace": [{"sql": "SELECT recipient, COUNT(*) AS payment_count, SUM(amount::DECIMAL(38,0))/1e6 AS usdc_total FROM settlements WHERE block_number >= 45553999 GROUP BY recipient ORDER BY payment_count DESC LIMIT 10", "ms": 1350, "rows": 10}],
+                                    "model": "claude-sonnet-4-6",
+                                    "upstream_ms": 3500,
+                                    "dataset": "base-x402-settlements via x402-watch.vercel.app",
+                                },
+                                schema={"type": "object", "properties": {"question": {"type": "string"}, "answer": {"type": "string"}, "sql_trace": {"type": "array"}, "model": {"type": "string"}, "upstream_ms": {"type": "number"}, "dataset": {"type": "string"}}, "required": ["answer", "sql_trace", "model"]},
+                            ),
                         )},
                     ),
                     "POST /hyperliquid/fills": RouteConfig(
