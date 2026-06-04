@@ -3281,7 +3281,7 @@ def _build_dashboard_data() -> dict:
     recent = []
     seen_keys: dict = {}
     for r in logs:
-        if len(recent) >= 50:
+        if len(recent) >= 200:
             break
         ts = r.get("ts", "")
         req = r.get("request", "")[:200]
