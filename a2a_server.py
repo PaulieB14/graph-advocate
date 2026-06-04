@@ -4338,11 +4338,19 @@ function renderFeed(recent) {
     const paidBadge = isPaid
       ? `<span class="badge green" title="Settled on Base via x402" style="margin-left:6px">💰 paid</span>`
       : '';
+    // Dup badge: the row's (service, request) was seen N times in the current
+    // REQUEST_LOG window. Without this, a single Sylex agent looping 190 times
+    // looks identical to a one-shot request — the panel hid the actual volume.
+    // dup_count is the total occurrence count (initialized at 1, incremented per dup).
+    const dupCount = r.dup_count || 1;
+    const dupBadge = dupCount > 1
+      ? `<span class="badge" title="This exact (service, request) repeated ${dupCount}× in the recent window" style="margin-left:6px;background:rgba(99,102,241,0.15);color:#a5b4fc;font-weight:600;padding:2px 6px;border-radius:4px;font-size:0.75rem">×${dupCount}</span>`
+      : '';
     const rowClass = isPaid ? 'feed-row feed-row-paid' : 'feed-row';
 
     html += `<div class="${rowClass}" onclick="toggleFeedRow(${idx})" style="cursor:pointer${isPaid ? ';background:rgba(16,185,129,0.06);border-left:2px solid #10b981' : ''}">
       <div class="feed-time">${r.time}</div>
-      <div class="feed-req" title="${escapeHtml(r.request)}">${escapeHtml(r.request.slice(0, 100))}${r.request.length > 100 ? '…' : ''}${paidBadge}</div>
+      <div class="feed-req" title="${escapeHtml(r.request)}">${escapeHtml(r.request.slice(0, 100))}${r.request.length > 100 ? '…' : ''}${paidBadge}${dupBadge}</div>
       ${svcBadge(r.service)}
       <div class="feed-from">${senderLabel(r.task_id)}</div>`;
     let detail = '';
