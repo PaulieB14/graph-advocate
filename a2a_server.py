@@ -1544,6 +1544,31 @@ SKILLS = [
         output_modes=["text"],
     ),
     AgentSkill(
+        id="onchain_x402_address",
+        name="On-chain x402 address summary (decentralized)",
+        description=(
+            "POST /onchain-x402/address {address}. Read-only lookup against the "
+            "x402 Base subgraph on The Graph Network: returns the address's lifetime "
+            "x402 stats (totalPayments, totalVolumeDecimal, firstPaymentTimestamp, "
+            "lastPaymentTimestamp) broken out by role (payer + recipient), plus the "
+            "most-recent 10 payments in each direction, facilitator metadata if the "
+            "address is a registered facilitator, and indexed_through_block so the "
+            "caller can judge data freshness vs. chain tip. Decentralized, "
+            "verifiable, no centralized data warehouse dependency. Distinct from "
+            "/ask (which queries x402-watch's R2 parquet warehouse via Anthropic). "
+            "$0.01 USDC per call on Base."
+        ),
+        tags=["x402", "base", "subgraph", "graph-network", "onchain", "decentralized",
+              "address-lookup", "trader-intelligence", "agent-economy", "verifiable"],
+        examples=[
+            "Show on-chain x402 stats for 0x0FF5A6ecef…7C86",
+            "How much has this address received in x402 payments?",
+            "Is this address a registered x402 facilitator?",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
         id="x402_settlements_ask",
         name="x402 Base settlements Q&A (NL→SQL)",
         description=(
@@ -6840,6 +6865,124 @@ def build_app():
                                    "message": "Upstream data provider returned an error. Please retry shortly.",
                                    "retry_after_seconds": 30}, status_code=502)
 
+        async def _onchain_x402_address_handler(request):
+            """$0.01 — On-chain x402 settlement summary for an address from
+            the decentralized x402 Base subgraph on The Graph Network.
+
+            Distinct from /ask (which proxies to x402-watch's R2 parquet
+            warehouse): this endpoint reads from the canonical on-chain
+            subgraph (deployment QmcE24…kUN), so the answer is
+            decentralization-grade verifiable. Returns the address's
+            x402AddressSummary rows (as payer + as recipient), recent 10
+            payments in each direction, facilitator metadata if applicable,
+            AND the indexed_through block so the caller can judge data
+            freshness. Indexer lag varies; the response surfaces it.
+            """
+            import httpx as _httpx_ox
+            graph_api_key = os.environ.get("GRAPH_API_KEY")
+            if not graph_api_key:
+                return _RouteJSON({"error": "service_unconfigured",
+                                   "message": "GRAPH_API_KEY not set on server."},
+                                  status_code=503)
+
+            data = await _pm_read_body(request)
+            address = normalize_wallet(data.get("address"))
+            if not address:
+                return _RouteJSON({"error": "invalid_address",
+                                   "message": "POST {address: 0x…} required"},
+                                  status_code=400)
+            addr_lower = address.lower()
+
+            # Subgraph ID for "x402 Base" on Graph Network. IPFS hash of current
+            # deployment as of 2026-06-04: QmcE24HARdXXnziPii9bWFRV6njfWW82H1RKPe5x9hBkUN.
+            # Using subgraph-id form (not deployment-id) so future redeploys
+            # under the same subgraph just keep working.
+            SUBGRAPH_ID = "Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj"
+            url = f"https://gateway.thegraph.com/api/{graph_api_key}/subgraphs/id/{SUBGRAPH_ID}"
+
+            query = """
+            query AddressSummary($addr: Bytes!) {
+              _meta { block { number timestamp hash } hasIndexingErrors }
+              asRecipient: x402AddressSummaries(
+                where: { address: $addr, role: RECIPIENT }
+                first: 1
+              ) {
+                address role totalPayments totalVolume totalVolumeDecimal
+                firstPaymentTimestamp lastPaymentTimestamp
+                isKnownEscrow escrowDeposits
+              }
+              asPayer: x402AddressSummaries(
+                where: { address: $addr, role: PAYER }
+                first: 1
+              ) {
+                address role totalPayments totalVolume totalVolumeDecimal
+                firstPaymentTimestamp lastPaymentTimestamp
+              }
+              facilitator(id: $addr) {
+                id name isActive totalSettlements totalVolumeDecimal
+                addedAtTimestamp removedAtTimestamp
+              }
+              recentReceived: x402Payments(
+                where: { to: $addr }, first: 10, orderBy: blockNumber, orderDirection: desc
+              ) {
+                blockNumber blockTimestamp transactionHash from amountDecimal
+                transferMethod facilitator { id name }
+              }
+              recentSent: x402Payments(
+                where: { from: $addr }, first: 10, orderBy: blockNumber, orderDirection: desc
+              ) {
+                blockNumber blockTimestamp transactionHash to amountDecimal
+                transferMethod facilitator { id name }
+              }
+            }
+            """
+
+            try:
+                async with _httpx_ox.AsyncClient(timeout=20.0) as client:
+                    r = await client.post(url, json={"query": query,
+                                                     "variables": {"addr": addr_lower}})
+                    r.raise_for_status()
+                    result = r.json()
+                if "errors" in result:
+                    raise RuntimeError(f"graph errors: {result['errors']}")
+                d = result.get("data", {}) or {}
+                meta = d.get("_meta", {}) or {}
+                block = meta.get("block", {}) or {}
+                as_recipient = (d.get("asRecipient") or [None])[0]
+                as_payer = (d.get("asPayer") or [None])[0]
+                payload = {
+                    "address": addr_lower,
+                    "as_recipient": as_recipient,
+                    "as_payer": as_payer,
+                    "facilitator": d.get("facilitator"),
+                    "recent_received": d.get("recentReceived", []),
+                    "recent_sent": d.get("recentSent", []),
+                    "is_in_index": bool(as_recipient or as_payer or d.get("facilitator")),
+                    "indexed_through_block": block.get("number"),
+                    "indexed_through_timestamp": block.get("timestamp"),
+                    "indexer_has_errors": meta.get("hasIndexingErrors", False),
+                    "source": "graph-network:x402-base",
+                    "subgraph_id": SUBGRAPH_ID,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _log_request("x402-paid", f"onchain-x402-addr {addr_lower[:10]}",
+                             "onchain-x402-address", "high", "x402-base-subgraph",
+                             response=payload)
+                return _RouteJSON(payload)
+            except _httpx_ox.TimeoutException:
+                _log_paid_failure(f"onchain-x402-addr {addr_lower[:10]}", "timeout")
+                return _RouteJSON({"error": "upstream_timeout",
+                                   "message": "Graph gateway didn't respond in 20s. Retry.",
+                                   "retry_after_seconds": 15},
+                                  status_code=504)
+            except Exception as exc:
+                log.exception(f"onchain-x402-addr crashed: {addr_lower[:10]}")
+                _log_paid_failure(f"onchain-x402-addr {addr_lower[:10]}", exc)
+                return _RouteJSON({"error": "upstream_unavailable",
+                                   "message": "Graph gateway returned an error.",
+                                   "retry_after_seconds": 30},
+                                  status_code=502)
+
         async def _ask_x402_handler(request):
             """$0.05 — NL→SQL Q&A over the x402 Base settlements parquet warehouse.
 
@@ -6905,6 +7048,7 @@ def build_app():
             _RouteRoute("/route", _route_handler, methods=["POST"]),
             _RouteRoute("/tip", _tip_handler, methods=["POST"]),
             _RouteRoute("/ask", _ask_x402_handler, methods=["POST"]),
+            _RouteRoute("/onchain-x402/address", _onchain_x402_address_handler, methods=["POST"]),
             _RouteRoute("/polymarket/pnl-quick", _pm_pnl_quick_handler, methods=["POST"]),
             _RouteRoute("/polymarket/pnl", _pm_pnl_handler, methods=["POST"]),
             _RouteRoute("/polymarket/screen", _pm_screen_handler, methods=["POST"]),
@@ -7337,6 +7481,45 @@ def build_app():
                                     "dataset": "base-x402-settlements via x402-watch.vercel.app",
                                 },
                                 schema={"type": "object", "properties": {"question": {"type": "string"}, "answer": {"type": "string"}, "sql_trace": {"type": "array"}, "model": {"type": "string"}, "upstream_ms": {"type": "number"}, "dataset": {"type": "string"}}, "required": ["answer", "sql_trace", "model"]},
+                            ),
+                        )},
+                    ),
+                    "POST /onchain-x402/address": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.01",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "On-chain x402 settlement summary for an address from the "
+                            "decentralized x402 Base subgraph on The Graph Network. "
+                            "POST {address}. Returns lifetime stats as payer + as recipient "
+                            "(totalPayments, totalVolume, first/last seen timestamps), "
+                            "recent 10 payments in each direction, facilitator metadata if "
+                            "the address is a registered facilitator, AND indexed_through_block "
+                            "so the caller can judge data freshness. Decentralized, "
+                            "verifiable, no centralized gateway dependency. "
+                            "Distinct from /ask (proxies x402-watch's R2 parquet warehouse). "
+                            "$0.01 USDC per call on Base."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"address": "0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86"},
+                            input_schema={"type": "object", "properties": {"address": {"type": "string", "pattern": "^0x[a-fA-F0-9]{40}$", "description": "Lowercase 0x address to look up"}}, "required": ["address"]},
+                            body_type="json",
+                            output=OutputConfig(
+                                example={
+                                    "address": "0x0ff5a6ecef783bba35463ec2f8403b9b5e9e7c86",
+                                    "as_recipient": {"totalPayments": "47", "totalVolumeDecimal": "0.47", "lastPaymentTimestamp": "1780500000"},
+                                    "as_payer": None,
+                                    "facilitator": None,
+                                    "recent_received": [{"blockNumber": "46500000", "amountDecimal": "0.01", "from": "0xab…", "transferMethod": "EIP3009"}],
+                                    "recent_sent": [],
+                                    "is_in_index": True,
+                                    "indexed_through_block": 46514000,
+                                    "indexed_through_timestamp": 1780580000,
+                                    "indexer_has_errors": False,
+                                    "source": "graph-network:x402-base",
+                                },
+                                schema={"type": "object", "properties": {"address": {"type": "string"}, "as_recipient": {"type": ["object", "null"]}, "as_payer": {"type": ["object", "null"]}, "is_in_index": {"type": "boolean"}, "indexed_through_block": {"type": "number"}}, "required": ["address", "is_in_index", "indexed_through_block"]},
                             ),
                         )},
                     ),
