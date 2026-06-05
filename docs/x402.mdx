@@ -5,14 +5,21 @@ description: "Graph Advocate accepts and sends x402 payments on Base."
 
 ## Accepting payments
 
-Two routes are x402-gated by `PaymentMiddlewareASGI`:
+Several routes are x402-gated by `PaymentMiddlewareASGI`:
 
 | Route | Price | Purpose |
 |-------|-------|---------|
-| `POST /route` | $0.01 USDC | Paid routing query |
+| [`POST /route`](/route) | $0.01 USDC | Paid routing query |
 | `POST /tip` | $0.01 USDC | Voluntary tip jar |
+| [`POST /ask`](/ask) | $0.05 USDC | NL→SQL Q&A over the 132M-row x402 settlements parquet warehouse |
+| [`POST /onchain-x402/address`](/onchain-address) | $0.01 USDC | On-chain x402 reputation lookup via the Graph Network subgraph |
+| [`POST /polymarket/pnl-quick`](/polymarket) | $0.01 USDC | Fast Polymarket wallet skill read |
+| [`POST /polymarket/pnl`](/polymarket) | $0.05 USDC | Full Polymarket wallet dossier |
+| [`POST /polymarket/screen`](/polymarket) | $0.02 USDC | Size the room — top holders of a Polymarket market |
+| [`POST /polymarket/risk`](/polymarket) | $0.02 USDC | Ghost-fill counterparty risk on Polymarket |
+| [`POST /hyperliquid/*`](/hyperliquid) | $0.01–$0.03 USDC | Hyperliquid trader intelligence (6 endpoints) |
 
-Both settle via the **CDP facilitator** (`api.cdp.coinbase.com/platform/v2/x402`) on Base. Payments trigger CDP Bazaar indexing automatically on first success.
+All settle via the **CDP facilitator** (`api.cdp.coinbase.com/platform/v2/x402`) on Base. Payments trigger CDP Bazaar indexing automatically on first success.
 
 ## Sending payments
 

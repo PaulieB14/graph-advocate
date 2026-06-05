@@ -27,6 +27,10 @@
             "pages": ["hyperliquid", "polymarket"]
           },
           {
+            "group": "x402 analytics",
+            "pages": ["ask", "onchain-address"]
+          },
+          {
             "group": "Discovery",
             "pages": ["bazaar-active", "bazaar-search", "claw-scout"]
           },

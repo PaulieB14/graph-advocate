@@ -1,0 +1,123 @@
+---
+title: "On-chain x402 address lookup"
+description: "Read-only reputation lookup for any Base address against the decentralized x402 Base subgraph on The Graph Network. Returns the address's payer and recipient summaries, recent activity in both directions, facilitator metadata, and the indexed-through block for freshness audit — in a single call."
+---
+
+`POST /onchain-x402/address` is the cheap reputation primitive: hand it any Base address and get back its full x402 footprint — total payments sent and received, USDC volume, recent activity in each direction, and (if the address is a facilitator) facilitator-level metadata. Pulled live from the decentralized x402 Base subgraph on The Graph Network, so the answer is verifiable, not vendor-derived.
+
+## What you get
+
+| Endpoint | Cost | Returns |
+|---|---:|---|
+| `POST /onchain-x402/address` | $0.01 | `{ as_recipient, as_payer, facilitator, recent_received[10], recent_sent[10], is_in_index, indexed_through_block }` |
+
+Per-call payment in USDC on Base via x402.
+
+## Why derived over raw
+
+You can read the same subgraph directly via the Graph gateway, but it would take three GraphQL queries plus a `_meta` call to assemble what this endpoint returns in one shot — and you still wouldn't get the `is_in_index` boolean or the freshness indicators baked in. For agents using x402 footprint as a counterparty signal ("has this address ever been paid for anything?", "is the wallet I'm about to interact with a known facilitator?") this collapses the lookup into a single decision-grade call.
+
+## Request body
+
+```json
+{ "address": "0x…" }
+```
+
+The address is normalized server-side; case-insensitive.
+
+## Response shape
+
+```json
+{
+  "address": "0xac5a07c4...",
+  "as_recipient": {
+    "address": "0xac5a07c4...",
+    "role": "RECIPIENT",
+    "totalPayments": "11",
+    "totalVolume": "47000",
+    "totalVolumeDecimal": "0.047",
+    "firstPaymentTimestamp": "1745779200",
+    "lastPaymentTimestamp": "1748371200",
+    "isKnownEscrow": false,
+    "escrowDeposits": "0"
+  },
+  "as_payer": null,
+  "facilitator": null,
+  "recent_received": [
+    {
+      "blockNumber": "46823100",
+      "blockTimestamp": "1748371200",
+      "transactionHash": "0x…",
+      "from": "0x…",
+      "amountDecimal": "0.005",
+      "transferMethod": "EIP3009",
+      "facilitator": { "id": "0x…", "name": "CDP" }
+    }
+  ],
+  "recent_sent": [],
+  "is_in_index": true,
+  "indexed_through_block": "46849999",
+  "indexed_through_timestamp": "1748478312",
+  "indexer_has_errors": false,
+  "source": "graph-network:x402-base",
+  "subgraph_id": "Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj",
+  "generated_at": "2026-06-04T18:23:11Z"
+}
+```
+
+### Decision-grade fields
+
+| Field | What an agent does with it |
+|---|---|
+| `is_in_index` | Boolean gate. `false` means this address has never sent or received an x402 payment — useful as an "unknown counterparty" flag. |
+| `as_recipient.totalPayments` | Throughput score. Weight rankings or surface "paid agent vs untested" tiers. |
+| `as_recipient.totalVolumeDecimal` | Trust signal. Higher cumulative USDC received → more economic skin. |
+| `facilitator` | If non-null, the address is a known x402 facilitator (CDP, etc.). Different treatment than a regular recipient. |
+| `indexed_through_block` | Freshness audit. If your decision needs recent activity, check this against current Base tip (gap = indexer lag). |
+| `indexer_has_errors` | Don't trust the row counts if true. |
+
+## Sample: reputation gate
+
+```bash
+curl -X POST 'https://graphadvocate.com/onchain-x402/address' \
+  -H 'Content-Type: application/json' \
+  -d '{"address": "0xac5a07c4..."}'
+```
+
+Use the response to decide whether to engage. A typical agent rule: `as_recipient && as_recipient.totalPayments > 5` → "this address has been paid for things, treat as a real agent."
+
+## Sample: facilitator detection
+
+```bash
+curl -X POST 'https://graphadvocate.com/onchain-x402/address' \
+  -H 'Content-Type: application/json' \
+  -d '{"address": "0x4053338C7cB38624C0bc23c900F78Cf8470b4E38"}'
+```
+
+If `facilitator` is non-null, the address routes settlements for other agents. Use this to skip rep-scoring (facilitators always pass) or to apply distinct trust rules.
+
+## Errors
+
+| Code | Meaning | Action |
+|---|---|---|
+| `400 invalid_address` | Body missing or malformed `address`. | Send `{ "address": "0x…" }`. |
+| `503 service_unconfigured` | Server lacks `GRAPH_API_KEY`. | Operator issue, not caller. |
+| `504 upstream_timeout` | Graph gateway didn't respond in 20s. | Retry per `retry_after_seconds`. |
+| `502 upstream_unavailable` | Graph gateway returned an error. | Retry per `retry_after_seconds`. |
+
+## Why on-chain over a centralized DB
+
+The data is the same as what powers `/ask`, but the read path is different. `/ask` reads a Cloudflare R2 parquet snapshot — cheap, fast, indexed by Graph Advocate. `/onchain-x402/address` reads the canonical Graph Network subgraph deployment `Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj` directly. If your agent needs decentralization-grade verifiability for the answer (a counterparty check, an attestation, a reputation claim it will later defend), this is the right endpoint. If it just needs the number, `/ask` is cheaper for aggregate questions.
+
+## Free tier
+
+There is no free tier for `/onchain-x402/address`. To inspect routing without paying, send the plain-English question to `POST /` (A2A JSON-RPC) and Graph Advocate will name this endpoint and hand back the exact paid curl, without charging.
+
+```bash
+curl -X POST 'https://graphadvocate.com/' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0", "id": 1, "method": "message/send",
+    "params": {"message": {"parts": [{"text": "what is the onchain x402 reputation of 0xac5a07c4..."}]}}
+  }'
+```

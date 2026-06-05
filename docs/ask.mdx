@@ -1,0 +1,101 @@
+---
+title: "Natural-language SQL over x402 settlements"
+description: "Ask any question about Base x402 payment activity in plain English. DuckDB + Anthropic Sonnet runs the SQL against a 132M-row Cloudflare R2 parquet warehouse and returns the answer plus the SQL trace so your agent can verify the path."
+---
+
+`POST /ask` is a paid natural-language query interface over the entire history of x402 settlements on Base. Your agent asks a question — top recipients, daily volume, facilitator share, a specific address's activity — and gets back a single answer plus the exact SQL that produced it. No subgraph schema to learn, no SQL to write, no hallucination to babysit.
+
+## What you get
+
+| Endpoint | Cost | Returns |
+|---|---:|---|
+| `POST /ask` | $0.05 | `{ answer, sql_trace[], model, upstream_ms }` — natural-language answer plus every query that ran. |
+
+Per-call payment in USDC on Base via x402.
+
+## Why derived over raw
+
+The same dataset is queryable directly via the x402 Base subgraph on The Graph Network, but at row-level only — you'd write GraphQL paginate, aggregate client-side, and reason about the numbers yourself. `/ask` collapses that loop into a single call: the agent describes the question, Sonnet writes the SQL, DuckDB runs it against the parquet warehouse, and the answer comes back with every SQL step in `sql_trace` so the caller can audit the data path before trusting the number.
+
+For agents that need a single derived signal ("did volume inflect last week?", "who's the largest recipient?") this is the cheapest end-to-end path.
+
+## Request body
+
+```json
+{ "question": "your question, up to 1000 characters" }
+```
+
+## Response shape
+
+```json
+{
+  "question": "...",
+  "answer": "Daily settlement count rose from a weekly average of 1.2k in early May 2026 to a peak of 8.4k on 2026-05-22, a ~7x inflection...",
+  "sql_trace": [
+    {
+      "sql": "SELECT day, total_count, median_amount_usdc FROM daily_stats WHERE day >= '2025-05-01' ORDER BY day",
+      "rows": 388,
+      "ms": 412
+    }
+  ],
+  "model": "claude-sonnet-4-6",
+  "upstream_ms": 2840,
+  "dataset": "base-x402-settlements via x402-watch.vercel.app",
+  "generated_at": "2026-06-04T18:23:11Z"
+}
+```
+
+The `sql_trace` array is the receipt — every query the model ran is recorded, so the agent can verify the answer was derived from a real read (not a hallucination) and which slice of the data was actually inspected.
+
+## What the model can query
+
+Two virtual tables are exposed:
+
+| Table | Granularity | Use for |
+|---|---|---|
+| `settlements` | Row-level — one row per x402 payment, ~132M rows | Specific addresses, transaction lookups, fine-grained windows. |
+| `daily_stats` | One row per day, May 2025 → Jun 2026 (~388 days) | Trends, time-series, volume curves. Fast — the model picks this first when the question is daily-grain. |
+
+The model is steered to choose `daily_stats` for trend questions (cheap) and `settlements` for row-level or address-specific questions (expensive but precise), and to add a `block_number` predicate for parquet file pruning when reading raw rows.
+
+## Sample: ask in English
+
+```bash
+curl -X POST 'https://graphadvocate.com/ask' \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "What were the top 10 x402 recipients by USDC volume in the last 30 days on Base?"}'
+```
+
+Returns a ranked answer plus the SQL that produced it. Use the answer to act; keep `sql_trace` for your audit log.
+
+## Sample: trend question
+
+```bash
+curl -X POST 'https://graphadvocate.com/ask' \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "When did daily x402 settlement count inflect upward between May 2025 and June 2026?"}'
+```
+
+The model will pick `daily_stats`, return the inflection point with a date, and show you the single aggregate query in `sql_trace`.
+
+## Errors
+
+| Code | Meaning | Action |
+|---|---|---|
+| `400 invalid_question` | Body missing `question` field. | Send `{ "question": "..." }`. |
+| `400 question_too_long` | Over 1000 characters. | Tighten the question. |
+| `504 upstream_timeout` | DuckDB query exceeded 60s. | Retry; tighten the question; the response includes `retry_after_seconds`. |
+| `502 upstream_unavailable` | Backend error. | Retry after `retry_after_seconds`. |
+
+## Free tier
+
+There is no free tier for `/ask`. To inspect routing without paying, send the plain-English question to `POST /` (A2A JSON-RPC) — Graph Advocate will name `/ask` as the right endpoint and hand back the exact paid curl, without charging.
+
+```bash
+curl -X POST 'https://graphadvocate.com/' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0", "id": 1, "method": "message/send",
+    "params": {"message": {"parts": [{"text": "top x402 recipients last 7 days"}]}}
+  }'
+```
