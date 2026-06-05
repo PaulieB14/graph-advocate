@@ -27,7 +27,9 @@ Match the user's intent to the right service. Load only the reference you need.
 | **Cross-protocol lending** | graph-lending-mcp | — | Messari standardized — 40+ protocols on 15 chains |
 | **Limitless prediction markets** | graph-limitless-mcp | — | Markets on Base |
 | **Predict.fun prediction markets** | predictfun-mcp | — | BNB Chain prediction markets |
-| **x402 payment analytics** | x402-analytics | [x402.md](references/x402.md) | Payment volume, facilitators, daily stats on Base |
+| **x402 payment analytics — NL question** | `/ask` (paid) | — | Natural-language Q&A over 132M settlements + daily_stats (May 2025 → Jun 2026). Sonnet + DuckDB. $0.05 USDC. |
+| **x402 address lookup — onchain receipts** | `/onchain-x402/address` (paid) | — | Decentralized lookup via x402 Base subgraph: lifetime stats by role (payer/recipient), recent payments, facilitator, indexed_through_block. $0.01 USDC. |
+| **x402 payment analytics (legacy reference)** | x402-analytics | [x402.md](references/x402.md) | Payment volume, facilitators, daily stats on Base |
 | **Raw block data, streaming** | substreams | — | Traces, logs, custom transformations |
 | **Agent discovery (ERC-8004)** | 8004scan | — | Find AI agents by capability |
 | **MCP server auth** | mcp8004 | — | ERC-8004 identity verification |
@@ -52,6 +54,9 @@ If the request spans two services, use both and combine results.
 "Evaluate Hyperliquid vault 0x..."          → /hyperliquid/vault (paid)
 "Compare Aave vs Compound TVL"              → graph-lending-mcp
 "x402 payment volume on Base today"         → x402-analytics
+"Top 10 x402 recipients in the last 30 days" → /ask (paid, NL→SQL)
+"When did x402 volume on Base inflect?"     → /ask (paid, NL→SQL)
+"Has 0x0FF5A6… ever been paid via x402?"     → /onchain-x402/address (paid, decentralized)
 "Find agents that do trading"               → 8004scan
 ```
 
@@ -113,6 +118,8 @@ x402 payment challenges. Without that configuration, paid endpoints return
 - `/route` — 3 free queries/sender/day, then **$0.01 USDC** per call (Base mainnet)
 - `/polymarket/*` — paid from call 1 ($0.01 - $0.05 per call)
 - `/hyperliquid/*` — paid from call 1 ($0.02 - $0.10 per call)
+- `/ask` — paid from call 1 (**$0.05 USDC**) — natural-language Q&A over the x402 Base settlements warehouse. 132M+ payments + pre-aggregated `daily_stats` (388 days). Returns `{answer, sql_trace, model, upstream_ms}` so callers can verify the data path.
+- `/onchain-x402/address` — paid from call 1 (**$0.01 USDC**) — decentralized address lookup against the x402 Base subgraph on The Graph Network. POST `{address}` returns lifetime stats (payer + recipient roles), recent 10 payments in each direction, facilitator metadata, and `indexed_through_block` for freshness.
 
 ### Per-call approval (recommended)
 

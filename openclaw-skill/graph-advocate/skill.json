@@ -1,7 +1,7 @@
 {
   "name": "graph-advocate",
-  "version": "2.5.0",
-  "description": "Ask any blockchain question in plain English — get token balances, DeFi analytics, NFT data, prediction market odds, Hyperliquid perps trader intelligence, and protocol stats instantly. Covers 15,500+ subgraphs across 20+ chains.",
+  "version": "2.6.0",
+  "description": "Ask any blockchain question in plain English — token balances, DeFi analytics, NFT data, prediction market odds, Hyperliquid perps trader intelligence, x402 settlement analytics (132M+ payments + onchain agent-reputation lookups), and protocol stats. Covers 15,500+ subgraphs across 20+ chains.",
   "author": "paulieb14",
   "license": "MIT-0",
   "homepage": "https://github.com/PaulieB14/graph-advocate",
@@ -21,7 +21,12 @@
     "uniswap",
     "polymarket",
     "hyperliquid",
-    "perps"
+    "perps",
+    "x402",
+    "agent-reputation",
+    "erc-8004",
+    "natural-language-sql",
+    "duckdb"
   ],
   "categories": ["Web", "Finance", "AI/ML"],
   "mcp": {
