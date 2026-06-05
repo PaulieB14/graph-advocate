@@ -6945,14 +6945,53 @@ def build_app():
             }
             """
 
+            # The Graph Network's gateway does indexer load-balancing. When it
+            # routes to lagging indexers it returns a GraphQL `errors` envelope
+            # like `bad indexers: {0x…: Unavailable(too far behind), …}`. The
+            # next route through the gateway often hits a fresher indexer, so
+            # one retry with a short backoff is the right move before giving up.
+            def _is_indexer_lag(errs) -> bool:
+                if not errs:
+                    return False
+                joined = json.dumps(errs).lower()
+                return ("too far behind" in joined
+                        or "unavailable" in joined
+                        or "bad indexers" in joined)
+
+            async def _query_gateway(client) -> tuple[dict, list]:
+                r = await client.post(url, json={"query": query,
+                                                 "variables": {"addr": addr_lower}})
+                r.raise_for_status()
+                rj = r.json()
+                return rj, rj.get("errors") or []
+
             try:
                 async with _httpx_ox.AsyncClient(timeout=20.0) as client:
-                    r = await client.post(url, json={"query": query,
-                                                     "variables": {"addr": addr_lower}})
-                    r.raise_for_status()
-                    result = r.json()
-                if "errors" in result:
-                    raise RuntimeError(f"graph errors: {result['errors']}")
+                    result, errs = await _query_gateway(client)
+                    if errs and _is_indexer_lag(errs):
+                        # One retry — gateway will likely route to a different
+                        # indexer on the next call.
+                        await asyncio.sleep(0.8)
+                        result, errs = await _query_gateway(client)
+                if errs:
+                    # Lag persisted across retry — surface a clean retryable
+                    # error so the agent can decide whether to come back.
+                    if _is_indexer_lag(errs):
+                        _log_paid_failure(
+                            f"onchain-x402-addr {addr_lower[:10]}",
+                            RuntimeError(f"indexer_lag (retry failed): {str(errs)[:120]}"))
+                        return _RouteJSON({
+                            "error": "indexer_lag",
+                            "message": ("The Graph gateway only had lagging indexers "
+                                        "available for this subgraph after a retry. "
+                                        "Try again shortly — gateway load-balances and "
+                                        "next call may route to a fresher indexer."),
+                            "subgraph_id": SUBGRAPH_ID,
+                            "retry_after_seconds": 30,
+                            "graph_errors": errs[:3],
+                        }, status_code=503)
+                    # Some other GraphQL error — schema mismatch, bad query, etc.
+                    raise RuntimeError(f"graph errors: {errs}")
                 d = result.get("data", {}) or {}
                 meta = d.get("_meta", {}) or {}
                 block = meta.get("block", {}) or {}
