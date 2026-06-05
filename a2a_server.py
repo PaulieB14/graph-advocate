@@ -7463,16 +7463,18 @@ def build_app():
                         accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
                             network="eip155:8453", max_timeout_seconds=300,
                             extra={"name": "USD Coin", "version": "2"})],
+                        # CDP V2 schema caps resource.description at 500 chars
+                        # (X402ResourceInfo.description max_length=500); longer
+                        # descriptions fail verify with an inscrutable
+                        # 'x402V1PaymentPayload requires scheme' error.
                         description=(
-                            "Natural-language Q&A over the x402 Base settlements warehouse. "
-                            "POST {question}. Backed by 132M settlement rows on Cloudflare R2 "
-                            "+ pre-aggregated daily_stats (388 days, May 2025 → Jun 2026), "
-                            "queried via Anthropic Sonnet + DuckDB. Returns "
-                            "{answer, sql_trace, model, upstream_ms} — sql_trace lets the "
-                            "caller verify the data path is real, not hallucinated. "
-                            "$0.05 USDC per call on Base. Examples: 'Top 10 recipient "
-                            "addresses last 30 days with USDC totals', 'When did x402 volume "
-                            "on Base inflect upward?', 'Top payer-recipient corridors'."
+                            "Natural-language Q&A over the x402 Base settlements "
+                            "warehouse. POST {question}. Backed by 132M settlement "
+                            "rows on Cloudflare R2 + pre-aggregated daily_stats "
+                            "(388 days, May 2025 - Jun 2026), queried via Anthropic "
+                            "Sonnet + DuckDB. Returns {answer, sql_trace, model, "
+                            "upstream_ms}; sql_trace lets the caller verify the data "
+                            "path is real, not hallucinated. $0.05 USDC on Base."
                         ),
                         mime_type="application/json",
                         extensions={**declare_discovery_extension(
@@ -7496,17 +7498,19 @@ def build_app():
                         accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.01",
                             network="eip155:8453", max_timeout_seconds=300,
                             extra={"name": "USD Coin", "version": "2"})],
+                        # CDP V2 schema caps resource.description at 500 chars
+                        # (X402ResourceInfo.description max_length=500); longer
+                        # descriptions fail verify with an inscrutable
+                        # 'x402V1PaymentPayload requires scheme' error.
                         description=(
-                            "On-chain x402 settlement summary for an address from the "
-                            "decentralized x402 Base subgraph on The Graph Network. "
-                            "POST {address}. Returns lifetime stats as payer + as recipient "
-                            "(totalPayments, totalVolume, first/last seen timestamps), "
-                            "recent 10 payments in each direction, facilitator metadata if "
-                            "the address is a registered facilitator, AND indexed_through_block "
-                            "so the caller can judge data freshness. Decentralized, "
-                            "verifiable, no centralized gateway dependency. "
-                            "Distinct from /ask (proxies x402-watch's R2 parquet warehouse). "
-                            "$0.01 USDC per call on Base."
+                            "On-chain x402 settlement summary for an address from "
+                            "the decentralized x402 Base subgraph on The Graph "
+                            "Network. POST {address}. Returns lifetime stats as "
+                            "payer + recipient (totalPayments, totalVolume, "
+                            "first/last seen), recent 10 payments each direction, "
+                            "facilitator metadata if applicable, plus "
+                            "indexed_through_block for freshness. Decentralized, "
+                            "verifiable. Distinct from /ask. $0.01 USDC on Base."
                         ),
                         mime_type="application/json",
                         extensions={**declare_discovery_extension(
