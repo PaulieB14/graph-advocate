@@ -7711,6 +7711,75 @@ def build_app():
                     return
             return
 
+        # ── CORS preflight (8004scan + MCP Inspector + browser probers) ──
+        # Any OPTIONS request gets a 204 with permissive CORS. Without this
+        # the preflight 405s before the real call can be attempted; 8004scan
+        # marks both A2A and MCP "Unhealthy" because of it.
+        if scope["type"] == "http" and scope.get("method") == "OPTIONS":
+            # Drain the (empty) request body before responding.
+            try:
+                await receive()
+            except Exception:
+                pass
+            await send({"type": "http.response.start", "status": 204, "headers": [
+                [b"access-control-allow-origin", b"*"],
+                [b"access-control-allow-methods", b"GET, POST, OPTIONS"],
+                [b"access-control-allow-headers", b"Content-Type, X-PAYMENT, Authorization, Accept"],
+                [b"access-control-max-age", b"86400"],
+            ]})
+            await send({"type": "http.response.body", "body": b""})
+            return
+
+        # ── POST /mcp (Streamable HTTP MCP probe) ──
+        # 8004scan and other modern MCP validators POST a JSON-RPC `initialize`
+        # call to /mcp. The real session-bearing transport is /mcp/sse; for
+        # one-shot health-check probes, respond inline with a valid MCP
+        # initialize result. Anything else gets a JSON-RPC error pointing at
+        # SSE — still 200 HTTP so the validator can parse the response cleanly.
+        if scope["type"] == "http" and scope["path"] == "/mcp" and scope.get("method") == "POST":
+            body_in = b""
+            more = True
+            while more:
+                msg = await receive()
+                body_in += msg.get("body", b"")
+                more = msg.get("more_body", False)
+            try:
+                req = json.loads(body_in) if body_in else {}
+            except Exception:
+                req = {}
+            req_id = req.get("id", 1)
+            method = req.get("method", "")
+            if method == "initialize":
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {
+                            "name": "graph-advocate-mcp",
+                            "version": "1.0.0",
+                        },
+                    },
+                }
+            else:
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32601,
+                        "message": (f"Method '{method}' is not handled on POST /mcp. "
+                                    "Open an SSE connection at /mcp/sse for the full tool catalog."),
+                    },
+                }
+            body_out = json.dumps(resp).encode()
+            await send({"type": "http.response.start", "status": 200, "headers": [
+                [b"content-type", b"application/json"],
+                [b"access-control-allow-origin", b"*"],
+            ]})
+            await send({"type": "http.response.body", "body": body_out})
+            return
+
         if scope["type"] == "http" and scope["path"] == "/.well-known/agent-card.json":
             DISCOVERY_COUNT += 1
         if scope["type"] == "http" and scope["path"] == "/mcp" and scope.get("method", "GET") == "GET":
