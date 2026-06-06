@@ -7749,27 +7749,112 @@ def build_app():
                 req = {}
             req_id = req.get("id", 1)
             method = req.get("method", "")
+            # Inline catalog mirroring mcp_server.py so probers (8004scan,
+            # MCP Inspector) see the same three tools they'd see over SSE.
+            # Keep in sync with @mcp.tool() decorators in mcp_server.py — if
+            # a new tool is added there, mirror it here.
+            _MCP_TOOLS = [
+                {
+                    "name": "route_data_request",
+                    "description": (
+                        "Route an onchain data request to the right Graph "
+                        "Protocol service. Returns the exact tool + args to "
+                        "use. Call this FIRST for any blockchain data need."
+                    ),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "request": {
+                                "type": "string",
+                                "description": "Plain-English description of the data needed.",
+                            },
+                            "session_id": {
+                                "type": "string",
+                                "description": "Optional — pass the same ID across turns to maintain context.",
+                            },
+                        },
+                        "required": ["request"],
+                    },
+                },
+                {
+                    "name": "recommend_npm_package",
+                    "description": (
+                        "Recommend the right @paulieb npm MCP package for a "
+                        "specific protocol. Returns package name, install "
+                        "command, and what it covers."
+                    ),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "protocol": {
+                                "type": "string",
+                                "description": "Protocol name, e.g. 'aave', 'polymarket', 'substreams'.",
+                            },
+                        },
+                        "required": ["protocol"],
+                    },
+                },
+                {
+                    "name": "compare_graph_services",
+                    "description": (
+                        "Compare all Graph Protocol services for a specific "
+                        "use case. Returns a ranked list with confidence scores."
+                    ),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "use_case": {
+                                "type": "string",
+                                "description": "What data you need, e.g. 'Uniswap pool TVL' or 'Aave liquidations'.",
+                            },
+                        },
+                        "required": ["use_case"],
+                    },
+                },
+            ]
             if method == "initialize":
                 resp = {
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "result": {
                         "protocolVersion": "2024-11-05",
-                        "capabilities": {"tools": {}},
+                        "capabilities": {
+                            "tools": {"listChanged": False},
+                            "prompts": {"listChanged": False},
+                            "resources": {"listChanged": False},
+                        },
                         "serverInfo": {
                             "name": "graph-advocate-mcp",
                             "version": "1.0.0",
                         },
                     },
                 }
+            elif method == "tools/list":
+                resp = {"jsonrpc": "2.0", "id": req_id, "result": {"tools": _MCP_TOOLS}}
+            elif method == "prompts/list":
+                resp = {"jsonrpc": "2.0", "id": req_id, "result": {"prompts": []}}
+            elif method == "resources/list":
+                resp = {"jsonrpc": "2.0", "id": req_id, "result": {"resources": []}}
+            elif method == "ping":
+                resp = {"jsonrpc": "2.0", "id": req_id, "result": {}}
+            elif method.startswith("notifications/"):
+                # Fire-and-forget notifications (e.g. notifications/initialized)
+                # have no id; reply with 202-style empty body so the prober is happy.
+                await send({"type": "http.response.start", "status": 202, "headers": [
+                    [b"content-type", b"application/json"],
+                    [b"access-control-allow-origin", b"*"],
+                ]})
+                await send({"type": "http.response.body", "body": b""})
+                return
             else:
+                # tools/call and other session-bearing methods need real SSE.
                 resp = {
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "error": {
                         "code": -32601,
-                        "message": (f"Method '{method}' is not handled on POST /mcp. "
-                                    "Open an SSE connection at /mcp/sse for the full tool catalog."),
+                        "message": (f"Method '{method}' requires a session — "
+                                    "open an SSE connection at /mcp/sse for full tool execution."),
                     },
                 }
             body_out = json.dumps(resp).encode()
@@ -7789,8 +7874,8 @@ def build_app():
                 "status": "healthy",
                 "version": "1.0.0",
                 "transport": "sse",
-                "description": "Onchain data routing for The Graph Protocol. Connect via SSE at /mcp/sse",
-                "tools": ["route_data_request"],
+                "description": "Onchain data routing for The Graph Protocol. POST /mcp for one-shot JSON-RPC (initialize, tools/list); connect via SSE at /mcp/sse for full session.",
+                "tools": ["route_data_request", "recommend_npm_package", "compare_graph_services"],
             }).encode()
             await receive()
             await send({"type": "http.response.start", "status": 200, "headers": [
