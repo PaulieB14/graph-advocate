@@ -754,7 +754,12 @@ def _match_benchmark_query(text: str) -> dict | None:
 
 
 # ── Fix 2: Persistent SQLite response cache ──────────────────────────────────
-_CACHE_TTL_SECONDS = 86400  # 24 hours
+# 1h instead of 24h: bad swaps from pre-fix versions used to haunt for a full
+# day after a routing bug was fixed. Sylex caller observed this on 2026-06-08
+# — their original question kept returning the wrong-chain BSC answer even
+# after we shipped the chain-grounding + reorder fixes. Shorter TTL means
+# every callable bad cached response ages out within an hour of any deploy.
+_CACHE_TTL_SECONDS = 3600  # 1 hour
 
 
 def _normalize_cache_key(text: str) -> str:
@@ -822,7 +827,20 @@ def _get_cached_response(text: str) -> dict | None:
 
 
 def _cache_response(text: str, rec: dict):
-    """Store response in the in-memory cache (SQLite persistence via _log_request)."""
+    """Store response in the in-memory cache (SQLite persistence via _log_request).
+
+    Skips low-confidence responses: anything that needed grounding (subgraph
+    ID swap), failed dry-run validation, or returned an execution error. These
+    are the responses most likely to be wrong, and caching them locks the
+    error in for an hour. Better to re-route and pay the LLM cost than serve
+    bad data.
+    """
+    if rec.get("grounded_correction"):
+        return  # routing had to swap an ID — don't cache
+    if (rec.get("query_validation") or {}).get("ok") is False:
+        return  # dry-run failed — don't cache
+    if (rec.get("execution_result") or {}).get("error"):
+        return  # executor errored — don't cache
     import time as _time
     _RESPONSE_CACHE[_normalize_cache_key(text)] = (_time.time(), rec)
     if len(_RESPONSE_CACHE) > _MAX_CACHE_ENTRIES:
