@@ -2474,17 +2474,28 @@ def ask_graph_advocate(
         # If the recommendation cites an ID not in the search results, replace
         # it with the top-ranked search hit. Cheaper than paying $0.01 to find
         # out the ID is junk.
-        rec = _ground_subgraph_id(rec, search_context)
-        # Chain-consistency: if the request named a chain (e.g. "Ethereum"),
-        # ensure the picked subgraph_id is on that chain. Catches the case
-        # where Claude's structured output picks a wrong-chain subgraph (BSC
-        # when the user asked for Ethereum) even though its reasoning text
-        # cited the correct chain. Observed 2026-06-08 on a Uniswap V3 Ethereum
-        # query that got the BSC subgraph in query_ready.args.
-        rec = _ground_subgraph_chain(rec, request, search_context)
-        # Inject _meta and dry-run the generated query so we don't hand back
-        # broken GraphQL. Adds rec["query_validation"] = {ok, errors, ...}.
+        # Try Claude's answer AS-IS first. If the dry-run says ok, it survives
+        # whatever the local registry knows or doesn't. Critical because
+        # _ground_subgraph_id used to nuke correct training-knowledge answers
+        # (e.g. canonical Uniswap V3 Ethereum subgraph 5zvR82Q…) when the
+        # registry search didn't include the Ethereum mainnet result. Observed
+        # 2026-06-08 — registry has BSC/Base/Arbitrum but not Ethereum, so the
+        # correct answer got swapped to BSC, then we returned BSC data for an
+        # Ethereum question.
         rec = _validate_and_fix_query(rec)
+        validation = rec.get("query_validation") or {}
+        if validation.get("ok") is not True:
+            # Dry-run failed (bad ID, syntax error, or network) — fall back to
+            # grounding against search results.
+            rec = _ground_subgraph_id(rec, search_context)
+            # Chain-consistency: if the request named a chain (e.g. "Ethereum"),
+            # ensure the picked subgraph_id is on that chain. Catches the case
+            # where Claude's structured output picks a wrong-chain subgraph (BSC
+            # when the user asked for Ethereum) even though its reasoning text
+            # cited the correct chain.
+            rec = _ground_subgraph_chain(rec, request, search_context)
+            # Re-validate the post-grounding query.
+            rec = _validate_and_fix_query(rec)
 
     _log(requesting_agent, request, rec)
 
