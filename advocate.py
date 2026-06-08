@@ -1816,6 +1816,139 @@ def _ground_subgraph_id(rec: dict, search_context: str) -> dict:
     return rec
 
 
+# Map user-facing chain mentions to the `network` value used in the subgraph
+# registry. Whole-word match only — "polygon" would otherwise hit "polygonscan",
+# "base" would hit "database", etc.
+_CHAIN_KEYWORDS = {
+    "mainnet": ["ethereum", "mainnet", "eth mainnet", "l1"],
+    "base": ["base"],
+    "matic": ["polygon", "matic", "polygon pos"],
+    "arbitrum-one": ["arbitrum", "arbitrum one", "arb"],
+    "optimism": ["optimism", "op mainnet"],
+    "bsc": ["bsc", "binance smart chain", "binance chain"],
+    "avalanche": ["avalanche", "avax"],
+    "gnosis": ["gnosis", "xdai"],
+    "celo": ["celo"],
+    "fantom": ["fantom", "ftm"],
+}
+
+
+def _detect_requested_chain(request: str) -> str | None:
+    """Return the registry network slug the user explicitly asked for, or None.
+
+    Whole-word match against `_CHAIN_KEYWORDS` so "polygon" doesn't fire on
+    "polygonscan" and "base" doesn't fire on words like "database". When the
+    request names multiple chains, prefers the first one found in registry-slug
+    order (mainnet beats base if both appear).
+    """
+    if not request:
+        return None
+    lower = " " + request.lower() + " "
+    for network, keywords in _CHAIN_KEYWORDS.items():
+        for kw in keywords:
+            # Pad with non-alphanumerics on both sides to enforce word boundary
+            if (
+                f" {kw} " in lower
+                or f" {kw}." in lower
+                or f" {kw}," in lower
+                or f" {kw}?" in lower
+                or f" {kw}!" in lower
+                or f"({kw} " in lower
+                or f" {kw})" in lower
+            ):
+                return network
+    return None
+
+
+def _ground_subgraph_chain(rec: dict, request: str, search_context: str) -> dict:
+    """When the user explicitly named a chain, ensure the picked subgraph_id
+    actually serves that chain.
+
+    Fixes the observed pattern where Claude correctly identifies the right
+    subgraph for chain X in its reasoning text, but its structured query_ready
+    args end up pointing at the wrong-chain subgraph (e.g. asks about Uniswap
+    V3 Ethereum, picks the BSC subgraph because BSC was the first search hit
+    for "Uniswap V3").
+
+    No-op when:
+      - search_context isn't parseable JSON with results entries
+      - the user didn't name a chain in the request
+      - the recommendation isn't subgraph-registry
+      - the picked subgraph_id is already on the requested chain
+      - no search result on the requested chain is available to swap to
+    """
+    if rec.get("recommendation") != "subgraph-registry":
+        return rec
+    requested_chain = _detect_requested_chain(request)
+    if not requested_chain:
+        return rec
+    if not search_context:
+        return rec
+    try:
+        sc = json.loads(search_context) if search_context.lstrip().startswith("{") else None
+    except Exception:
+        sc = None
+    if not isinstance(sc, dict) or not isinstance(sc.get("results"), list):
+        return rec
+    results = sc["results"]
+    # Map subgraph_id -> network for everything in search results
+    id_to_network = {
+        e.get("subgraph_id"): (e.get("network") or "").lower()
+        for e in results
+        if isinstance(e, dict) and e.get("subgraph_id")
+    }
+    if not id_to_network:
+        return rec
+
+    qr = rec.get("query_ready") or {}
+    targets = qr if isinstance(qr, list) else [qr]
+    chain_fallback = None
+    for entry in results:
+        if not isinstance(entry, dict):
+            continue
+        if (entry.get("network") or "").lower() == requested_chain:
+            chain_fallback = entry.get("subgraph_id")
+            break
+    if not chain_fallback:
+        # Search didn't surface a subgraph on the requested chain — swallow
+        # rather than swap to a wrong-chain ID we'd then have to re-swap.
+        return rec
+
+    swapped = False
+    for t in targets:
+        if not isinstance(t, dict):
+            continue
+        args = t.get("args") or {}
+        present_id = args.get("subgraph_id") or t.get("subgraph_id")
+        if not present_id:
+            continue
+        present_network = id_to_network.get(present_id, "")
+        if present_network and present_network != requested_chain:
+            if isinstance(t.get("args"), dict) and "subgraph_id" in t["args"]:
+                t["args"]["subgraph_id"] = chain_fallback
+            else:
+                t["subgraph_id"] = chain_fallback
+            rec.setdefault("grounded_correction", []).append({
+                "original": present_id,
+                "replaced_with": chain_fallback,
+                "reason": f"chain_mismatch:requested={requested_chain},had={present_network}",
+            })
+            swapped = True
+
+    if swapped:
+        curl = rec.get("curl_example") or ""
+        for entry in rec.get("grounded_correction", []):
+            if entry.get("reason", "").startswith("chain_mismatch"):
+                bad = entry["original"]
+                good = entry["replaced_with"]
+                if bad and bad in curl:
+                    curl = curl.replace(bad, good)
+        if curl:
+            rec["curl_example"] = curl
+
+    return rec
+
+
 def _validate_and_fix_query(rec: dict) -> dict:
     """Inject `_meta` and dry-run any subgraph query in the recommendation.
 
@@ -2342,6 +2475,13 @@ def ask_graph_advocate(
         # it with the top-ranked search hit. Cheaper than paying $0.01 to find
         # out the ID is junk.
         rec = _ground_subgraph_id(rec, search_context)
+        # Chain-consistency: if the request named a chain (e.g. "Ethereum"),
+        # ensure the picked subgraph_id is on that chain. Catches the case
+        # where Claude's structured output picks a wrong-chain subgraph (BSC
+        # when the user asked for Ethereum) even though its reasoning text
+        # cited the correct chain. Observed 2026-06-08 on a Uniswap V3 Ethereum
+        # query that got the BSC subgraph in query_ready.args.
+        rec = _ground_subgraph_chain(rec, request, search_context)
         # Inject _meta and dry-run the generated query so we don't hand back
         # broken GraphQL. Adds rec["query_validation"] = {ok, errors, ...}.
         rec = _validate_and_fix_query(rec)
