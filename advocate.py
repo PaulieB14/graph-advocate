@@ -2229,7 +2229,9 @@ def _auto_search(request: str) -> str:
 
     try:
         if run_subgraph:
-            sg_results = _search_subgraphs(search_term)
+            # Pass the original request as chain-hint source so the search
+            # can boost matching-network entries when the user named a chain.
+            sg_results = _search_subgraphs(search_term, chain_hint_source=req_lower)
             sg_data = json.loads(sg_results)
             if sg_data.get("results"):
                 results.append(f"[LIVE SUBGRAPH SEARCH for '{search_term}']\n{sg_results}")
@@ -3144,19 +3146,32 @@ def _search_8004_agents(query: str) -> str:
         return _search_8004_subgraph(query)
 
 
-_subgraph_search_cache: dict[str, tuple[float, str]] = {}
+_subgraph_search_cache: dict[tuple[str, str], tuple[float, str]] = {}
 _SUBGRAPH_CACHE_TTL = 300  # 5 minutes — hot path for repeat keywords
 
 
-def _search_subgraphs(keyword: str) -> str:
-    """Search the local subgraph registry SQLite DB. In-memory cached for 5 min."""
+def _search_subgraphs(keyword: str, chain_hint_source: str = "") -> str:
+    """Search the local subgraph registry SQLite DB. In-memory cached for 5 min.
+
+    chain_hint_source: optional text (the full request, or anything that may
+    contain a chain mention) used to bias ordering. When the user names a
+    chain (e.g. "Ethereum", "Base"), matching-network entries get sorted
+    above volume-based ranking. Without this, "Uniswap V3" returned 5 non-
+    mainnet entries before the mainnet one — even when the user explicitly
+    asked for Ethereum. Observed root cause of the 2026-06-08 Sylex bug.
+    """
     import sqlite3
     import urllib.request
     import os
     import tempfile
     import time
 
-    key = keyword.lower().strip()
+    # Derive chain hint from the source text (keyword itself + caller-provided
+    # context). Falls back to None when no chain mention is found.
+    chain_hint = _detect_requested_chain(f"{chain_hint_source} {keyword}")
+
+    # Cache key includes chain so different-chain searches don't collide
+    key = (keyword.lower().strip(), chain_hint or "")
     if key in _subgraph_search_cache:
         cached_at, cached_result = _subgraph_search_cache[key]
         if time.time() - cached_at < _SUBGRAPH_CACHE_TTL:
@@ -3191,21 +3206,33 @@ def _search_subgraphs(keyword: str) -> str:
         # context → Claude has no grounding and falls back to training-memory
         # hallucinations. The downstream reader already wraps r["query_hint"]
         # in try/except (IndexError, KeyError), so omitting it is safe.
+        #
+        # ORDER BY: chain_match first (when caller named a chain) so mainnet
+        # entries surface for an Ethereum question even if Base+Arbitrum have
+        # higher absolute volume. Then volume within each chain group. LIMIT
+        # bumped 8→12 so non-matching-chain entries still get represented as
+        # alternatives.
+        params_like = tuple(f"%{keyword}%" for _ in range(5))
+        chain_value = chain_hint or ""
         try:
             rows = conn.execute(
                 """SELECT id, display_name, description, network, query_volume_30d,
                           domain, protocol_type, reliability_score,
-                          active_allocation_count
+                          active_allocation_count,
+                          CASE
+                            WHEN ? != '' AND LOWER(network) = ? THEN 1
+                            ELSE 0
+                          END AS chain_match
                    FROM subgraphs
                    WHERE active_allocation_count > 0
                      AND (display_name LIKE ? OR description LIKE ? OR domain LIKE ?
                           OR categories LIKE ? OR auto_description LIKE ?)
-                   ORDER BY query_volume_30d DESC
-                   LIMIT 8""",
-                tuple(f"%{keyword}%" for _ in range(5)),
+                   ORDER BY chain_match DESC, query_volume_30d DESC
+                   LIMIT 12""",
+                (chain_value, chain_value) + params_like,
             ).fetchall()
         except sqlite3.OperationalError:
-            # Column missing on older DB — fall back to legacy query
+            # Column missing on older DB — fall back to legacy query (no chain awareness)
             rows = conn.execute(
                 """SELECT id, display_name, description, network, query_volume_30d,
                           domain, protocol_type, reliability_score
@@ -3213,8 +3240,8 @@ def _search_subgraphs(keyword: str) -> str:
                    WHERE (display_name LIKE ? OR description LIKE ? OR domain LIKE ?
                           OR categories LIKE ? OR auto_description LIKE ?)
                    ORDER BY query_volume_30d DESC
-                   LIMIT 8""",
-                tuple(f"%{keyword}%" for _ in range(5)),
+                   LIMIT 12""",
+                params_like,
             ).fetchall()
         conn.close()
 
@@ -4064,7 +4091,13 @@ def ask_graph_advocate_chat(
                 if block.type == "tool_use":
                     try:
                         if block.name == "search_subgraphs":
-                            result = _search_subgraphs(block.input.get("keyword", ""))
+                            # Pass the original request as chain-hint source
+                            # so chain-aware ranking kicks in for chat queries
+                            # like "best subgraph for Curve on Ethereum?"
+                            result = _search_subgraphs(
+                                block.input.get("keyword", ""),
+                                chain_hint_source=request,
+                            )
                         elif block.name == "get_subgraph_schema":
                             result = _get_subgraph_schema(block.input.get("subgraph_id", ""))
                         elif block.name == "search_substreams":
