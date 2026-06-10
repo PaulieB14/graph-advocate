@@ -7732,18 +7732,44 @@ def build_app():
         """When AgentExchange tells us a new bot joined, look up its endpoint
         via /bots and send a free A2A partnership intro. Passive outreach
         scaling — every new bot in the network gets GA's offer the moment
-        they appear. Failures logged but never raised."""
+        they appear. Failures logged but never raised.
+
+        Race-condition note: AgentExchange fires `new_bot` events the moment
+        a bot calls /register, BEFORE /bots is reindexed. First observed when
+        packrift's intro fired at 23:13:11 but /bots returned 'not in /bots
+        yet'. Mitigation: retry the directory lookup at 30s and 90s before
+        giving up. Total wait ≤ 2 min in the worst case."""
         import httpx as _httpx
         bot_id = body.get("bot_id") or body.get("id") or ""
         if not bot_id or bot_id.startswith("graph-advocate"):
             return  # don't introduce GA to itself
         try:
             async with _httpx.AsyncClient(timeout=10.0) as client:
-                bots_resp = await client.get("https://agentexchange.work/bots")
-                bots = bots_resp.json().get("bots", [])
-                target = next((b for b in bots if b.get("id") == bot_id), None)
+                # Retry directory lookup to handle the race window.
+                # Delays chosen empirically: AgentExchange's /bots typically
+                # reflects new registrations within ~60s.
+                target = None
+                bots: list = []
+                for attempt, delay_before in enumerate([0, 30, 60]):
+                    if delay_before:
+                        await asyncio.sleep(delay_before)
+                    try:
+                        bots_resp = await client.get("https://agentexchange.work/bots")
+                        bots = bots_resp.json().get("bots", []) or []
+                    except Exception as exc:
+                        log.warning(f"[agent-exchange new_bot] /bots fetch failed (attempt {attempt+1}): {exc}")
+                        continue
+                    target = next((b for b in bots if b.get("id") == bot_id), None)
+                    if target:
+                        if attempt > 0:
+                            log.info(f"[agent-exchange new_bot] bot_id={bot_id} appeared on attempt {attempt+1}")
+                        break
                 if not target:
-                    log.info(f"[agent-exchange new_bot] bot_id={bot_id} not in /bots yet")
+                    log.info(f"[agent-exchange new_bot] bot_id={bot_id} not in /bots after 3 attempts (~90s) — giving up")
+                    _log_request(f"ga-newbot-miss:{bot_id}",
+                                 f"new bot {bot_id} never indexed in /bots within 90s window",
+                                 "agent-exchange-new-bot-miss", "low",
+                                 "not-found", response={"bot_id": bot_id, "attempts": 3})
                     return
                 endpoint = (target.get("endpoint") or "").rstrip("/")
                 caps = target.get("capabilities") or []
