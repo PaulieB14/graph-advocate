@@ -7795,8 +7795,47 @@ def build_app():
         asyncio.create_task(_fulfill_agent_exchange_job(body))
         return JSONResponse({"ok": True, "ack": "graph-advocate"})
 
+    # /admin/prune-activity — delete activity rows by LIKE pattern.
+    # Used for cleaning out smoke-test rows + future operational pruning.
+    # Body: {"like": "%pattern%", "field": "task_id|request|service"} — at
+    # least one of these matches the SQL `<field> LIKE ?`. Returns deleted
+    # count + the rows that were deleted (so the caller can verify or restore).
+    async def prune_activity_endpoint(request: Request):
+        import sqlite3 as _sq
+        if not _check_admin(request):
+            return _unauthorized()
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid json"}, status_code=400)
+        pattern = body.get("like") or ""
+        field = body.get("field") or "task_id"
+        if field not in ("task_id", "request", "service"):
+            return JSONResponse({"error": "field must be task_id|request|service"}, status_code=400)
+        if not pattern or len(pattern) < 4:
+            return JSONResponse({"error": "pattern must be at least 4 chars"}, status_code=400)
+        try:
+            conn = _sq.connect(str(DB_PATH))
+            conn.row_factory = _sq.Row
+            rows = conn.execute(
+                f"SELECT id, timestamp, task_id, service, substr(request, 1, 100) as request "
+                f"FROM activity WHERE {field} LIKE ?", (pattern,)
+            ).fetchall()
+            sample = [dict(r) for r in rows[:30]]
+            n = conn.execute(
+                f"DELETE FROM activity WHERE {field} LIKE ?", (pattern,)
+            ).rowcount
+            conn.commit()
+            conn.close()
+            log.info(f"[admin/prune] deleted {n} rows where {field} LIKE {pattern!r}")
+            return JSONResponse({"ok": True, "deleted": n, "field": field,
+                                 "pattern": pattern, "sample": sample})
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
     # Mount /logs, /dashboard, /chat on top of the A2A app
     extra = Starlette(routes=[
+        Route("/admin/prune-activity", prune_activity_endpoint, methods=["POST"]),
         Route("/webhook/agent-exchange", webhook_agent_exchange, methods=["POST"]),
         Route("/logs", logs_endpoint),
         Route("/dashboard", dashboard_endpoint),
@@ -8090,7 +8129,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/admin/self-test-paid", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip", "/ask")
