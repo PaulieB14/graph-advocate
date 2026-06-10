@@ -7730,12 +7730,15 @@ def build_app():
 
     async def _fulfill_agent_exchange_job(body: dict):
         import httpx as _httpx
-        # Be liberal in what we accept — webhook body shape isn't documented
+        # Be liberal in what we accept — webhook body shape isn't documented.
+        # Parens matter: `A or B if C else None` parses as `A or (B if C else
+        # None)` which silently nukes A when C is false. Wrap the conditional.
+        _job = body.get("job") if isinstance(body.get("job"), dict) else {}
+        _input = body.get("input") if isinstance(body.get("input"), dict) else {}
         job_id = (body.get("job_id") or body.get("id") or body.get("jobId")
-                  or (body.get("job") or {}).get("id") if isinstance(body.get("job"), dict) else None)
+                  or _job.get("id"))
         query = (body.get("query") or body.get("question") or body.get("task")
-                 or body.get("description") or body.get("input", {}).get("query") if isinstance(body.get("input"), dict) else None
-                 or "")
+                 or body.get("description") or _input.get("query") or "")
         if not job_id or not query:
             log.warning(f"[agent-exchange webhook] missing job_id or query: keys={list(body.keys())}")
             _log_request("agent-exchange-job-skipped", str(body)[:300],
