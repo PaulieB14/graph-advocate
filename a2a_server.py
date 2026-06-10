@@ -7721,19 +7721,75 @@ def build_app():
         log.error(f"x402 middleware setup failed: {e}")
 
     # Webhook receivers — external services post job notifications here.
-    # Anonymous (no auth) since these are paid-job pings, not admin actions;
-    # what we log feeds the dashboard so we can see which networks send us
-    # work and act on it manually until a fulfillment loop is built.
+    # Anonymous (no auth); these are paid-job pings, not admin actions.
+    # The handler returns 200 fast and spawns a background fulfillment task
+    # that accepts the job, routes through GA's normal logic, and posts the
+    # result back to Agent Exchange's /complete endpoint. All steps log to
+    # the activity DB so the dashboard reflects the full lifecycle.
+    AGENT_EXCHANGE_BASE = "https://agentexchange.work"
+
+    async def _fulfill_agent_exchange_job(body: dict):
+        import httpx as _httpx
+        # Be liberal in what we accept — webhook body shape isn't documented
+        job_id = (body.get("job_id") or body.get("id") or body.get("jobId")
+                  or (body.get("job") or {}).get("id") if isinstance(body.get("job"), dict) else None)
+        query = (body.get("query") or body.get("question") or body.get("task")
+                 or body.get("description") or body.get("input", {}).get("query") if isinstance(body.get("input"), dict) else None
+                 or "")
+        if not job_id or not query:
+            log.warning(f"[agent-exchange webhook] missing job_id or query: keys={list(body.keys())}")
+            _log_request("agent-exchange-job-skipped", str(body)[:300],
+                         "agent-exchange-job-skipped", "low", "no-id-or-query",
+                         response={"reason": "missing job_id or query"})
+            return
+        try:
+            async with _httpx.AsyncClient(timeout=30.0) as client:
+                # 1. Accept the job
+                accept_resp = await client.post(
+                    f"{AGENT_EXCHANGE_BASE}/jobs/{job_id}/accept",
+                    json={"bot_id": "graph-advocate"},
+                )
+                log.info(f"[agent-exchange] accept job={job_id} status={accept_resp.status_code}")
+                # 2. Route through GA's normal logic
+                from advocate import ask_graph_advocate
+                result, _ = ask_graph_advocate(
+                    query, history=None,
+                    requesting_agent="agent-exchange",
+                )
+                # 3. Complete
+                complete_resp = await client.post(
+                    f"{AGENT_EXCHANGE_BASE}/jobs/{job_id}/complete",
+                    json={"bot_id": "graph-advocate", "result": result},
+                )
+                log.info(f"[agent-exchange] complete job={job_id} status={complete_resp.status_code}")
+                _log_request(f"agent-exchange:{job_id}", query[:300],
+                             "agent-exchange-job", "high", "fulfilled",
+                             response={"accept": accept_resp.status_code,
+                                       "complete": complete_resp.status_code,
+                                       "ga_recommendation": result.get("recommendation"),
+                                       "ga_confidence": result.get("confidence")})
+        except Exception as exc:
+            log.error(f"[agent-exchange] fulfillment failed for job={job_id}: {exc}")
+            _log_request(f"agent-exchange:{job_id}", query[:300],
+                         "agent-exchange-job-failed", "high", "error",
+                         response={"error": str(exc)[:500]})
+
     async def webhook_agent_exchange(request: Request):
         try:
             body = await request.json()
         except Exception:
             body = {}
-        # Surface job in dashboard so we see it land
-        descr = str(body.get("job", body.get("query", body.get("description", body))))[:300]
-        _log_request("agent-exchange-job", descr, "agent-exchange-job", "high",
-                     "matched", response=body if isinstance(body, dict) else {"raw": str(body)[:500]})
-        log.info(f"[agent-exchange webhook] {descr[:120]}")
+        if not isinstance(body, dict):
+            body = {"raw": str(body)[:500]}
+        # Log inbound ping to dashboard
+        descr = str(body.get("query") or body.get("question") or
+                    body.get("task") or body.get("description") or body)[:300]
+        _log_request("agent-exchange-incoming", descr,
+                     "agent-exchange-incoming", "high", "received",
+                     response=body)
+        log.info(f"[agent-exchange webhook] received: {descr[:120]}")
+        # Fire-and-forget fulfillment so the webhook ack is instant
+        asyncio.create_task(_fulfill_agent_exchange_job(body))
         return JSONResponse({"ok": True, "ack": "graph-advocate"})
 
     # Mount /logs, /dashboard, /chat on top of the A2A app
