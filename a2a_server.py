@@ -7720,8 +7720,25 @@ def build_app():
     except Exception as e:
         log.error(f"x402 middleware setup failed: {e}")
 
+    # Webhook receivers — external services post job notifications here.
+    # Anonymous (no auth) since these are paid-job pings, not admin actions;
+    # what we log feeds the dashboard so we can see which networks send us
+    # work and act on it manually until a fulfillment loop is built.
+    async def webhook_agent_exchange(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        # Surface job in dashboard so we see it land
+        descr = str(body.get("job", body.get("query", body.get("description", body))))[:300]
+        _log_request("agent-exchange-job", descr, "agent-exchange-job", "high",
+                     "matched", response=body if isinstance(body, dict) else {"raw": str(body)[:500]})
+        log.info(f"[agent-exchange webhook] {descr[:120]}")
+        return JSONResponse({"ok": True, "ack": "graph-advocate"})
+
     # Mount /logs, /dashboard, /chat on top of the A2A app
     extra = Starlette(routes=[
+        Route("/webhook/agent-exchange", webhook_agent_exchange, methods=["POST"]),
         Route("/logs", logs_endpoint),
         Route("/dashboard", dashboard_endpoint),
         Route("/dashboard/data", dashboard_data_endpoint),
