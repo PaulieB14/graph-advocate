@@ -7728,8 +7728,78 @@ def build_app():
     # the activity DB so the dashboard reflects the full lifecycle.
     AGENT_EXCHANGE_BASE = "https://agentexchange.work"
 
+    async def _maybe_intro_new_bot(body: dict):
+        """When AgentExchange tells us a new bot joined, look up its endpoint
+        via /bots and send a free A2A partnership intro. Passive outreach
+        scaling — every new bot in the network gets GA's offer the moment
+        they appear. Failures logged but never raised."""
+        import httpx as _httpx
+        bot_id = body.get("bot_id") or body.get("id") or ""
+        if not bot_id or bot_id.startswith("graph-advocate"):
+            return  # don't introduce GA to itself
+        try:
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                bots_resp = await client.get("https://agentexchange.work/bots")
+                bots = bots_resp.json().get("bots", [])
+                target = next((b for b in bots if b.get("id") == bot_id), None)
+                if not target:
+                    log.info(f"[agent-exchange new_bot] bot_id={bot_id} not in /bots yet")
+                    return
+                endpoint = (target.get("endpoint") or "").rstrip("/")
+                caps = target.get("capabilities") or []
+                if not endpoint.startswith("http"):
+                    return
+                # Send a tight, agent-decision-loop framed intro
+                intro = (
+                    "Graph Advocate here — welcoming you to Agent Exchange. "
+                    "If your callers ever ask about on-chain data (subgraphs, token balances, "
+                    "Polymarket PnL, Hyperliquid positions, Aave liquidation risk, or any "
+                    "of our 13 services at https://graphadvocate.com/openapi.json), I'm a "
+                    "$0.01-0.10 routing service paid via x402 USDC on Base. "
+                    "Happy to integrate if useful. Your capabilities: " + str(caps)
+                )
+                payload = {
+                    "jsonrpc": "2.0", "id": f"ga-newbot-intro-{bot_id}",
+                    "method": "message/send",
+                    "params": {
+                        "metadata": {"sender": "Graph Advocate", "from_agent_id": "42161:734"},
+                        "message": {
+                            "role": "user",
+                            "messageId": f"ga-newbot-intro-{bot_id}",
+                            "parts": [{"kind": "text", "text": intro}],
+                        },
+                    },
+                }
+                r = await client.post(endpoint, json=payload, follow_redirects=True)
+                log.info(f"[agent-exchange new_bot] intro -> bot_id={bot_id} endpoint={endpoint} status={r.status_code}")
+                _log_request(f"ga-newbot-intro:{bot_id}",
+                             f"auto-intro to new AgentExchange bot {bot_id} ({caps})",
+                             "agent-exchange-new-bot-intro", "high",
+                             "sent" if 200 <= r.status_code < 300 else f"http-{r.status_code}",
+                             response={"bot_id": bot_id, "endpoint": endpoint,
+                                       "status": r.status_code,
+                                       "reply": (r.text[:300] if r.status_code < 400 else None)})
+        except Exception as exc:
+            log.warning(f"[agent-exchange new_bot] intro failed for {bot_id}: {exc}")
+
     async def _fulfill_agent_exchange_job(body: dict):
         import httpx as _httpx
+        # Route by event type. AgentExchange pushes 3 shapes to subscribers:
+        #   - {event: "new_bot", bot_id, capability, ...}     ← auto-intro
+        #   - {event: "commons_post", bot_id, type, ...}      ← log as opportunity
+        #   - {job_id, query, ...}                            ← real job, fulfill
+        ev = body.get("event")
+        if ev == "new_bot":
+            await _maybe_intro_new_bot(body)
+            return
+        if ev == "commons_post":
+            # Log marketplace events as opportunities; no auto-action since
+            # most will be off-topic for GA. Surfaces in dashboard for review.
+            _log_request(f"ae-commons:{body.get('bot_id','?')}",
+                         f"{body.get('type','?')} from {body.get('bot_id','?')} ({body.get('capability','?')})",
+                         "agent-exchange-commons-opportunity", "low",
+                         "logged", response=body)
+            return
         # Be liberal in what we accept — webhook body shape isn't documented.
         # Parens matter: `A or B if C else None` parses as `A or (B if C else
         # None)` which silently nukes A when C is false. Wrap the conditional.
