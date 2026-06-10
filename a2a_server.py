@@ -3344,6 +3344,29 @@ def _build_dashboard_data() -> dict:
     # Collapse identical-body repeats (e.g. Sylex Commons intro broadcast)
     # into a single row carrying a `dup_count` so the dashboard reflects
     # real traffic shape instead of being flooded by one bot's polling.
+    # Strip cache-bust nonces ("(wa37zh)", "(0eonb2)" etc.) before dedup so
+    # "Top 10 Curve pools (wa37zh)" and "Top 10 Curve pools (0eonb2)" group
+    # as one row — caller agents add these suffixes to defeat caching.
+    import re as _re
+    _NONCE_RE = _re.compile(r"\s*\([A-Za-z0-9]{4,8}\)\s*$")
+    def _canon_req(s: str) -> str:
+        return _NONCE_RE.sub("", s).strip().lower()
+
+    def _categorize(service: str, task_id: str) -> str:
+        if task_id in ("x402-paid", "x402-tip"):
+            return "paid"
+        if service in ("introduction", "awaiting-request", "conformance",
+                       "operational-confirmation", "registry-info"):
+            return "intro"
+        if service in ("out-of-scope", "rate-limited", "unknown",
+                       "no-match", "unclear-request", "clarification-needed"):
+            return "noise"
+        if service in ("payment-required", "x402-failed"):
+            return "challenge"
+        if service == "chat":
+            return "chat"
+        return "query"
+
     recent = []
     seen_keys: dict = {}
     for r in logs:
@@ -3352,7 +3375,7 @@ def _build_dashboard_data() -> dict:
         ts = r.get("ts", "")
         req = r.get("request", "")[:200]
         service = r.get("service", "unknown")
-        dedup_key = (service, req.strip().lower())
+        dedup_key = (service, _canon_req(req))
         if dedup_key in seen_keys:
             recent[seen_keys[dedup_key]]["dup_count"] += 1
             continue
@@ -3395,6 +3418,7 @@ def _build_dashboard_data() -> dict:
             "query_tool": query_tool,
             "response_preview": response_preview,
             "dup_count": 1,
+            "category": _categorize(service, r.get("task_id", "?")),
         })
 
     fetch_addr = ""
@@ -4020,6 +4044,27 @@ async def dashboard_endpoint(request: Request):
           <option value="">All services</option>
         </select>
       </div>
+      <div id="feed-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px 0">
+        <button class="feed-chip" data-cat="real" title="Real customer queries + paid calls">💬 Real <span class="chip-count" id="cnt-real">0</span></button>
+        <button class="feed-chip" data-cat="paid" title="x402-paid + tips">💰 Paid only <span class="chip-count" id="cnt-paid">0</span></button>
+        <button class="feed-chip" data-cat="intro" title="Handshake / introduction / pings">👋 Intro <span class="chip-count" id="cnt-intro">0</span></button>
+        <button class="feed-chip" data-cat="noise" title="Out-of-scope / rate-limited / unclear">🔇 Noise <span class="chip-count" id="cnt-noise">0</span></button>
+        <button class="feed-chip" data-cat="all" title="Everything">All <span class="chip-count" id="cnt-all">0</span></button>
+      </div>
+      <style>
+        .feed-chip{padding:6px 12px;border-radius:999px;font-size:0.78rem;font-weight:600;
+          background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-muted);
+          cursor:pointer;transition:all 0.18s;display:inline-flex;align-items:center;gap:6px}
+        .feed-chip:hover{background:var(--bg-card-hover);color:var(--text-bright)}
+        .feed-chip.active{background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border-color:transparent;box-shadow:0 2px 12px rgba(99,102,241,0.3)}
+        .chip-count{background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:999px;font-size:0.7rem;font-weight:700}
+        .feed-chip.active .chip-count{background:rgba(255,255,255,0.2)}
+        .row-cat-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.68rem;
+          font-weight:600;margin-left:6px;text-transform:uppercase;letter-spacing:0.04em}
+        .row-cat-badge.cat-intro{background:rgba(148,163,184,0.15);color:#94a3b8}
+        .row-cat-badge.cat-noise{background:rgba(248,113,113,0.12);color:#f87171}
+        .row-cat-badge.cat-challenge{background:rgba(251,191,36,0.12);color:#fbbf24}
+      </style>
       <div class="feed feed-large" id="feed"></div>
     </div>
   </div>
@@ -4365,10 +4410,17 @@ function renderFeed(recent) {
       ? `<span class="badge" title="This exact (service, request) repeated ${dupCount}× in the recent window" style="margin-left:6px;background:rgba(99,102,241,0.15);color:#a5b4fc;font-weight:600;padding:2px 6px;border-radius:4px;font-size:0.75rem">×${dupCount}</span>`
       : '';
     const rowClass = isPaid ? 'feed-row feed-row-paid' : 'feed-row';
+    // Category badge — distinguishes intro/noise/challenge rows when the user
+    // toggles to a view that includes them.  Only shown for non-default
+    // categories so paid/query rows stay visually clean.
+    const cat = r.category || 'query';
+    const catBadge = (cat === 'intro' || cat === 'noise' || cat === 'challenge')
+      ? `<span class="row-cat-badge cat-${cat}">${cat}</span>`
+      : '';
 
     html += `<div class="${rowClass}" onclick="toggleFeedRow(${idx})" style="cursor:pointer${isPaid ? ';background:rgba(16,185,129,0.06);border-left:2px solid #10b981' : ''}">
       <div class="feed-time">${r.time}</div>
-      <div class="feed-req" title="${escapeHtml(r.request)}">${escapeHtml(r.request.slice(0, 100))}${r.request.length > 100 ? '…' : ''}${paidBadge}${dupBadge}</div>
+      <div class="feed-req" title="${escapeHtml(r.request)}">${escapeHtml(r.request.slice(0, 100))}${r.request.length > 100 ? '…' : ''}${paidBadge}${dupBadge}${catBadge}</div>
       ${svcBadge(r.service)}
       <div class="feed-from">${senderLabel(r.task_id)}</div>`;
     let detail = '';
@@ -4414,14 +4466,43 @@ document.addEventListener('DOMContentLoaded', () => {
   const svcSel = document.getElementById('feed-service');
   if (filt) filt.addEventListener('input', applyFeedFilter);
   if (svcSel) svcSel.addEventListener('change', applyFeedFilter);
+  // Wire category chips + restore previous selection
+  document.querySelectorAll('.feed-chip').forEach(b => {
+    b.addEventListener('click', () => setFeedCat(b.dataset.cat));
+    if (b.dataset.cat === _feedCat) b.classList.add('active');
+  });
 });
 
 // ── Feed filtering ──────────────────────────────────────────────────────
 let _feedCache = [];
+// Category chip state — persists across refreshes so the user's choice sticks.
+// 'real' (= paid + query + chat) is the default since it answers "what are
+// actual customers asking" — intro/noise are operational chatter.
+let _feedCat = (function(){
+  try { return localStorage.getItem('ga-feed-cat') || 'real'; } catch(e){ return 'real'; }
+})();
+function _matchesCat(r, cat) {
+  const c = r.category || 'query';
+  if (cat === 'all') return true;
+  if (cat === 'real') return c === 'paid' || c === 'query' || c === 'chat';
+  if (cat === 'paid') return c === 'paid';
+  if (cat === 'intro') return c === 'intro';
+  if (cat === 'noise') return c === 'noise' || c === 'challenge';
+  return true;
+}
+function setFeedCat(cat) {
+  _feedCat = cat;
+  try { localStorage.setItem('ga-feed-cat', cat); } catch(e){}
+  document.querySelectorAll('.feed-chip').forEach(b => {
+    b.classList.toggle('active', b.dataset.cat === cat);
+  });
+  applyFeedFilter();
+}
 function applyFeedFilter() {
   const q = (document.getElementById('feed-filter')?.value || '').toLowerCase();
   const svc = document.getElementById('feed-service')?.value || '';
   const filtered = _feedCache.filter(r => {
+    if (!_matchesCat(r, _feedCat)) return false;
     if (svc && r.service !== svc) return false;
     if (!q) return true;
     return (r.request || '').toLowerCase().includes(q)
@@ -4429,6 +4510,20 @@ function applyFeedFilter() {
       || (r.task_id || '').toLowerCase().includes(q);
   });
   renderFeed(filtered);
+}
+function _updateChipCounts() {
+  const tally = { real: 0, paid: 0, intro: 0, noise: 0, all: _feedCache.length };
+  _feedCache.forEach(r => {
+    const c = r.category || 'query';
+    if (c === 'paid' || c === 'query' || c === 'chat') tally.real++;
+    if (c === 'paid') tally.paid++;
+    if (c === 'intro') tally.intro++;
+    if (c === 'noise' || c === 'challenge') tally.noise++;
+  });
+  Object.keys(tally).forEach(k => {
+    const el = document.getElementById('cnt-' + k);
+    if (el) el.textContent = tally[k];
+  });
 }
 
 // ── Main refresh loop ───────────────────────────────────────────────────
@@ -4450,6 +4545,7 @@ async function refresh() {
 
     // Populate feed cache and service filter
     _feedCache = d.recent || [];
+    _updateChipCounts();
     const svcSel = document.getElementById('feed-service');
     if (svcSel) {
       const services = [...new Set(_feedCache.map(r => r.service))].filter(Boolean).sort();
@@ -5203,7 +5299,10 @@ async def chat_post(request: Request):
     """Handle chat messages via Haiku."""
     import uuid
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"reply": "Invalid JSON body."}, status_code=400)
     message = (body.get("message") or "").strip()
     if not message:
         return JSONResponse({"reply": "Please enter a message."})
