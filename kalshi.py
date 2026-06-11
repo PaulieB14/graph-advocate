@@ -17,10 +17,16 @@ derived scores that passthrough APIs structurally can't replicate.
    live-mispricing detection on sports markets — unique to Kalshi.
 
 All Kalshi calls are public (no auth). Uses httpx async.
+
+Response-quality improvements (2026-06-11): each function now does
+input-format validation and returns helpful "did_you_mean" suggestions
+when the requested entity doesn't exist, so a fat-fingered caller can
+retry intelligently without re-paying.
 """
 from __future__ import annotations
 import asyncio
 import json
+import re
 import time
 import logging
 import os
@@ -40,6 +46,28 @@ _UA = {"User-Agent": "graph-advocate/1.0", "accept": "application/json"}
 # 1. Event consensus trend
 # ===========================================================================
 
+_EVENT_TICKER_RE = re.compile(r"^KX[A-Z0-9][A-Z0-9_\-]*$")
+
+
+async def _suggest_active_events(c: httpx.AsyncClient, limit: int = 5) -> list[dict]:
+    """Fetch a handful of currently-open events to suggest to a caller
+    whose lookup missed. Best-effort — failures return empty list."""
+    try:
+        r = await c.get(f"{KALSHI_BASE}/events",
+                        params={"limit": limit, "status": "open"})
+        if r.status_code != 200:
+            return []
+        ev = r.json().get("events", []) or []
+        return [
+            {"event_ticker": e.get("event_ticker"),
+             "title": (e.get("title") or "")[:120],
+             "category": e.get("category")}
+            for e in ev[:limit] if e.get("event_ticker")
+        ]
+    except Exception:
+        return []
+
+
 async def kalshi_event_consensus_trend(event_ticker: str) -> dict:
     """Slope + acceleration of Kalshi's published consensus probability.
 
@@ -49,12 +77,37 @@ async def kalshi_event_consensus_trend(event_ticker: str) -> dict:
     the regression.
     """
     event_ticker = event_ticker.strip().upper()
+
+    # Input-format validation. Kalshi tickers all start with "KX" by
+    # convention. Reject obviously-garbage early with a helpful hint so
+    # the caller (who already paid) at least learns the format to retry with.
+    if not _EVENT_TICKER_RE.match(event_ticker):
+        async with httpx.AsyncClient(timeout=8.0, headers=_UA) as c:
+            suggestions = await _suggest_active_events(c, limit=5)
+        return {
+            "error": "invalid_event_ticker_format",
+            "ticker_tried": event_ticker,
+            "expected_format": "Kalshi event tickers start with KX and use uppercase A-Z, digits, hyphens, underscores. Example: KXNEWPOPE-70, KXFED-25DEC-CUT25.",
+            "did_you_mean": suggestions,
+            "discover": f"{KALSHI_BASE}/events?status=open — listing of currently-open events you can pick a ticker from.",
+        }
+
     async with httpx.AsyncClient(timeout=10.0, headers=_UA) as c:
         try:
             r = await c.get(f"{KALSHI_BASE}/events/{event_ticker}")
             if r.status_code != 200:
-                return {"error": "event_not_found", "event_ticker": event_ticker,
-                        "kalshi_status": r.status_code}
+                # Event format was valid but Kalshi has no record. Offer a
+                # short list of active events as fallback. This costs ~1
+                # extra Kalshi call but turns a dead end into a retry path.
+                suggestions = await _suggest_active_events(c, limit=5)
+                return {
+                    "error": "event_not_found",
+                    "event_ticker": event_ticker,
+                    "kalshi_status": r.status_code,
+                    "did_you_mean": suggestions,
+                    "discover": f"{KALSHI_BASE}/events?status=open",
+                    "note": "Ticker format was valid but Kalshi returned 404. Suggestions above are currently-open events you could pivot to.",
+                }
             ev = r.json().get("event", {}) or {}
             markets = (r.json().get("markets") or [])
             r2 = await c.get(f"{KALSHI_BASE}/events/{event_ticker}/forecast_history",
@@ -133,7 +186,32 @@ async def kalshi_event_consensus_trend(event_ticker: str) -> dict:
         except Exception:
             pass
 
+    # Distinguish three valid-event cases: rich history, exists-but-no-history-yet,
+    # and exists-but-Kalshi-hasn't-snapshotted-forecast. The middle case is the
+    # frustrating one — the event exists but the trend signal is empty.
+    if len(points) == 0:
+        status = "no_forecast_history_yet"
+        note = (
+            "Event exists on Kalshi but no forecast snapshots have been recorded yet. "
+            "Common for newly-listed events or markets with very thin trading. Retry "
+            "in 24h or pick a more-active event in the same category."
+        )
+    elif len(points) < 5:
+        status = "thin_forecast_history"
+        note = (
+            f"Only {len(points)} forecast snapshots available. Slope/acceleration are "
+            "computed but treat as low-confidence — wait until 24h of data accrues."
+        )
+    else:
+        status = "ok"
+        note = (
+            "Forecast history is Kalshi's published consensus probability over time. "
+            "Use slope+acceleration to detect regime changes before they're priced in. "
+            "Pair with /kalshi-polymarket-spread for cross-source arbitrage."
+        )
+
     return {
+        "status": status,
         "kalshi_event_ticker": event_ticker,
         "event_title": ev.get("title"),
         "category": ev.get("category"),
@@ -152,11 +230,7 @@ async def kalshi_event_consensus_trend(event_ticker: str) -> dict:
         "markets_in_event": len(markets),
         "history_points_analyzed": len(points),
         "kalshi_source": f"{KALSHI_BASE}/events/{event_ticker}/forecast_history",
-        "agent_note": (
-            "Forecast history is Kalshi's published consensus probability over time. "
-            "Use slope+acceleration to detect regime changes before they're priced in. "
-            "Pair with /kalshi-polymarket-spread for cross-source arbitrage."
-        ),
+        "agent_note": note,
     }
 
 
@@ -173,6 +247,18 @@ async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
     keyword = topic_keyword.strip()
     if not keyword:
         return {"error": "topic_keyword_required"}
+    # Validate keyword length — single-char garbage like "X" matches too
+    # much noise and is almost certainly a probe. Return guidance instead.
+    if len(keyword) < 3:
+        return {
+            "error": "topic_keyword_too_short",
+            "topic_tried": keyword,
+            "expected": "Use a 3+ character topic (e.g. 'fed rate', 'super bowl', 'election', 'btc price').",
+            "example_topics": [
+                "fed rate", "super bowl", "presidential", "btc",
+                "world cup", "pope", "oscars", "inflation"
+            ],
+        }
     limit = max(1, min(int(limit), 10))
 
     headers_pinax = dict(_UA)
@@ -272,23 +358,97 @@ async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
 
     pairs.sort(key=lambda p: abs(p["spread_yes_kalshi_minus_poly"]), reverse=True)
 
+    # Classify the result so the caller knows what to do next.
+    if pairs:
+        status = "ok"
+        agent_note = (
+            "Spread > 200bps in either direction is a candidate arbitrage; verify the "
+            "two markets actually resolve on the same condition before sizing."
+        )
+    elif kalshi_hits and not poly_hits:
+        status = "kalshi_only"
+        agent_note = (
+            f"Topic '{keyword}' matched {len(kalshi_hits)} Kalshi markets but 0 on "
+            "Polymarket — no cross-source spread available. Either Polymarket has no "
+            "equivalent market, or your topic keyword doesn't overlap the Polymarket "
+            "slug/question. Try a broader keyword (e.g. swap 'fed rate cut december' for 'fed rate')."
+        )
+    elif poly_hits and not kalshi_hits:
+        status = "polymarket_only"
+        agent_note = (
+            f"Topic '{keyword}' matched {len(poly_hits)} Polymarket markets but 0 on "
+            "Kalshi — no cross-source spread available. Kalshi tends to phrase political "
+            "events differently (e.g. 'KXPRES-2028' rather than 'next-president'). Try "
+            "broadening or rephrasing the topic keyword."
+        )
+    else:
+        status = "no_matches"
+        # Best-effort fallback: show the caller a few candidate topics from
+        # each side so they can pivot. Just the top-volume sample we already have.
+        kalshi_sample = [
+            {"ticker": m.get("ticker"),
+             "title": (m.get("subtitle") or m.get("title") or "")[:80]}
+            for m in kalshi_markets[:5] if m.get("ticker")
+        ]
+        poly_sample = [
+            {"slug": m.get("market_slug"),
+             "question": (m.get("question") or "")[:80]}
+            for m in poly_markets[:5] if m.get("market_slug")
+        ]
+        return {
+            "status": "no_matches",
+            "topic_keyword": keyword,
+            "kalshi_candidates": 0,
+            "polymarket_candidates": 0,
+            "pairs": [],
+            "did_you_mean": {
+                "kalshi_active": kalshi_sample,
+                "polymarket_active": poly_sample,
+            },
+            "agent_note": (
+                f"No markets on either Kalshi or Polymarket matched '{keyword}'. "
+                "Sample active markets shown above — pick a keyword that appears in "
+                "one of their titles. Common high-volume topics: fed rate, super bowl, "
+                "presidential, btc price, world cup, oscars."
+            ),
+            "sources": {"kalshi": KALSHI_BASE, "polymarket": "token-api proxy"},
+        }
+
     return {
+        "status": status,
         "topic_keyword": keyword,
         "kalshi_candidates": len(kalshi_hits),
         "polymarket_candidates": len(poly_hits),
         "pairs": pairs,
-        "agent_note": (
-            "Spread > 200bps in either direction is a candidate arbitrage; verify the "
-            "two markets actually resolve on the same condition before sizing. "
-            "Cross-source data Pinax can't return in one call."
-        ),
-        "sources": {"kalshi": KALSHI_BASE, "polymarket_via": "pinax-token-api"},
+        "agent_note": agent_note,
+        "sources": {"kalshi": KALSHI_BASE, "polymarket": "token-api proxy"},
     }
 
 
 # ===========================================================================
 # 3. Sports live-edge — combine play-by-play + market candlesticks
 # ===========================================================================
+
+async def _suggest_active_milestones(c: httpx.AsyncClient, limit: int = 5) -> list[dict]:
+    """Fetch a handful of currently-active sports milestones for the
+    not-found fallback. Best-effort — failures return empty list."""
+    try:
+        r = await c.get(f"{KALSHI_BASE}/milestones", params={"limit": limit})
+        if r.status_code != 200:
+            return []
+        ms = r.json().get("milestones", []) or []
+        return [
+            {"milestone_id": m.get("id"),
+             "category": m.get("category"),
+             "title": (m.get("name") or m.get("title") or "")[:120]}
+            for m in ms[:limit] if m.get("id")
+        ]
+    except Exception:
+        return []
+
+
+_MILESTONE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]{2,}$")
+
 
 async def kalshi_sports_live_edge(milestone_id: str, market_ticker: Optional[str] = None) -> dict:
     """Live-mispricing signal for Kalshi sports markets.
@@ -300,15 +460,46 @@ async def kalshi_sports_live_edge(milestone_id: str, market_ticker: Optional[str
     if not milestone_id:
         return {"error": "milestone_id_required"}
 
+    # Format validation. Milestone IDs are at least a few chars of alphanumerics
+    # + dashes/underscores; single-char placeholder like "X" fails this.
+    if not _MILESTONE_ID_RE.match(milestone_id):
+        async with httpx.AsyncClient(timeout=8.0, headers=_UA) as c:
+            suggestions = await _suggest_active_milestones(c, limit=5)
+        return {
+            "error": "invalid_milestone_id_format",
+            "milestone_tried": milestone_id,
+            "expected_format": "Milestone IDs are 3+ chars of letters/digits/dashes/underscores. Discover live ones via GET /milestones on api.elections.kalshi.com.",
+            "did_you_mean": suggestions,
+            "discover": f"{KALSHI_BASE}/milestones",
+        }
+
     async with httpx.AsyncClient(timeout=10.0, headers=_UA) as c:
+        # Probe milestone existence first via the metadata endpoint. That
+        # lets us distinguish "milestone doesn't exist" from "milestone
+        # exists but has no game_stats yet" — the latter is normal for
+        # pre-game or just-started games.
+        try:
+            r_md = await c.get(f"{KALSHI_BASE}/live_data/milestone/{milestone_id}")
+        except Exception as exc:
+            return {"error": "kalshi_unreachable", "detail": str(exc)[:200]}
+
+        if r_md.status_code != 200:
+            suggestions = await _suggest_active_milestones(c, limit=5)
+            return {
+                "error": "milestone_not_found",
+                "milestone_id": milestone_id,
+                "kalshi_status": r_md.status_code,
+                "did_you_mean": suggestions,
+                "discover": f"{KALSHI_BASE}/milestones",
+                "note": "Format was valid but Kalshi returned 404 on the metadata lookup. Suggestions above are currently-active milestones.",
+            }
+        ms_md = r_md.json() if isinstance(r_md.json(), dict) else {}
+
         try:
             r_stats = await c.get(f"{KALSHI_BASE}/live_data/milestone/{milestone_id}/game_stats")
             stats = r_stats.json() if r_stats.status_code == 200 else {}
         except Exception as exc:
-            return {"error": "kalshi_unreachable", "detail": str(exc)[:200]}
-
-        r_md = await c.get(f"{KALSHI_BASE}/live_data/milestone/{milestone_id}")
-        ms_md = r_md.json() if r_md.status_code == 200 else {}
+            stats = {}
 
         candles = []
         if market_ticker:
@@ -357,7 +548,43 @@ async def kalshi_sports_live_edge(milestone_id: str, market_ticker: Optional[str
         else:
             latency_arb_signal = "market-tracking-stats"
 
+    # Classify the result so the caller doesn't have to look at every null.
+    has_plays = len(last_5_events) > 0
+    has_candles = len(candles) > 0
+    if has_plays and has_candles:
+        status = "ok"
+        agent_note = (
+            "Latency-arb signal flags when game momentum and market price diverge "
+            "for >1 minute. Verify with /markets/{ticker}/orderbook before sizing — "
+            "low liquidity will eat the edge."
+        )
+    elif has_plays and not has_candles and market_ticker:
+        status = "no_market_candles"
+        agent_note = (
+            f"Play-by-play data is available for milestone {milestone_id}, but no "
+            f"candlestick history was returned for market_ticker '{market_ticker}'. "
+            "Check the ticker matches the milestone — they have to be a paired "
+            "(game, market) combo. Use GET /markets?event_ticker=<event> to find the "
+            "right market ticker."
+        )
+    elif has_plays and not market_ticker:
+        status = "no_market_ticker_supplied"
+        agent_note = (
+            "Play-by-play available but you didn't pass a `market` ticker, so I "
+            "can't compute market_reaction_pct or the latency-arb signal. Pass the "
+            "Kalshi market ticker for the game outcome (e.g. KXNFLGAME-…-WINNER-AWAY)."
+        )
+    else:
+        status = "milestone_exists_but_no_plays_yet"
+        agent_note = (
+            "Milestone exists on Kalshi but no play-by-play events have been "
+            "recorded yet. Common for: (a) game hasn't started, (b) milestone is "
+            "pre-game only, or (c) Kalshi's live-data feed lags by a few seconds. "
+            "Retry in 30-60s."
+        )
+
     return {
+        "status": status,
         "milestone_id": milestone_id,
         "milestone_meta": ms_md.get("milestone") if isinstance(ms_md, dict) else None,
         "market_ticker": market_ticker,
@@ -366,11 +593,7 @@ async def kalshi_sports_live_edge(milestone_id: str, market_ticker: Optional[str
         "latency_arbitrage_signal": latency_arb_signal,
         "last_5_events": last_5_events,
         "candles_returned": len(candles),
-        "agent_note": (
-            "Latency-arb signal flags when game momentum and market price diverge "
-            "for >1 minute. Verify with /markets/{ticker}/orderbook before sizing — "
-            "low liquidity will eat the edge."
-        ),
+        "agent_note": agent_note,
         "sources": {
             "play_by_play": f"{KALSHI_BASE}/live_data/milestone/{milestone_id}/game_stats",
             "market_candles": (
