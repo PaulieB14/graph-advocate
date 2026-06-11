@@ -7819,6 +7819,66 @@ def build_app():
                             output=OutputConfig(example={"coin":"BTC","fill_count":10,"summary":{"buy_count":4,"sell_count":6,"notional_usdc":2342.15,"whale_fill_count":0,"unique_users":8},"fills":[{"side":"ASK","price":73430,"size":0.00084,"notional":61.68,"user":"0x1738e6cb…","direction":"OPEN_SHORT","fee":0.048,"timestamp":"2026-05-28 17:22:28"}]},schema={"type":"object"}),
                         )},
                     ),
+                    # ── Kalshi derived-signal endpoints (3) ─────────────────
+                    "POST /kalshi/consensus-trend": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Kalshi consensus-probability trajectory. POST {event}. Wraps Kalshi's "
+                            "unique /events/{ticker}/forecast_history (no other PM exposes formatted "
+                            "forecast percentile history). Returns slope-per-hour over 24h and 3d, "
+                            "acceleration signal (regime change indicator), volatility band, days to "
+                            "resolve, and a stable/accelerating-up/accelerating-down interpretation."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"event":"KXELONMARS-99"},
+                            input_schema={"type":"object","properties":{"event":{"type":"string","description":"Kalshi event ticker (e.g. KXFOO-23)"}},"required":["event"]},
+                            body_type="json",
+                            output=OutputConfig(example={"kalshi_event_ticker":"KXELONMARS-99","event_title":"Will Elon Musk visit Mars in his lifetime?","consensus_probability_now":0.18,"slope_per_hour_24h":-0.0004,"slope_per_hour_3d":-0.0001,"acceleration_signal":-0.0003,"interpretation":"accelerating-down","volatility_24h_stdev":0.012,"days_to_resolve":3287.4},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /kalshi-polymarket/spread": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Cross-source arbitrage spread between Kalshi and Polymarket on a topic. "
+                            "POST {topic, limit?}. Pulls matching markets from both venues (Politics "
+                            "+ Elections overlap heavily), computes price mid-spread + arbitrage "
+                            "direction. JOIN that single-source passthrough APIs (incl. Pinax Token "
+                            "API) structurally can't return — this is what survives Pinax shipping "
+                            "Kalshi support later."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"topic":"fed rate","limit":5},
+                            input_schema={"type":"object","properties":{"topic":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10,"default":5}},"required":["topic"]},
+                            body_type="json",
+                            output=OutputConfig(example={"topic_keyword":"fed rate","kalshi_candidates":3,"polymarket_candidates":2,"pairs":[{"kalshi_ticker":"KXFED-25DEC-CUT25","kalshi_yes_mid":0.62,"polymarket_market_slug":"fed-rate-cut-december","polymarket_yes_mid":0.58,"spread_yes_kalshi_minus_poly":0.04,"spread_bps":400,"arbitrage_direction":"long-poly-short-kalshi"}]},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /kalshi/sports-live-edge": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Live sports-market mispricing detector. POST {milestone, market?}. "
+                            "Combines Kalshi's public play-by-play game_stats (Football/Basketball/"
+                            "Soccer/Hockey/Baseball/WNBA) with market candlesticks over the last "
+                            "hour to flag latency-arb windows when in-game momentum and market "
+                            "price diverge. Returns momentum_score, market_reaction_pct, and a "
+                            "directional latency-arb signal."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"milestone":"NFLGAME-XYZ-1","market":"KXNFLGAME-XYZ-WINNER-AWAY"},
+                            input_schema={"type":"object","properties":{"milestone":{"type":"string","description":"Kalshi sports milestone id"},"market":{"type":"string","description":"Optional ticker for candlestick reaction comparison"}},"required":["milestone"]},
+                            body_type="json",
+                            output=OutputConfig(example={"milestone_id":"NFLGAME-XYZ-1","momentum_score_last_5_events":0.8,"market_reaction_pct_last_hour":0.4,"latency_arbitrage_signal":"upside-lag-likely","candles_returned":60},schema={"type":"object"}),
+                        )},
+                    ),
                 },
                 server=x402_server,
             )
