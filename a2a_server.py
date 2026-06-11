@@ -3092,25 +3092,12 @@ def _get_onchain_stats() -> dict:
     # USDC total: group by service, multiply count by per-endpoint price,
     # sum. Service tags without a known price (e.g. 'tip' = variable amount)
     # are skipped from the dollar total but still counted toward x402_log_count.
-    SERVICE_PRICE_USDC = {
-        "x402-paid": 0.01,               # /route default
-        "polymarket-pnl-quick": 0.02,
-        "polymarket-pnl": 0.05,
-        "polymarket-screen": 0.02,
-        "polymarket-risk": 0.02,
-        "hyperliquid-score": 0.02,
-        "hyperliquid-pnl": 0.05,
-        "hyperliquid-screen": 0.05,
-        "hyperliquid-vault": 0.10,
-        "hyperliquid-risk": 0.02,
-        "hyperliquid-fills": 0.02,
-        "kalshi-consensus-trend": 0.05,
-        "kalshi-polymarket-spread": 0.05,
-        "kalshi-sports-live-edge": 0.05,
-        "ask": 0.05,
-        "onchain-x402-address": 0.05,
-        # tip / x402-tip are variable — skip from dollar total
-    }
+    # Per-call price is derived from the `request` field's prefix because
+    # _normalize_service collapses polymarket-* and hyperliquid-* into the
+    # bucket tags 'polymarket-token-api' and 'hyperliquid-token-api' which
+    # span 4-6 different prices each. The request descriptor written by
+    # each handler ('pm-risk 0x12…', 'hl-vault 0xab…', 'kalshi-consensus KX…')
+    # IS reliable — that's what we key on.
     try:
         conn = _sq.connect(str(DB_PATH))
         # Total paid-call count (lifetime)
@@ -3119,18 +3106,35 @@ def _get_onchain_stats() -> dict:
             "WHERE task_id IN ('x402-paid', 'x402-tip', 'tip')"
         ).fetchone()
         out["x402_log_count"] = row[0] if row else 0
-        # USDC total from per-service counts × price
-        usd_total = 0.0
-        for svc_row in conn.execute(
-            "SELECT service, COUNT(*) FROM activity "
-            "WHERE task_id IN ('x402-paid', 'x402-tip', 'tip') "
-            "GROUP BY service"
-        ):
-            svc, cnt = (svc_row[0] or ""), (svc_row[1] or 0)
-            price = SERVICE_PRICE_USDC.get(svc)
-            if price is not None:
-                usd_total += price * cnt
-        out["usdc_paid_lifetime"] = round(usd_total, 4)
+        # USDC total via SQL CASE on the request prefix.
+        # Tip amounts are variable, intentionally excluded (the tip flow
+        # logs task_id='x402-tip' or 'tip' with no fixed price).
+        row = conn.execute("""
+            SELECT COALESCE(SUM(
+                CASE
+                    WHEN request LIKE 'pm-pnl-quick%' THEN 0.02
+                    WHEN request LIKE 'pm-pnl%'      THEN 0.05
+                    WHEN request LIKE 'pm-screen%'   THEN 0.02
+                    WHEN request LIKE 'pm-risk%'     THEN 0.02
+                    WHEN request LIKE 'hl-score%'    THEN 0.02
+                    WHEN request LIKE 'hl-pnl%'      THEN 0.05
+                    WHEN request LIKE 'hl-screen%'   THEN 0.05
+                    WHEN request LIKE 'hl-vault%'    THEN 0.10
+                    WHEN request LIKE 'hl-risk%'     THEN 0.02
+                    WHEN request LIKE 'hl-fills%'    THEN 0.02
+                    WHEN request LIKE 'kalshi-consensus%'   THEN 0.05
+                    WHEN request LIKE 'kalshi-poly-spread%' THEN 0.05
+                    WHEN request LIKE 'kalshi-sports%'      THEN 0.05
+                    WHEN service = 'ask'                    THEN 0.05
+                    WHEN service = 'onchain-x402-address'   THEN 0.05
+                    WHEN task_id = 'x402-paid'              THEN 0.01
+                    ELSE 0
+                END
+            ), 0)
+            FROM activity
+            WHERE task_id IN ('x402-paid', 'x402-tip', 'tip')
+        """).fetchone()
+        out["usdc_paid_lifetime"] = round(row[0] or 0.0, 4)
         conn.close()
     except Exception:
         pass
