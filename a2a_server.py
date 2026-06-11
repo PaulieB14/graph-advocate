@@ -3061,6 +3061,7 @@ def _get_onchain_stats() -> dict:
         "base_gas_eth": None,
         "arb_gas_eth": None,
         "x402_log_count": None,
+        "usdc_paid_lifetime": None,
         "pending_settlements": None,
         "error": None,
     }
@@ -3077,27 +3078,59 @@ def _get_onchain_stats() -> dict:
     except Exception as e:
         out["error"] = str(e)[:120]
 
-    # Compare x402 log count against settled payments. Each x402-tip / x402-paid
-    # entry should correspond to one USDC transfer. If logs > transfers,
-    # something verified but didn't settle. The tip handler logs `service='tip'`
-    # while paid queries log `service='x402-paid'`, so we need both labels.
+    # Lifetime paid-call count + USDC total.
+    #
+    # Counting strategy: filter by task_id IN ('x402-paid','x402-tip','tip')
+    # rather than service-tag matching. task_id is the canonical "this was
+    # paid" marker that every paid handler sets, while service is the routing
+    # classification (kalshi-consensus-trend, hyperliquid-pnl, etc.) which has
+    # grown over time and breaks the legacy whitelist whenever a new specialty
+    # endpoint ships. The previous service-IN filter missed every new endpoint
+    # added after May 2026 — including the three Kalshi endpoints that landed
+    # on 2026-06-11 and weren't being credited despite settling on-chain.
+    #
+    # USDC total: group by service, multiply count by per-endpoint price,
+    # sum. Service tags without a known price (e.g. 'tip' = variable amount)
+    # are skipped from the dollar total but still counted toward x402_log_count.
+    SERVICE_PRICE_USDC = {
+        "x402-paid": 0.01,               # /route default
+        "polymarket-pnl-quick": 0.02,
+        "polymarket-pnl": 0.05,
+        "polymarket-screen": 0.02,
+        "polymarket-risk": 0.02,
+        "hyperliquid-score": 0.02,
+        "hyperliquid-pnl": 0.05,
+        "hyperliquid-screen": 0.05,
+        "hyperliquid-vault": 0.10,
+        "hyperliquid-risk": 0.02,
+        "hyperliquid-fills": 0.02,
+        "kalshi-consensus-trend": 0.05,
+        "kalshi-polymarket-spread": 0.05,
+        "kalshi-sports-live-edge": 0.05,
+        "ask": 0.05,
+        "onchain-x402-address": 0.05,
+        # tip / x402-tip are variable — skip from dollar total
+    }
     try:
         conn = _sq.connect(str(DB_PATH))
+        # Total paid-call count (lifetime)
         row = conn.execute(
-            # Every service value that corresponds to a settled x402 payment.
-            # Originally just ('x402-tip', 'x402-paid', 'tip') — extended
-            # 2026-05-12 after an onchain audit showed 10 USDC transfers to the
-            # X402 wallet but only 4 logged. Root cause: the chain-specific
-            # paid handlers (hl-score/pnl/screen/vault/risk and pm-pnl/screen/risk)
-            # write service='hyperliquid-token-api' / 'polymarket-token-api'
-            # via _normalize_service, not 'x402-paid'. Adding them here makes
-            # the dashboard's pending_settlements heuristic accurate again.
-            "SELECT COUNT(*) FROM activity WHERE service IN ("
-            "'x402-tip', 'x402-paid', 'tip', "
-            "'hyperliquid-token-api', 'polymarket-token-api'"
-            ")"
+            "SELECT COUNT(*) FROM activity "
+            "WHERE task_id IN ('x402-paid', 'x402-tip', 'tip')"
         ).fetchone()
         out["x402_log_count"] = row[0] if row else 0
+        # USDC total from per-service counts × price
+        usd_total = 0.0
+        for svc_row in conn.execute(
+            "SELECT service, COUNT(*) FROM activity "
+            "WHERE task_id IN ('x402-paid', 'x402-tip', 'tip') "
+            "GROUP BY service"
+        ):
+            svc, cnt = (svc_row[0] or ""), (svc_row[1] or 0)
+            price = SERVICE_PRICE_USDC.get(svc)
+            if price is not None:
+                usd_total += price * cnt
+        out["usdc_paid_lifetime"] = round(usd_total, 4)
         conn.close()
     except Exception:
         pass
@@ -4144,10 +4177,18 @@ function renderWalletCard(o) {
   const bal = (o.usdc_balance !== null && o.usdc_balance !== undefined) ? o.usdc_balance.toFixed(3) : '—';
   const baseGas = (o.base_gas_eth !== null && o.base_gas_eth !== undefined) ? o.base_gas_eth.toFixed(5) : '—';
   const arbGas = (o.arb_gas_eth !== null && o.arb_gas_eth !== undefined) ? o.arb_gas_eth.toFixed(5) : '—';
-  // Lifetime paid count — accurate, vs the older balance-derived "unsettled"
-  // heuristic which broke on wallet sweeps and variable pricing.
+  // Lifetime paid count + USDC total. Count filters by task_id (paid|tip)
+  // so every paid handler is captured regardless of its service tag —
+  // earlier service-IN filter missed kalshi-* etc. USDC total is computed
+  // server-side from a per-service price map.
   const paidBadge = o.x402_log_count > 0
     ? `<span class="badge green" title="x402 settlements ever made to this wallet, regardless of current balance">${o.x402_log_count} paid lifetime</span>`
+    : '';
+  const usdLifetime = (o.usdc_paid_lifetime !== null && o.usdc_paid_lifetime !== undefined)
+    ? o.usdc_paid_lifetime.toFixed(2)
+    : null;
+  const lifetimeLine = usdLifetime
+    ? `<div class="sub" style="margin-top:4px"><strong style="color:var(--green)">$${usdLifetime} USDC</strong> earned lifetime · ${o.x402_log_count || 0} paid calls</div>`
     : '';
   const err = o.error ? `<span class="badge dim" title="${escapeHtml(o.error)}">rpc err</span>` : '';
   return `
@@ -4155,6 +4196,7 @@ function renderWalletCard(o) {
       <div class="label"><span class="icon">💰</span>Wallet · Base${paidBadge}${err}</div>
       <div class="value">$${bal} <span style="font-size:1rem;color:var(--text-muted);font-weight:600">USDC</span></div>
       <div class="sub">Current balance · Base gas ${baseGas} ETH · Arb gas ${arbGas} ETH</div>
+      ${lifetimeLine}
     </div>
   `;
 }
