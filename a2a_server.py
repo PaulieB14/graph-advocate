@@ -2878,6 +2878,9 @@ Repository: https://github.com/PaulieB14/graph-advocate
 | POST /polymarket/pnl           | $0.05        | Full PM PnL: scores + positions |
 | POST /polymarket/screen        | $0.05        | Top wagerers on a PM market |
 | POST /polymarket/risk          | $0.02        | Wallet-type + ghost-fill risk |
+| POST /kalshi/consensus-trend   | $0.05        | Kalshi consensus slope+acceleration (forecast_history) |
+| POST /kalshi-polymarket/spread | $0.05        | Cross-source spread Kalshi↔Polymarket (JOIN) |
+| POST /kalshi/sports-live-edge  | $0.05        | Live sports mispricing (play-by-play vs candles) |
 
 All paid endpoints settle in USDC on Base via x402. Paid endpoints have no
 free tier — payment is required from call 1 regardless of sender metadata.
@@ -5373,6 +5376,9 @@ def build_app():
                 BASE_URL + "/polymarket/pnl",
                 BASE_URL + "/polymarket/screen",
                 BASE_URL + "/polymarket/risk",
+                BASE_URL + "/kalshi/consensus-trend",
+                BASE_URL + "/kalshi-polymarket/spread",
+                BASE_URL + "/kalshi/sports-live-edge",
             ],
             "instructions": (
                 "POST a plain-English onchain data request and receive a "
@@ -5555,6 +5561,12 @@ def build_app():
              "Top holders of a Polymarket market, each with skill score and ghost-fill risk."),
             ("/polymarket/risk", "polymarketRisk", "0.02",
              "Polymarket ghost-fill risk: wallet-type detection plus risk score for counterparty assessment."),
+            ("/kalshi/consensus-trend", "kalshiConsensusTrend", "0.05",
+             "Kalshi consensus-probability trajectory: slope, acceleration, volatility band derived from Kalshi-unique forecast_history."),
+            ("/kalshi-polymarket/spread", "kalshiPolymarketSpread", "0.05",
+             "Kalshi vs Polymarket cross-source spread on a topic — JOIN that single-source APIs cannot return; arbitrage direction included."),
+            ("/kalshi/sports-live-edge", "kalshiSportsLiveEdge", "0.05",
+             "Live sports mispricing detector: play-by-play momentum vs market candlestick reaction; flags latency-arb windows."),
         ]
         for _path, _opid, _price, _desc in _paid_endpoints:
             spec["paths"][_path] = {
@@ -6707,6 +6719,99 @@ def build_app():
                     "retry_after_seconds": 30,
                 }, status_code=502)
 
+        # ── Kalshi derived-signal handlers ─────────────────────────────────
+        # Three endpoints that survive Pinax adding raw Kalshi data later:
+        #   • /kalshi/consensus-trend       — wraps Kalshi-unique forecast_history
+        #   • /kalshi-polymarket/spread     — cross-source arbitrage JOIN
+        #   • /kalshi/sports-live-edge      — play-by-play + candles
+        # Kalshi REST is fully public (no auth). Pricing matches the rest of
+        # the specialty endpoints: $0.05/call.
+        from kalshi import (
+            kalshi_event_consensus_trend,
+            kalshi_polymarket_spread,
+            kalshi_sports_live_edge,
+        )
+
+        async def _kalshi_consensus_handler(request):
+            """$0.05 — consensus probability trend (slope + acceleration)."""
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            event = str(body.get("event") or body.get("event_ticker") or "").strip()
+            if not event:
+                return _RouteJSON({"error": "event_required",
+                                   "expected_body": {"event": "KXFOO-23"}},
+                                  status_code=400)
+            try:
+                result = await kalshi_event_consensus_trend(event)
+                _log_request("x402-paid", f"kalshi-consensus {event[:30]}",
+                             "kalshi-consensus-trend", "high", "kalshi-public",
+                             response=result)
+                return _RouteJSON(result)
+            except Exception as exc:
+                log.exception(f"kalshi-consensus crashed: {event}")
+                _log_paid_failure(f"kalshi-consensus {event[:30]}", exc)
+                return _RouteJSON({
+                    "error": "upstream_unavailable",
+                    "message": "Kalshi API unreachable; retry shortly.",
+                    "retry_after_seconds": 30,
+                }, status_code=502)
+
+        async def _kalshi_spread_handler(request):
+            """$0.05 — cross-source spread vs Polymarket on same topic."""
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            topic = str(body.get("topic") or body.get("keyword") or "").strip()
+            if not topic:
+                return _RouteJSON({"error": "topic_required",
+                                   "expected_body": {"topic": "fed rate"}},
+                                  status_code=400)
+            limit = body.get("limit") or 5
+            try:
+                result = await kalshi_polymarket_spread(topic, limit=limit)
+                _log_request("x402-paid", f"kalshi-poly-spread {topic[:40]}",
+                             "kalshi-polymarket-spread", "high", "kalshi+pinax",
+                             response=result)
+                return _RouteJSON(result)
+            except Exception as exc:
+                log.exception(f"kalshi-spread crashed: {topic}")
+                _log_paid_failure(f"kalshi-spread {topic[:40]}", exc)
+                return _RouteJSON({
+                    "error": "upstream_unavailable",
+                    "message": "One of Kalshi or Pinax unreachable; retry shortly.",
+                    "retry_after_seconds": 30,
+                }, status_code=502)
+
+        async def _kalshi_sports_handler(request):
+            """$0.05 — live sports-market mispricing detector."""
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            milestone = str(body.get("milestone") or body.get("milestone_id") or "").strip()
+            if not milestone:
+                return _RouteJSON({"error": "milestone_required",
+                                   "expected_body": {"milestone": "<id>", "market": "<optional ticker>"}},
+                                  status_code=400)
+            market = str(body.get("market") or body.get("market_ticker") or "").strip() or None
+            try:
+                result = await kalshi_sports_live_edge(milestone, market_ticker=market)
+                _log_request("x402-paid", f"kalshi-sports {milestone[:30]}",
+                             "kalshi-sports-live-edge", "high", "kalshi-public",
+                             response=result)
+                return _RouteJSON(result)
+            except Exception as exc:
+                log.exception(f"kalshi-sports crashed: {milestone}")
+                _log_paid_failure(f"kalshi-sports {milestone[:30]}", exc)
+                return _RouteJSON({
+                    "error": "upstream_unavailable",
+                    "message": "Kalshi live-data API unreachable; retry shortly.",
+                    "retry_after_seconds": 30,
+                }, status_code=502)
+
         # ── Hyperliquid trader-intelligence handlers (mirror polymarket pattern)
         # ── Five paid endpoints over Pinax /v1/hyperliquid/* (prod since v3.17.0).
         # Unique vs polymarket: liquidation tracking + vault evaluator.
@@ -7223,6 +7328,9 @@ def build_app():
             _RouteRoute("/hyperliquid/vault", _hl_vault_handler, methods=["POST"]),
             _RouteRoute("/hyperliquid/risk", _hl_risk_handler, methods=["POST"]),
             _RouteRoute("/hyperliquid/fills", _hl_fills_handler, methods=["POST"]),
+            _RouteRoute("/kalshi/consensus-trend", _kalshi_consensus_handler, methods=["POST"]),
+            _RouteRoute("/kalshi-polymarket/spread", _kalshi_spread_handler, methods=["POST"]),
+            _RouteRoute("/kalshi/sports-live-edge", _kalshi_sports_handler, methods=["POST"]),
         ])
 
         x402_server = _get_x402_server()
@@ -8225,7 +8333,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/") or scope["path"].startswith("/kalshi")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip", "/ask")

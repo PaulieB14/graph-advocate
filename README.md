@@ -54,6 +54,9 @@ Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x40
 | `POST /polymarket/pnl` | $0.05 | Full PnL: scores + per-position records |
 | `POST /polymarket/screen` | $0.05 | Top wagerers on a market with ghost-fill risk (N capped at 10) |
 | `POST /polymarket/risk` | $0.02 | Wallet-type detection + ghost-fill risk classification |
+| `POST /kalshi/consensus-trend` | $0.05 | Kalshi consensus-probability slope + acceleration (uses Kalshi-unique forecast_history) |
+| `POST /kalshi-polymarket/spread` | $0.05 | Cross-source arbitrage spread between Kalshi and Polymarket on a topic — JOIN passthrough APIs can't return |
+| `POST /kalshi/sports-live-edge` | $0.05 | Live sports mispricing: play-by-play momentum vs market reaction; flags latency-arb windows |
 
 ```bash
 # Try it
