@@ -515,15 +515,69 @@ async def kalshi_sports_live_edge(milestone_id: str, market_ticker: Optional[str
             except Exception:
                 pass
 
-    last_5_events = []
-    momentum_score = None
+    # Kalshi nests plays under pbp.periods[].events[]. Flatten across all
+    # periods (most-recent-first; first item in events is the latest play).
+    last_5_events: list = []
+    score_now: dict | None = None
+    momentum: dict | None = None
     if stats:
-        plays = (stats.get("plays") or stats.get("events") or stats.get("game_stats") or [])
-        last_5_events = plays[-5:] if isinstance(plays, list) else []
-        # Simple momentum: count beneficial vs harmful in last 5
-        good = sum(1 for p in last_5_events if isinstance(p, dict) and
-                   any(k in str(p).lower() for k in ("touchdown", "goal", "homer", "score", "made")))
-        momentum_score = good / max(len(last_5_events), 1)
+        pbp = stats.get("pbp") or {}
+        periods = pbp.get("periods") or []
+        all_events: list = []
+        for prd in periods:
+            evts = prd.get("events") or []
+            if isinstance(evts, list):
+                all_events.extend(evts)
+        # Most-recent-first ordering — Kalshi returns latest play at index 0
+        last_5_events = all_events[:5]
+
+        # Pull current score from the most-recent event (it carries the
+        # post-play score on both sides).
+        if all_events:
+            ev0 = all_events[0] if isinstance(all_events[0], dict) else {}
+            h_now = ev0.get("home_points")
+            a_now = ev0.get("away_points")
+            if isinstance(h_now, (int, float)) and isinstance(a_now, (int, float)):
+                score_now = {"home": int(h_now), "away": int(a_now)}
+
+        # Momentum from score delta across the last 5 events. More robust
+        # than keyword-matching ("makes" vs "goal" vs "touchdown") because
+        # every sport encodes scoring the same way in points fields.
+        last_pts_home = None
+        last_pts_away = None
+        first_pts_home = None
+        first_pts_away = None
+        for e in last_5_events:
+            if not isinstance(e, dict): continue
+            h = e.get("home_points"); a = e.get("away_points")
+            if not (isinstance(h, (int, float)) and isinstance(a, (int, float))): continue
+            if last_pts_home is None:
+                last_pts_home, last_pts_away = h, a
+            first_pts_home, first_pts_away = h, a
+        if last_pts_home is not None and first_pts_home is not None:
+            # events[0] is latest, events[-1] is oldest of the last-5 window —
+            # delta = latest - oldest (positive = team scored over window)
+            home_delta = max(0, last_pts_home - first_pts_home)
+            away_delta = max(0, last_pts_away - first_pts_away)
+            total = home_delta + away_delta
+            if total > 0:
+                home_share = home_delta / total
+                direction = ("home" if home_share >= 0.7
+                             else "away" if home_share <= 0.3
+                             else "balanced")
+            else:
+                home_share = 0.5
+                direction = "no_scoring"
+            momentum = {
+                "home_delta_pts": home_delta,
+                "away_delta_pts": away_delta,
+                "home_share": round(home_share, 3),
+                "direction": direction,
+            }
+
+    # Back-compat: keep momentum_score_last_5_events as the home_share value
+    # since v1 callers may already be reading that field name.
+    momentum_score = momentum.get("home_share") if momentum else None
 
     # Market reaction: price delta over last 5 candles
     market_reaction_pct = None
@@ -540,11 +594,13 @@ async def kalshi_sports_live_edge(milestone_id: str, market_ticker: Optional[str
 
     latency_arb_signal = None
     if momentum_score is not None and market_reaction_pct is not None:
-        # If momentum is strongly one-way but market hasn't reacted, flag the lag
-        if momentum_score >= 0.6 and abs(market_reaction_pct) < 1.0:
-            latency_arb_signal = "upside-lag-likely"
-        elif momentum_score <= 0.2 and abs(market_reaction_pct) < 1.0:
-            latency_arb_signal = "downside-lag-likely"
+        # If momentum is strongly one-way (home or away dominant) but market
+        # hasn't reacted, flag the lag. home_share >= 0.7 = home on a run,
+        # home_share <= 0.3 = away on a run.
+        if momentum_score >= 0.7 and abs(market_reaction_pct) < 1.0:
+            latency_arb_signal = "home-momentum-not-priced"
+        elif momentum_score <= 0.3 and abs(market_reaction_pct) < 1.0:
+            latency_arb_signal = "away-momentum-not-priced"
         else:
             latency_arb_signal = "market-tracking-stats"
 
@@ -588,6 +644,8 @@ async def kalshi_sports_live_edge(milestone_id: str, market_ticker: Optional[str
         "milestone_id": milestone_id,
         "milestone_meta": ms_md.get("milestone") if isinstance(ms_md, dict) else None,
         "market_ticker": market_ticker,
+        "score_now": score_now,
+        "momentum": momentum,
         "momentum_score_last_5_events": momentum_score,
         "market_reaction_pct_last_hour": market_reaction_pct,
         "latency_arbitrage_signal": latency_arb_signal,
