@@ -66,7 +66,9 @@ console.log(await res.json());
 </CodeGroup>
 
 <Note>
-  **Free tier:** 10 calls/day per requesting wallet — counted by the Ethereum address signing the request (or the source IP if no signature). Beyond that, `POST /route` returns HTTP 402 with x402 payment requirements; any x402-aware client signs a $0.01 USDC `transferWithAuthorization` on Base and retries automatically. **No signup, no card, no API key — ever.**
+  **Free tier:** 3 routing calls/day per *identified* sender. Identification means putting your wallet address (or other ID) in the A2A message metadata — e.g. `params.metadata.sender_id` or `params.message.metadata.from_agent_id`. **Anonymous senders (no identity in metadata) pay from call 1** — there is no IP-fallback free tier.
+
+  Beyond the 3-free cap, `POST /route` returns HTTP 402 with x402 payment requirements; any x402-aware client signs a $0.01 USDC `transferWithAuthorization` on Base and retries automatically. **No signup, no card, no API key — ever.**
 </Note>
 
 ## 2. Keep going once you hit the cap

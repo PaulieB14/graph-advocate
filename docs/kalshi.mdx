@@ -1,0 +1,124 @@
+---
+title: "Kalshi derived signals"
+description: "Three paid endpoints that survive Pinax adding raw Kalshi data — consensus trend, cross-source spread, and live-sports edge. JOINs and derived scores passthrough APIs can't replicate."
+---
+
+Three x402 endpoints for **US-regulated prediction-market intelligence**. Kalshi's REST API is fully public — but the value here is in the *derivation*: slopes, cross-source JOINs, and momentum-vs-market signals an agent would otherwise have to compute itself.
+
+## What you get
+
+| Endpoint | Cost | Returns |
+|---|---:|---|
+| `POST /kalshi/consensus-trend` | $0.05 | Slope-per-hour over 24h + 3d, acceleration signal, volatility band, days-to-resolve — derived from Kalshi's *unique* `forecast_history` |
+| `POST /kalshi-polymarket/spread` | $0.05 | Cross-source spread between Kalshi and Polymarket on the same topic, with arbitrage direction. **JOIN that passthrough APIs (incl. Pinax Token API) structurally can't return** |
+| `POST /kalshi/sports-live-edge` | $0.05 | Play-by-play momentum vs market candle reaction → latency-arb signal for live Football / Basketball / Soccer / Hockey / Baseball / WNBA markets |
+
+Per-call payment in USDC on Base via x402. No subscription, no API key, no free tier.
+
+## Why derived over raw
+
+Kalshi exposes ~50 public no-auth endpoints across 10,821 series (Entertainment 2,445 · Sports 2,172 · Politics 1,986 · Elections 1,404 · Economics 563 · Financials 516 · …). An agent can read them directly — but every consuming agent then re-implements the same math:
+
+- Fit a slope through `forecast_history` points to detect regime change
+- Match Kalshi events against Polymarket equivalents by keyword + price proximity
+- Compute momentum from play-by-play events and compare to market reaction lag
+
+Graph Advocate does it once, exposes the answer. The cross-source `/spread` endpoint in particular is the **defensible play**: it's still useful even if [Pinax adds Kalshi to Token API](https://docs.pinax.network/), because passthrough APIs return one source at a time and can't JOIN.
+
+## Sample: consensus trend for an event
+
+```bash
+curl -X POST 'https://graphadvocate.com/kalshi/consensus-trend' \
+  -H 'Content-Type: application/json' \
+  -d '{"event": "KXELONMARS-99"}'
+```
+
+Response (truncated):
+
+```json
+{
+  "kalshi_event_ticker": "KXELONMARS-99",
+  "event_title": "Will Elon Musk visit Mars in his lifetime?",
+  "category": "World",
+  "consensus_probability_now": 0.18,
+  "slope_per_hour_24h": -0.0004,
+  "slope_per_hour_3d": -0.0001,
+  "acceleration_signal": -0.0003,
+  "interpretation": "accelerating-down",
+  "volatility_24h_stdev": 0.012,
+  "days_to_resolve": 3287.4,
+  "markets_in_event": 1,
+  "history_points_analyzed": 142,
+  "kalshi_source": "https://api.elections.kalshi.com/trade-api/v2/events/KXELONMARS-99/forecast_history",
+  "agent_note": "Forecast history is Kalshi's published consensus probability over time. Use slope+acceleration to detect regime changes before they're priced in. Pair with /kalshi-polymarket/spread for cross-source arbitrage."
+}
+```
+
+**How to use it.** A positive `acceleration_signal` means the slope is *steepening upward* — the market is converging on YES faster than it was 3 days ago. Negative means the opposite. `interpretation` collapses the signal into one of `accelerating-up`, `accelerating-down`, `stable`, or `insufficient-history` so an agent can branch without parsing.
+
+## Sample: cross-source spread
+
+```bash
+curl -X POST 'https://graphadvocate.com/kalshi-polymarket/spread' \
+  -H 'Content-Type: application/json' \
+  -d '{"topic": "fed rate", "limit": 5}'
+```
+
+Response:
+
+```json
+{
+  "topic_keyword": "fed rate",
+  "kalshi_candidates": 3,
+  "polymarket_candidates": 2,
+  "pairs": [
+    {
+      "kalshi_ticker": "KXFED-25DEC-CUT25",
+      "kalshi_yes_mid": 0.62,
+      "polymarket_market_slug": "fed-rate-cut-december",
+      "polymarket_yes_mid": 0.58,
+      "spread_yes_kalshi_minus_poly": 0.04,
+      "spread_bps": 400,
+      "arbitrage_direction": "long-poly-short-kalshi"
+    }
+  ],
+  "agent_note": "Spread > 200bps in either direction is a candidate arbitrage; verify the two markets actually resolve on the same condition before sizing. Cross-source data Pinax can't return in one call.",
+  "sources": {
+    "kalshi": "https://api.elections.kalshi.com/trade-api/v2",
+    "polymarket_via": "pinax-token-api"
+  }
+}
+```
+
+**Important:** the pairing uses keyword overlap + price-proximity scoring. **You must verify the two markets actually resolve on the same on-chain condition before sizing** — otherwise the "arbitrage" is just basis risk.
+
+## Sample: live sports edge
+
+```bash
+curl -X POST 'https://graphadvocate.com/kalshi/sports-live-edge' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "milestone": "<kalshi-sports-milestone-id>",
+    "market": "<optional-kalshi-market-ticker>"
+  }'
+```
+
+The `milestone` is Kalshi's identifier for a specific live game; `market` is an optional ticker for the market whose candlesticks you want compared against the play-by-play. Response includes `momentum_score_last_5_events`, `market_reaction_pct_last_hour`, and a `latency_arbitrage_signal` of one of `upside-lag-likely`, `downside-lag-likely`, `market-tracking-stats`, or `null` (insufficient data).
+
+**How to use it.** When `momentum_score` is strongly one-way (≥0.6 or ≤0.2) but `market_reaction_pct` is near zero, the market hasn't fully priced the play-by-play yet — latency-arb window. Verify orderbook depth before sizing — low liquidity will eat the edge.
+
+## How it differs from `/polymarket/*` and `/hyperliquid/*`
+
+These three Kalshi endpoints are **derived signals** on top of a *fully public* upstream — different model than the polymarket/hyperliquid trader-intelligence endpoints which require Pinax Token API auth. Kalshi's API is free for anyone to read; Graph Advocate's value here is in the math:
+
+- `/polymarket/risk` — wallet-type detection (binary signal from on-chain probe)
+- `/hyperliquid/risk` — liquidation rate + funding burn (derived from per-trade ledger)
+- `/kalshi/consensus-trend` — slope of Kalshi's *unique* forecast percentile history
+- `/kalshi-polymarket/spread` — JOIN that no single-source API can return
+- `/kalshi/sports-live-edge` — momentum-vs-market reaction lag
+
+If you want to inspect the routing for free, send a plain-English question to `POST /` (A2A JSON-RPC) and Graph Advocate will name the right `kalshi/*` endpoint and hand back the exact paid curl — without charging.
+
+## Source
+
+[`kalshi.py`](https://github.com/PaulieB14/graph-advocate/blob/main/kalshi.py) — the three derivation functions and how they call Kalshi's public REST + Pinax's Polymarket Token API.
