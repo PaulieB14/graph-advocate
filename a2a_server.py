@@ -2367,6 +2367,14 @@ _PAID_ENDPOINT_TESTS = [
     ("polymarket/pnl",       {"wallet": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"}, 100, "0.05"),
     ("polymarket/risk",      {"wallet": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"}, 100, "0.02"),
     # pm-screen needs a real condition_id — fetched dynamically at test time
+    # Kalshi derived signals — using real currently-active inputs verified live
+    # 2026-06-11: KXELONMARS-99 is a real long-tail event with no forecast
+    # history yet (exercises the no_forecast_history_yet status branch),
+    # "fed rate" reliably matches markets on both venues, sports milestone
+    # is a real Indiana@NY NBA game ID.
+    ("kalshi/consensus-trend",      {"event": "KXELONMARS-99"},                            100, "0.05"),
+    ("kalshi-polymarket/spread",    {"topic": "fed rate", "limit": 3},                     100, "0.05"),
+    ("kalshi/sports-live-edge",     {"milestone": "93ce8b69-d3db-412d-b41e-a245a271adcc"}, 100, "0.05"),
 ]
 
 
