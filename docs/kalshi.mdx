@@ -10,7 +10,7 @@ Three x402 endpoints for **US-regulated prediction-market intelligence**. Kalshi
 | Endpoint | Cost | Returns |
 |---|---:|---|
 | `POST /kalshi/consensus-trend` | $0.05 | Slope-per-hour over 24h + 3d, acceleration signal, volatility band, days-to-resolve — derived from Kalshi's *unique* `forecast_history` |
-| `POST /kalshi-polymarket/spread` | $0.05 | Cross-source spread between Kalshi and Polymarket on the same topic, with arbitrage direction. **JOIN that passthrough APIs (incl. Pinax Token API) structurally can't return** |
+| `POST /kalshi-polymarket/spread` | $0.05 | Cross-source spread between Kalshi and Polymarket on the same topic, with arbitrage direction. **JOIN that single-source passthrough APIs structurally can't return** |
 | `POST /kalshi/sports-live-edge` | $0.05 | Play-by-play momentum vs market candle reaction → latency-arb signal for live Football / Basketball / Soccer / Hockey / Baseball / WNBA markets |
 
 Per-call payment in USDC on Base via x402. No subscription, no API key, no free tier.
@@ -23,7 +23,7 @@ Kalshi exposes ~50 public no-auth endpoints across 10,821 series (Entertainment 
 - Match Kalshi events against Polymarket equivalents by keyword + price proximity
 - Compute momentum from play-by-play events and compare to market reaction lag
 
-Graph Advocate does it once, exposes the answer. The cross-source `/spread` endpoint in particular is the **defensible play**: it's still useful even if [Pinax adds Kalshi to Token API](https://docs.pinax.network/), because passthrough APIs return one source at a time and can't JOIN.
+Graph Advocate does it once, exposes the answer. The cross-source `/spread` endpoint in particular is the **defensible play**: passthrough APIs return one source at a time and can't JOIN — so the cross-venue arbitrage signal stays valuable even as more upstream sources come online.
 
 ## Sample: consensus trend for an event
 
@@ -82,10 +82,10 @@ Response:
       "arbitrage_direction": "long-poly-short-kalshi"
     }
   ],
-  "agent_note": "Spread > 200bps in either direction is a candidate arbitrage; verify the two markets actually resolve on the same condition before sizing. Cross-source data Pinax can't return in one call.",
+  "agent_note": "Spread > 200bps in either direction is a candidate arbitrage; verify the two markets actually resolve on the same condition before sizing. Cross-source data single-source APIs can't return in one call.",
   "sources": {
     "kalshi": "https://api.elections.kalshi.com/trade-api/v2",
-    "polymarket_via": "pinax-token-api"
+    "polymarket": "token-api proxy"
   }
 }
 ```
@@ -109,7 +109,7 @@ The `milestone` is Kalshi's identifier for a specific live game; `market` is an 
 
 ## How it differs from `/polymarket/*` and `/hyperliquid/*`
 
-These three Kalshi endpoints are **derived signals** on top of a *fully public* upstream — different model than the polymarket/hyperliquid trader-intelligence endpoints which require Pinax Token API auth. Kalshi's API is free for anyone to read; Graph Advocate's value here is in the math:
+These three Kalshi endpoints are **derived signals** on top of a *fully public* upstream — different model than the polymarket/hyperliquid trader-intelligence endpoints which proxy through gated data sources. Kalshi's API is free for anyone to read; Graph Advocate's value here is in the math:
 
 - `/polymarket/risk` — wallet-type detection (binary signal from on-chain probe)
 - `/hyperliquid/risk` — liquidation rate + funding burn (derived from per-trade ledger)
@@ -121,4 +121,4 @@ If you want to inspect the routing for free, send a plain-English question to `P
 
 ## Source
 
-[`kalshi.py`](https://github.com/PaulieB14/graph-advocate/blob/main/kalshi.py) — the three derivation functions and how they call Kalshi's public REST + Pinax's Polymarket Token API.
+[`kalshi.py`](https://github.com/PaulieB14/graph-advocate/blob/main/kalshi.py) — the three derivation functions and how they fetch from Kalshi's public REST and Polymarket data sources.
