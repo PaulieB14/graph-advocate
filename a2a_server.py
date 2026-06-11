@@ -8095,13 +8095,53 @@ def build_app():
                          "agent-exchange-job-failed", "high", "error",
                          response={"error": str(exc)[:500]})
 
+    # AE heartbeat dedupe. AgentExchange re-broadcasts the same `new_bot` and
+    # `commons_post` events every ~2h — without this, a single bot generated
+    # 14 inbound entries + 14 outbound new-bot-intro POSTs per day. Keyed by
+    # (event, bot_id) → monotonic ts; replays are still logged (separate
+    # task_id) so the dashboard can see the rhythm without it polluting the
+    # active-traffic metric.
+    _ae_dedup_cache: dict = {}
+    _AE_DEDUP_TTL_SEC = 86_400
+
     async def webhook_agent_exchange(request: Request):
+        import time as _t
         try:
             body = await request.json()
         except Exception:
             body = {}
         if not isinstance(body, dict):
             body = {"raw": str(body)[:500]}
+
+        bot_id = str(body.get("bot_id") or "")
+        event  = str(body.get("event") or "")
+
+        # Self-echo guard: AE re-announces our own registered sub-bots back at
+        # us (graph-advocate-hyperliquid, -subgraph, etc.). Log + drop.
+        if bot_id.startswith("graph-advocate"):
+            _log_request(f"ae-self-echo:{bot_id}", f"echo: {event} {bot_id}",
+                         "agent-exchange-self-echo", "low", "skipped",
+                         response=body)
+            return JSONResponse({"ok": True, "ack": "graph-advocate", "skipped": "self-echo"})
+
+        # Heartbeat dedupe: same (event, bot_id) within 24h → log + drop.
+        if event and bot_id:
+            now = _t.time()
+            key = (event, bot_id)
+            last = _ae_dedup_cache.get(key)
+            if last and (now - last) < _AE_DEDUP_TTL_SEC:
+                _log_request(f"ae-replay:{bot_id}",
+                             f"replay: {event} from {bot_id}",
+                             "agent-exchange-replay", "low", "deduped",
+                             response={"event": event, "bot_id": bot_id,
+                                       "first_seen_ago_sec": int(now - last)})
+                return JSONResponse({"ok": True, "ack": "graph-advocate", "skipped": "replay"})
+            _ae_dedup_cache[key] = now
+            if len(_ae_dedup_cache) > 500:
+                stale = [k for k, t in _ae_dedup_cache.items() if (now - t) >= _AE_DEDUP_TTL_SEC]
+                for k in stale:
+                    _ae_dedup_cache.pop(k, None)
+
         # Log inbound ping to dashboard
         descr = str(body.get("query") or body.get("question") or
                     body.get("task") or body.get("description") or body)[:300]
