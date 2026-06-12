@@ -1091,7 +1091,7 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         rec_for_score = response if isinstance(response, dict) else {"recommendation": service}
         if "recommendation" not in rec_for_score:
             rec_for_score = {**rec_for_score, "recommendation": service}
-        _score_response(request, rec_for_score)
+        _score_response(request, rec_for_score, task_id=task_id)
     except Exception as e:
         log.warning(f"Auto-score failed: {e}")
 
@@ -2700,7 +2700,7 @@ async def feedback_stats_endpoint(request: Request):
 
 # ── Quality scoring ──────────────────────────────────────────────────────────
 
-def _score_response(request: str, rec: dict, activity_id: int = 0):
+def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str | None = None):
     """Auto-score a routing response for quality. Called after every Claude response.
 
     Scoring is service-aware — REST API services (token-api, 8004scan, etc.) are not
@@ -2715,6 +2715,37 @@ def _score_response(request: str, rec: dict, activity_id: int = 0):
     """
     try:
         service = _normalize_service(rec.get("recommendation"))
+
+        # Skip scoring entirely for Agent Exchange dedupe / process-log entries.
+        # These are heartbeat re-broadcasts, self-echoes, malformed jobs, and
+        # bare incoming-webhook logs (tagged by agent-exchange-webhook in
+        # commit 07cbba2). They're activity-feed noise — not actual routing
+        # responses — and scoring them at 1.0 was dragging the rolling avg
+        # (24h dropped from 1.30 → 1.13 on 2026-06-10). Keep them visible in
+        # the activity feed but exclude from quality_scores so AVG/COUNT
+        # reflect real scored responses only.
+        AE_PROCESS_SERVICES = {
+            "agent-exchange-replay",
+            "agent-exchange-self-echo",
+            "agent-exchange-job-skipped",
+            "agent-exchange-incoming",
+        }
+        if service in AE_PROCESS_SERVICES:
+            return
+
+        # Same exclusion at the task_id layer — handles rows where the caller
+        # tagged the dedupe/process category via task_id (e.g. "ae-replay:<bot>",
+        # "ae-self-echo:<bot>") but the response/recommendation didn't normalize
+        # back to the AE service string. Without this, a webhook re-broadcast
+        # that lands with service="unknown" still gets scored 1.0 and pollutes
+        # the rolling avg the same way the service-keyed entries did.
+        if task_id:
+            tid = str(task_id)
+            if (tid.startswith("ae-replay:")
+                or tid.startswith("ae-self-echo:")
+                or tid == "agent-exchange-incoming"
+                or tid == "agent-exchange-job-skipped"):
+                return
 
         # Skip scoring entirely for non-routing service classes.
         NON_ROUTING_SERVICES = {
@@ -3584,7 +3615,18 @@ def _build_dashboard_data() -> dict:
             quality = quality_map.get(svc)
             color = SERVICE_COLORS.get(svc, "#64748b")
             health_status = "healthy"
-            if quality is not None and quality < 2:
+            # Process-log / dedupe entries are intentionally unscored — they
+            # show up in the activity feed but have no quality_scores rows.
+            # Tagging them "healthy" is misleading and "low-quality" is wrong
+            # (no score exists). Surface a neutral "no-score" status instead.
+            if svc in {
+                "agent-exchange-replay",
+                "agent-exchange-self-echo",
+                "agent-exchange-job-skipped",
+                "agent-exchange-incoming",
+            }:
+                health_status = "no-score"
+            elif quality is not None and quality < 2:
                 health_status = "low-quality"
             service_health.append({
                 "name": svc,
