@@ -974,6 +974,13 @@ _META_SERVICES_EXCLUDED_FROM_HEADLINE = {
     "operational-confirmation", "registry-info", "rate-limited",
     "x402-paid", "x402-failed", "x402-tip", "payment-required",
     "chat", "unknown",
+    # Agent-exchange webhook process logs — heartbeats, self-echoes, jobs
+    # missing the actual query payload, and the bare incoming-webhook log.
+    # These get auto-scored 1.0 by the parse-based scorer but aren't real
+    # responses; counting them drags the rolling avg. Mirrored in
+    # _score_response's write-time gate.
+    "agent-exchange-replay", "agent-exchange-self-echo",
+    "agent-exchange-job-skipped", "agent-exchange-incoming",
 }
 
 
@@ -2236,8 +2243,15 @@ async def export_stats_endpoint(request: Request):
         ).fetchall()
         first = conn.execute("SELECT MIN(timestamp) FROM activity").fetchone()[0]
         last = conn.execute("SELECT MAX(timestamp) FROM activity").fetchone()[0]
+        # Grant-reportable "legit" queries — exclude probes, system responses,
+        # and the four agent-exchange process-log categories (heartbeat replays,
+        # self-echoes, jobs missing payload, bare incoming-webhook logs). Those
+        # are bookkeeping, not real responses, and would inflate grant counts.
         legit = conn.execute(
-            "SELECT COUNT(*) FROM activity WHERE service NOT IN ('introduction', 'out-of-scope', 'rate-limited', 'awaiting-request')"
+            "SELECT COUNT(*) FROM activity WHERE service NOT IN ("
+            "'introduction', 'out-of-scope', 'rate-limited', 'awaiting-request', "
+            "'agent-exchange-replay', 'agent-exchange-self-echo', "
+            "'agent-exchange-job-skipped', 'agent-exchange-incoming')"
         ).fetchone()[0]
         # conn.close() moved below — was closing before remaining queries
 
@@ -2254,10 +2268,14 @@ async def export_stats_endpoint(request: Request):
             "SELECT COUNT(DISTINCT task_id) FROM activity"
         ).fetchone()[0]
 
-        # Top queries (most common requests)
+        # Top queries (most common requests) — same exclusion set as legit
+        # so heartbeat replays / job-skipped logs don't dominate the top-10.
         top_queries = conn.execute(
             "SELECT request, service, COUNT(*) as cnt FROM activity "
-            "WHERE service NOT IN ('introduction', 'out-of-scope', 'rate-limited') "
+            "WHERE service NOT IN ("
+            "'introduction', 'out-of-scope', 'rate-limited', "
+            "'agent-exchange-replay', 'agent-exchange-self-echo', "
+            "'agent-exchange-job-skipped', 'agent-exchange-incoming') "
             "GROUP BY request ORDER BY cnt DESC LIMIT 10"
         ).fetchall()
 
@@ -3669,11 +3687,18 @@ def _build_dashboard_data() -> dict:
         pass
 
     # ── Quality summary (avg score across all entries) ─────────────────────
+    # Same exclusion set as /quality headline: filter out probes, system
+    # responses, billing events, and agent-exchange process logs so the
+    # rolling avg reflects real responses. Mirrors _score_response gate.
     quality_summary = {"avg_score": None, "total_scored": 0}
     try:
         conn = _sq.connect(str(DB_PATH))
+        _qx = list(_META_SERVICES_EXCLUDED_FROM_HEADLINE)
+        _qx_ph = ",".join(["?"] * len(_qx))
+        _qx_where = f"service NOT IN ({_qx_ph})"
         r = conn.execute(
-            "SELECT AVG(score), COUNT(*) FROM quality_scores"
+            f"SELECT AVG(score), COUNT(*) FROM quality_scores WHERE {_qx_where}",
+            _qx,
         ).fetchone()
         if r and r[0] is not None:
             quality_summary = {
@@ -3685,12 +3710,14 @@ def _build_dashboard_data() -> dict:
         cutoff_24h_q = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         cutoff_7d_q  = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         r24 = conn.execute(
-            "SELECT AVG(score), COUNT(*) FROM quality_scores WHERE timestamp >= ?",
-            (cutoff_24h_q,),
+            f"SELECT AVG(score), COUNT(*) FROM quality_scores "
+            f"WHERE timestamp >= ? AND {_qx_where}",
+            (cutoff_24h_q, *_qx),
         ).fetchone()
         r7d = conn.execute(
-            "SELECT AVG(score), COUNT(*) FROM quality_scores WHERE timestamp >= ?",
-            (cutoff_7d_q,),
+            f"SELECT AVG(score), COUNT(*) FROM quality_scores "
+            f"WHERE timestamp >= ? AND {_qx_where}",
+            (cutoff_7d_q, *_qx),
         ).fetchone()
         if r24 and r24[0] is not None:
             quality_summary["last_24h_avg"] = round(r24[0], 2)
@@ -3700,11 +3727,11 @@ def _build_dashboard_data() -> dict:
             quality_summary["last_7d_count"] = r7d[1]
         # Per-day series for the last 14 days (chart-able)
         daily = conn.execute(
-            "SELECT substr(timestamp, 1, 10) AS d, AVG(score), COUNT(*) "
-            "FROM quality_scores "
-            "WHERE timestamp >= ? "
-            "GROUP BY d ORDER BY d ASC",
-            ((datetime.now(timezone.utc) - timedelta(days=14)).isoformat(),),
+            f"SELECT substr(timestamp, 1, 10) AS d, AVG(score), COUNT(*) "
+            f"FROM quality_scores "
+            f"WHERE timestamp >= ? AND {_qx_where} "
+            f"GROUP BY d ORDER BY d ASC",
+            ((datetime.now(timezone.utc) - timedelta(days=14)).isoformat(), *_qx),
         ).fetchall()
         quality_summary["daily_trend"] = [
             {"date": row[0], "avg": round(row[1], 2), "count": row[2]}
@@ -4438,8 +4465,15 @@ function renderServiceHealth(services) {
     if (s.quality !== null && s.quality !== undefined) {
       qClass = s.quality >= 3.5 ? 'high' : (s.quality >= 2.5 ? 'med' : 'low');
       qText = `★ ${s.quality.toFixed(2)}`;
+    } else if (s.status === 'no-score') {
+      // Process-log service (AE replay/self-echo/job-skipped/incoming) —
+      // intentionally unscored. Show neutral label instead of "— quality"
+      // so the dashboard makes it obvious this isn't a low-quality service.
+      qText = 'unscored';
+      qClass = 'unscored';
     }
-    return `<div class="svc-card" style="--svc-color:${s.color}">
+    const cardClass = s.status === 'no-score' ? 'svc-card unscored' : 'svc-card';
+    return `<div class="${cardClass}" style="--svc-color:${s.color}">
       <div class="name">${s.name}</div>
       <div class="meta">
         <div class="count">${s.count}</div>
