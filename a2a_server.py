@@ -8089,6 +8089,109 @@ def build_app():
                 server=x402_server,
             )
             log.info("x402 PaymentMiddlewareASGI wrapped /route endpoint")
+
+            # ── 402 body-enrichment shim ─────────────────────────────────────
+            # The x402 SDK puts the output example in the base64-encoded
+            # `payment-required` HTTP header. SDK-using agents decode it; curl
+            # users, naive HTTP clients, and many LLM-driven agents only read
+            # the body and see `{}` — they can't tell what they'd be paying for.
+            #
+            # This shim intercepts 402 responses, decodes the header, and
+            # replaces the empty body with {error, accepts, output_example, hint}
+            # so any caller can preview the payload before paying. Non-402
+            # responses (200, 400, 500, …) pass through untouched.
+            import base64 as _b64hook
+            _x402_raw_app = _x402_route_app
+
+            async def _x402_route_app_with_example_body(scope, receive, send):
+                if scope.get("type") != "http":
+                    await _x402_raw_app(scope, receive, send)
+                    return
+
+                state = {"status": 0, "headers": [], "buf": bytearray()}
+
+                async def _wrapped_send(msg):
+                    t = msg.get("type")
+                    if t == "http.response.start":
+                        state["status"] = msg.get("status", 0)
+                        state["headers"] = list(msg.get("headers") or [])
+                        if state["status"] != 402:
+                            await send(msg)
+                        return
+                    if t == "http.response.body":
+                        if state["status"] != 402:
+                            await send(msg)
+                            return
+                        state["buf"].extend(msg.get("body") or b"")
+                        if msg.get("more_body"):
+                            return
+                        # Final body chunk — assemble enriched payload.
+                        pr_b64 = None
+                        for k, v in state["headers"]:
+                            if k.lower() == b"payment-required":
+                                pr_b64 = v
+                                break
+                        enriched: dict = {
+                            "x402Version": 2,
+                            "error": "Payment required",
+                        }
+                        accepts = None
+                        example = None
+                        description = None
+                        if pr_b64:
+                            try:
+                                decoded = json.loads(_b64hook.b64decode(pr_b64))
+                                accepts = decoded.get("accepts")
+                                description = (decoded.get("resource") or {}).get("description")
+                                example = (
+                                    decoded.get("extensions", {})
+                                    .get("bazaar", {})
+                                    .get("info", {})
+                                    .get("output", {})
+                                    .get("example")
+                                )
+                            except Exception:
+                                pass
+                        if description:
+                            enriched["description"] = description
+                        if accepts:
+                            enriched["accepts"] = accepts
+                        if example is not None:
+                            enriched["output_example"] = example
+                            enriched["hint"] = (
+                                "POST the same body again with an x402 `X-PAYMENT` header to "
+                                "receive a payload matching `output_example`. Most x402 SDKs "
+                                "handle the signing + retry automatically; the example is also "
+                                "available base64-encoded in the `payment-required` response header."
+                            )
+                        else:
+                            enriched["hint"] = (
+                                "Decode the base64 `payment-required` response header for the "
+                                "full x402 challenge (accepts, schema, output example)."
+                            )
+                        body = json.dumps(enriched).encode()
+                        # Rewrite Content-Length so the new body is delivered correctly.
+                        new_headers = [
+                            (k, v) for k, v in state["headers"]
+                            if k.lower() != b"content-length"
+                        ]
+                        new_headers.append((b"content-length", str(len(body)).encode()))
+                        await send({
+                            "type": "http.response.start",
+                            "status": 402,
+                            "headers": new_headers,
+                        })
+                        await send({
+                            "type": "http.response.body",
+                            "body": body,
+                            "more_body": False,
+                        })
+                        return
+                    await send(msg)
+
+                await _x402_raw_app(scope, receive, _wrapped_send)
+
+            _x402_route_app = _x402_route_app_with_example_body
         else:
             log.warning("x402 server not available — /route will return 402 without verification capability")
     except Exception as e:
