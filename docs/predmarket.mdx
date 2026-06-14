@@ -29,32 +29,35 @@ Graph Advocate does it once. The cross-venue `/spread` endpoint is the **defensi
 ```bash
 curl -X POST 'https://graphadvocate.com/predmarket/spread' \
   -H 'Content-Type: application/json' \
-  -d '{"topic": "trump", "limit": 5}'
+  -d '{"topic": "sol", "limit": 5}'
 ```
 
 Response:
 
 ```json
 {
-  "topic_keyword": "trump",
+  "topic_keyword": "sol",
   "status": "ok",
-  "polymarket_candidates": 2,
-  "limitless_candidates": 2,
+  "polymarket_candidates": 1,
+  "limitless_candidates": 5,
+  "limitless_binary_candidates": 4,
+  "semantic_rejections": 3,
   "pairs": [
     {
-      "polymarket_slug": "trump-out-2026",
-      "polymarket_question": "Trump out as President before 2027?",
-      "polymarket_yes_mid": 0.10,
-      "limitless_condition_id": "0x11287d02d8067ff3d3d8bd21b212ebcfdc20b638f7f6440e4115f649e6b57015",
-      "limitless_slug": "trump-out-as-president-before-2027",
-      "limitless_title": "Trump out as President before 2027?",
-      "limitless_yes_mid": 0.0955,
-      "spread_yes_polymarket_minus_limitless": 0.0045,
-      "spread_bps": 45,
-      "arbitrage_direction": "tight"
+      "polymarket_slug": "will-the-price-of-solana-be-above-70-on-june-15",
+      "polymarket_question": "Will the price of Solana be above $70 on June 15?",
+      "polymarket_yes_mid": 0.265,
+      "limitless_condition_id": "0x...",
+      "limitless_slug": "sol-up-or-down-15-min",
+      "limitless_title": "SOL Up or Down - 15 Min",
+      "limitless_yes_mid": 0.59,
+      "semantic_match_score": 0.111,
+      "spread_yes_polymarket_minus_limitless": -0.325,
+      "spread_bps": -3250,
+      "arbitrage_direction": "long-limitless-short-polymarket"
     }
   ],
-  "agent_note": "Spread > 200bps in either direction is a candidate arbitrage; verify the two markets actually resolve on the same condition (same end date, same resolution source) before sizing. Naive title-overlap pair-up — confirm semantically before trading."
+  "agent_note": "Pairs filtered by semantic content-word overlap + negation consistency, then ranked by absolute spread. semantic_match_score is Jaccard on content words (0-1). Verify same-condition resolution before sizing — Polymarket and Limitless markets on the same topic often have different time horizons."
 }
 ```
 
@@ -64,14 +67,26 @@ Response:
 - `long-limitless-short-polymarket` — Limitless is more expensive; reverse.
 - `tight` — within ±200bps; no edge after fees.
 
+`semantic_match_score` is a 0-1 Jaccard score on shared content words between the two market titles (after stopword removal). Pairs below threshold (0.10) are rejected outright. **A higher score doesn't guarantee same-event resolution** — it only signals overlap by content words. Verify resolution dates + outcome definitions before sizing.
+
 The `status` field tells you which venues had candidates so you don't waste a call interpreting an empty `pairs[]`:
 
-- `ok` — both venues returned matches, pairs computed
-- `polymarket_only` — Limitless had no markets for the topic (try a crypto/AI/tech keyword)
-- `limitless_only` — Polymarket had no markets (try a broader politics/sports keyword)
-- `no_matches` — neither venue matched; broaden the keyword
+| Status | Meaning |
+|---|---|
+| `ok` | One or more pairs survived semantic filter |
+| `no_semantic_match` | Both venues had binary markets but none pair up semantically — the topic overlaps by keyword but the markets are about different events |
+| `limitless_multi_outcome_only` | Polymarket has binary markets, Limitless only has NegRisk multi-outcome — binary spread is undefined |
+| `polymarket_only` | Limitless had no markets for this topic |
+| `limitless_only` | Polymarket had no markets for this topic |
+| `no_matches` | Neither venue matched; broaden the keyword |
 
-**Important:** pairing uses keyword overlap + closest-price-match scoring. You must **verify the two markets actually resolve on the same on-chain condition** (same end date, same resolution source, same outcome definitions) before sizing — otherwise the "arbitrage" is just basis risk.
+## Honest coverage note
+
+Polymarket and Limitless cover **mostly disjoint market sets** today. Polymarket leans US politics, sports, current events, and long-horizon crypto price thresholds. Limitless leans short-horizon (5-15 min) up/down price markets and multi-outcome categorical markets. Practically, the topics where both venues have semantically-aligned binary markets are narrow — often just crypto majors (BTC, ETH, SOL) on similar time horizons.
+
+When the endpoint returns no pairs but shows nonzero candidates, that's the signal: **the topic exists on both venues but the actual markets aren't comparable**. That's still useful intelligence (one less venue to check) — it just isn't an arbitrage opportunity.
+
+**Verify before sizing:** even when a pair passes the semantic filter, time horizons can differ (e.g. Polymarket "will SOL be above $70 by June 15" vs Limitless "SOL up/down in 15 min" — both involve SOL but are different bets). Always check resolution date + outcome definitions before treating spread as arbitrage.
 
 ## How it differs from `/kalshi-polymarket/spread`
 

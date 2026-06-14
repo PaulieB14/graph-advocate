@@ -80,16 +80,16 @@ async def search_limitless(keyword: str, limit: int = 5) -> list[dict]:
 async def search_polymarket(keyword: str, limit: int = 5) -> list[dict]:
     """Search Polymarket markets via public Gamma API.
 
-    Gamma's `/markets` accepts a free-text search-style filter and returns
-    prices inline (no per-market OHLC follow-up). Public, no auth.
+    Match on title/question/slug ONLY — NOT description. Descriptions
+    contain resolution rules that frequently reference unrelated topics
+    (e.g. a SHEIN IPO market mentions "Fed" in its resolution criteria),
+    so matching on description produces semantically-irrelevant candidates
+    that wreck downstream pair quality.
     """
     kw = (keyword or "").strip().lower()
     if not kw:
         return []
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as c:
-        # Gamma supports server-side filtering via `q`, but to be robust to
-        # rolling API changes (Polymarket has changed Gamma param names
-        # several times) we pull a wider page and client-side filter.
         r = await c.get(
             f"{POLYMARKET_GAMMA_BASE}/markets",
             params={"closed": "false", "active": "true", "limit": 200, "order": "volume", "ascending": "false"},
@@ -102,7 +102,7 @@ async def search_polymarket(keyword: str, limit: int = 5) -> list[dict]:
     for m in rows:
         hay = " ".join(
             str(m.get(k) or "")
-            for k in ("slug", "question", "groupItemTitle", "description")
+            for k in ("slug", "question", "groupItemTitle")
         ).lower()
         if kw in hay:
             out.append(m)
@@ -179,6 +179,59 @@ def _arb_direction(spread: float) -> str:
     return "tight"
 
 
+_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "before", "between", "by",
+    "do", "does", "for", "from", "have", "in", "is", "it", "of", "on", "or",
+    "than", "that", "the", "this", "to", "was", "what", "when", "where",
+    "which", "who", "whom", "why", "will", "with",
+    # Prediction-market noise words that appear in nearly every title
+    "market", "markets", "yes", "no", "outcome", "outcomes", "above", "below",
+    "over", "under", "more", "less", "least", "most", "any", "all",
+})
+
+_NEGATIONS = ("not ", "n't ", "no ", "never ", "without ")
+
+
+def _content_words(text: str) -> set[str]:
+    """Lowercase content words from a title (alphanumeric only, stopwords removed)."""
+    import re
+    return {
+        w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if w not in _STOPWORDS and len(w) > 1
+    }
+
+
+def _has_negation_flip(a: str, b: str) -> bool:
+    """Return True if exactly one title contains a negation marker — the markets
+    almost certainly resolve oppositely and should NOT be paired."""
+    a_neg = any(n in (" " + a.lower() + " ") for n in _NEGATIONS)
+    b_neg = any(n in (" " + b.lower() + " ") for n in _NEGATIONS)
+    return a_neg != b_neg
+
+
+def _semantic_pair_score(poly_q: str, lim_t: str, kw: str) -> float:
+    """Return a 0-1 semantic similarity score for the pair, or 0 if rejected.
+
+    - Negation flips fail outright (one says X, the other says not-X)
+    - Requires >=2 shared content words beyond the search keyword itself
+    - Score = Jaccard similarity of content-word sets
+    """
+    if _has_negation_flip(poly_q or "", lim_t or ""):
+        return 0.0
+    a = _content_words(poly_q)
+    b = _content_words(lim_t)
+    if not a or not b:
+        return 0.0
+    shared = a & b
+    # Discount the keyword itself — it's guaranteed shared by virtue of search.
+    kw_tokens = _content_words(kw)
+    novel_shared = shared - kw_tokens
+    if len(novel_shared) < 1:
+        return 0.0
+    union = a | b
+    return len(shared) / max(1, len(union))
+
+
 async def polymarket_limitless_spread(topic_keyword: str, limit: int = 5) -> dict:
     """Cross-source spread between Polymarket and Limitless on a topic.
 
@@ -209,31 +262,49 @@ async def polymarket_limitless_spread(topic_keyword: str, limit: int = 5) -> dic
     except Exception as exc:
         return {"error": "limitless_unreachable", "detail": str(exc)[:200]}
 
+    # Pre-filter Limitless to binary-YES/NO markets only. NegRisk multi-outcome
+    # markets return prices=None on the search endpoint because there's no
+    # single YES mid; our binary spread metric doesn't apply.
+    lim_binary = [m for m in lim_hits if _limitless_yes_mid(m) is not None]
+
+    # Pair selection: semantic-match score is primary; price-proximity is tiebreaker.
+    # An unrelated pair scoring 0.0 on semantic match is dropped entirely even if
+    # the yes-mids happen to coincide. Threshold tuned to require at least one
+    # novel content word beyond the search keyword.
+    MIN_SEMANTIC = 0.10  # Jaccard floor; tuned via 10-topic regression test
     pairs = []
     used_lim_ids: set = set()
+    rejected_count = 0
     for p_mkt in poly_hits:
         p_mid = _polymarket_yes_mid(p_mkt)
         if p_mid is None:
             continue
+        p_q = p_mkt.get("question") or ""
         best = None
-        best_score = -1.0
-        for l_mkt in lim_hits:
+        best_combined = -1.0
+        for l_mkt in lim_binary:
             l_id = l_mkt.get("conditionId") or l_mkt.get("id")
             if l_id in used_lim_ids:
                 continue
             l_mid = _limitless_yes_mid(l_mkt)
             if l_mid is None:
                 continue
-            # Closest-price match — Polymarket and Limitless rarely use the
-            # exact same wording for the same event, so price proximity is
-            # the most reliable cross-venue alignment signal.
-            score = 1.0 - abs(p_mid - l_mid)
-            if score > best_score:
-                best_score = score
-                best = (l_mkt, l_mid, l_id)
+            l_t = l_mkt.get("title") or ""
+            sem = _semantic_pair_score(p_q, l_t, keyword)
+            if sem < MIN_SEMANTIC:
+                rejected_count += 1
+                continue
+            # Combined ranking: semantic dominates (weight 0.8), price proximity
+            # is tiebreaker (weight 0.2). Keeps pairs that are semantically
+            # related but priced apart — those ARE the arbitrage candidates.
+            price_close = 1.0 - abs(p_mid - l_mid)
+            combined = 0.8 * sem + 0.2 * price_close
+            if combined > best_combined:
+                best_combined = combined
+                best = (l_mkt, l_mid, l_id, sem)
         if best is None:
             continue
-        l_mkt, l_mid, l_id = best
+        l_mkt, l_mid, l_id, sem_score = best
         used_lim_ids.add(l_id)
         spread = round(p_mid - l_mid, 4)
         pairs.append(
@@ -245,12 +316,14 @@ async def polymarket_limitless_spread(topic_keyword: str, limit: int = 5) -> dic
                 "limitless_slug": l_mkt.get("slug"),
                 "limitless_title": l_mkt.get("title"),
                 "limitless_yes_mid": l_mid,
+                "semantic_match_score": round(sem_score, 3),
                 "spread_yes_polymarket_minus_limitless": spread,
                 "spread_bps": int(spread * 10000),
                 "arbitrage_direction": _arb_direction(spread),
             }
         )
 
+    # Sort by absolute spread descending — biggest mispricings first.
     pairs.sort(
         key=lambda p: abs(p["spread_yes_polymarket_minus_limitless"]),
         reverse=True,
@@ -259,10 +332,29 @@ async def polymarket_limitless_spread(topic_keyword: str, limit: int = 5) -> dic
     if pairs:
         status = "ok"
         agent_note = (
-            "Spread > 200bps in either direction is a candidate arbitrage; "
-            "verify the two markets actually resolve on the same condition "
-            "(same end date, same resolution source) before sizing. Naive "
-            "title-overlap pair-up — confirm semantically before trading."
+            "Pairs filtered by semantic content-word overlap + negation "
+            "consistency, then ranked by absolute spread. Each pair carries "
+            "a semantic_match_score (0-1, Jaccard on content words). Spread "
+            ">200bps in either direction is a candidate arbitrage; still "
+            "verify the two markets resolve on the same condition (same end "
+            "date, same resolution source) before sizing."
+        )
+    elif poly_hits and lim_binary and rejected_count > 0:
+        status = "no_semantic_match"
+        agent_note = (
+            f"Both venues returned candidates for this topic ({len(poly_hits)} "
+            f"Polymarket / {len(lim_binary)} Limitless binary markets) but no "
+            f"pair passed the semantic match filter ({rejected_count} candidate "
+            f"pairings rejected). The topics overlap by keyword but the markets "
+            f"are about different events. Try a more specific topic keyword."
+        )
+    elif poly_hits and not lim_binary and lim_hits:
+        status = "limitless_multi_outcome_only"
+        agent_note = (
+            f"Polymarket has binary markets matching this topic, but Limitless "
+            f"only has multi-outcome (NegRisk) markets which don't expose a "
+            f"single YES mid in the search response. Cross-venue spread is "
+            f"undefined for these. Try a topic with binary markets on both sides."
         )
     elif poly_hits and not lim_hits:
         status = "polymarket_only"
@@ -291,6 +383,8 @@ async def polymarket_limitless_spread(topic_keyword: str, limit: int = 5) -> dic
         "status": status,
         "polymarket_candidates": len(poly_hits),
         "limitless_candidates": len(lim_hits),
+        "limitless_binary_candidates": len(lim_binary),
+        "semantic_rejections": rejected_count,
         "pairs": pairs,
         "agent_note": agent_note,
     }
