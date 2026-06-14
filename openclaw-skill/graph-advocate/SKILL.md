@@ -1,7 +1,7 @@
 ---
 name: graph-advocate
-description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 15,500+ subgraphs, Token API (EVM/Solana/TON + Polymarket + Hyperliquid), x402 payment analytics, and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, Hyperliquid, perps, ENS, governance, x402, prediction market, onchain data, blockchain."
-version: 2.5.0
+description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 15,500+ subgraphs, Token API (EVM/Solana/TON + Polymarket + Hyperliquid), x402 payment analytics, cross-venue prediction-market spreads (Polymarket ↔ Limitless, Polymarket ↔ Kalshi), and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, Limitless, Kalshi, prediction market spread, arbitrage, Hyperliquid, perps, ENS, governance, x402, onchain data, blockchain."
+version: 2.7.0
 homepage: https://github.com/PaulieB14/graph-advocate
 metadata:
   clawdbot:
@@ -26,6 +26,10 @@ Match the user's intent to the right service. Load only the reference you need.
 | **Hyperliquid perps — trader skill, vaults, liquidations** | token-api + `/hyperliquid/*` | [hyperliquid.md](references/hyperliquid.md) | Raw markets/users/vaults via token-api; derived skill scores via GA's paid `/hyperliquid/*` endpoints |
 | **Cross-protocol lending** | graph-lending-mcp | — | Messari standardized — 40+ protocols on 15 chains |
 | **Limitless prediction markets** | graph-limitless-mcp | — | Markets on Base |
+| **Cross-venue prediction-market spread (Polymarket ↔ Limitless)** | `/predmarket/spread` (paid) | — | Same-topic markets paired across venues, per-pair yes-mid spread (bps), arbitrage direction. JOIN single-venue passthroughs can't return. $0.05 USDC. |
+| **Cross-source prediction-market spread (Kalshi ↔ Polymarket)** | `/kalshi-polymarket/spread` (paid) | — | Same-topic markets across Kalshi + Polymarket with mid-spread and arbitrage direction. $0.05 USDC. |
+| **Kalshi consensus trend** | `/kalshi/consensus-trend` (paid) | — | Slope/acceleration/volatility band from Kalshi forecast_history. $0.05 USDC. |
+| **Kalshi sports live-edge** | `/kalshi/sports-live-edge` (paid) | — | Play-by-play momentum vs market candlesticks; flags latency-arb windows. $0.05 USDC. |
 | **Predict.fun prediction markets** | predictfun-mcp | — | BNB Chain prediction markets |
 | **x402 payment analytics — NL question** | `/ask` (paid) | — | Natural-language Q&A over 132M settlements + daily_stats (May 2025 → Jun 2026). Sonnet + DuckDB. $0.05 USDC. |
 | **x402 address lookup — onchain receipts** | `/onchain-x402/address` (paid) | — | Decentralized lookup via x402 Base subgraph: lifetime stats by role (payer/recipient), recent payments, facilitator, indexed_through_block. $0.01 USDC. |
@@ -57,6 +61,8 @@ If the request spans two services, use both and combine results.
 "Top 10 x402 recipients in the last 30 days" → /ask (paid, NL→SQL)
 "When did x402 volume on Base inflect?"     → /ask (paid, NL→SQL)
 "Has 0x0FF5A6… ever been paid via x402?"     → /onchain-x402/address (paid, decentralized)
+"Polymarket vs Limitless spread on 'trump'"  → /predmarket/spread (paid, cross-venue JOIN)
+"Kalshi vs Polymarket fed-rate arbitrage"    → /kalshi-polymarket/spread (paid)
 "Find agents that do trading"               → 8004scan
 ```
 
@@ -118,8 +124,14 @@ x402 payment challenges. Without that configuration, paid endpoints return
 - `/route` — 3 free queries/sender/day, then **$0.01 USDC** per call (Base mainnet)
 - `/polymarket/*` — paid from call 1 ($0.01 - $0.05 per call)
 - `/hyperliquid/*` — paid from call 1 ($0.02 - $0.10 per call)
+- `/predmarket/spread` — paid from call 1 (**$0.05 USDC**) — Polymarket ↔ Limitless cross-venue spread on a topic. POST `{topic, limit?}` returns per-pair yes-mid spread (bps) and arbitrage direction. JOIN that single-venue passthroughs structurally can't return.
+- `/kalshi-polymarket/spread` — paid from call 1 (**$0.05 USDC**) — Kalshi ↔ Polymarket cross-source spread on a topic.
+- `/kalshi/consensus-trend`, `/kalshi/sports-live-edge` — paid from call 1 (**$0.05 USDC** each).
 - `/ask` — paid from call 1 (**$0.05 USDC**) — natural-language Q&A over the x402 Base settlements warehouse. 132M+ payments + pre-aggregated `daily_stats` (388 days). Returns `{answer, sql_trace, model, upstream_ms}` so callers can verify the data path.
 - `/onchain-x402/address` — paid from call 1 (**$0.01 USDC**) — decentralized address lookup against the x402 Base subgraph on The Graph Network. POST `{address}` returns lifetime stats (payer + recipient roles), recent 10 payments in each direction, facilitator metadata, and `indexed_through_block` for freshness.
+
+### 402 challenge — preview before paying
+Every paid endpoint's 402 response body includes an `output_example` field with a sample of the payload you'll receive after paying. Inspect this before signing — if the shape doesn't fit your use case, bail without spending.
 
 ### Per-call approval (recommended)
 
