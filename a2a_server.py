@@ -1616,6 +1616,29 @@ SKILLS = [
         input_modes=["text"],
         output_modes=["text"],
     ),
+    AgentSkill(
+        id="predmarket_spread",
+        name="Polymarket ↔ Limitless cross-venue spread (JOIN)",
+        description=(
+            "POST /predmarket/spread {topic, limit?}. Cross-venue arbitrage spread on a "
+            "topic keyword: pulls matching markets from Polymarket (Gamma public API) and "
+            "Limitless (REST public search), pairs them by closest-price match, returns "
+            "per-pair yes-mid spread (bps) and arbitrage_direction. JOIN that single-venue "
+            "passthroughs structurally can't return — GA is the place agents go to compare "
+            "prediction markets across venues. Naive pair-up by price proximity; agent "
+            "should confirm semantic match (same end date, same resolution source) before "
+            "sizing. $0.05 USDC per call on Base."
+        ),
+        tags=["prediction-markets", "polymarket", "limitless", "cross-venue", "spread",
+              "arbitrage", "join", "x402", "base"],
+        examples=[
+            "Cross-venue spread on 'trump' between Polymarket and Limitless",
+            "Are there arbitrage opportunities on bitcoin markets across prediction venues?",
+            "Polymarket vs Limitless price gap for 'fed rate'",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
 ]
 
 
@@ -2392,6 +2415,7 @@ _PAID_ENDPOINT_TESTS = [
     # is a real Indiana@NY NBA game ID.
     ("kalshi/consensus-trend",      {"event": "KXELONMARS-99"},                            100, "0.05"),
     ("kalshi-polymarket/spread",    {"topic": "fed rate", "limit": 3},                     100, "0.05"),
+    ("predmarket/spread",           {"topic": "trump", "limit": 5},                         100, "0.05"),
     ("kalshi/sports-live-edge",     {"milestone": "93ce8b69-d3db-412d-b41e-a245a271adcc"}, 100, "0.05"),
 ]
 
@@ -5509,6 +5533,7 @@ def build_app():
                 BASE_URL + "/kalshi/consensus-trend",
                 BASE_URL + "/kalshi-polymarket/spread",
                 BASE_URL + "/kalshi/sports-live-edge",
+                BASE_URL + "/predmarket/spread",
             ],
             "instructions": (
                 "POST a plain-English onchain data request and receive a "
@@ -5697,6 +5722,8 @@ def build_app():
              "Kalshi vs Polymarket cross-source spread on a topic — JOIN that single-source APIs cannot return; arbitrage direction included."),
             ("/kalshi/sports-live-edge", "kalshiSportsLiveEdge", "0.05",
              "Live sports mispricing detector: play-by-play momentum vs market candlestick reaction; flags latency-arb windows."),
+            ("/predmarket/spread", "predmarketSpread", "0.05",
+             "Polymarket vs Limitless cross-venue spread on a topic — JOIN that single-venue APIs cannot return; arbitrage direction included."),
         ]
         for _path, _opid, _price, _desc in _paid_endpoints:
             spec["paths"][_path] = {
@@ -6915,6 +6942,34 @@ def build_app():
                     "retry_after_seconds": 30,
                 }, status_code=502)
 
+        async def _predmarket_spread_handler(request):
+            """$0.05 — Polymarket ↔ Limitless cross-market spread on a topic."""
+            from limitless_intel import polymarket_limitless_spread
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            topic = str(body.get("topic") or body.get("keyword") or "").strip()
+            if not topic:
+                return _RouteJSON({"error": "topic_required",
+                                   "expected_body": {"topic": "trump", "limit": 5}},
+                                  status_code=400)
+            limit = body.get("limit") or 5
+            try:
+                result = await polymarket_limitless_spread(topic, limit=limit)
+                _log_request("x402-paid", f"predmarket-spread {topic[:40]}",
+                             "predmarket-spread", "high", "polymarket-gamma+limitless-rest",
+                             response=result)
+                return _RouteJSON(result)
+            except Exception as exc:
+                log.exception(f"predmarket-spread crashed: {topic}")
+                _log_paid_failure(f"predmarket-spread {topic[:40]}", exc)
+                return _RouteJSON({
+                    "error": "upstream_unavailable",
+                    "message": "One of Polymarket Gamma or Limitless unreachable; retry shortly.",
+                    "retry_after_seconds": 30,
+                }, status_code=502)
+
         async def _kalshi_sports_handler(request):
             """$0.05 — live sports-market mispricing detector."""
             try:
@@ -7461,6 +7516,7 @@ def build_app():
             _RouteRoute("/kalshi/consensus-trend", _kalshi_consensus_handler, methods=["POST"]),
             _RouteRoute("/kalshi-polymarket/spread", _kalshi_spread_handler, methods=["POST"]),
             _RouteRoute("/kalshi/sports-live-edge", _kalshi_sports_handler, methods=["POST"]),
+            _RouteRoute("/predmarket/spread", _predmarket_spread_handler, methods=["POST"]),
         ])
 
         x402_server = _get_x402_server()
@@ -8007,6 +8063,26 @@ def build_app():
                             input_schema={"type":"object","properties":{"milestone":{"type":"string","description":"Kalshi sports milestone id"},"market":{"type":"string","description":"Optional ticker for candlestick reaction comparison"}},"required":["milestone"]},
                             body_type="json",
                             output=OutputConfig(example={"milestone_id":"NFLGAME-XYZ-1","momentum_score_last_5_events":0.8,"market_reaction_pct_last_hour":0.4,"latency_arbitrage_signal":"upside-lag-likely","candles_returned":60},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /predmarket/spread": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Cross-venue arbitrage spread between Polymarket and Limitless on a "
+                            "topic. POST {topic, limit?}. Pulls matching markets from Polymarket's "
+                            "public Gamma API and Limitless's REST search, pairs them by closest-"
+                            "price match, computes per-pair yes-mid spread + arbitrage direction. "
+                            "GA assembles a JOIN that single-venue passthroughs can't return. "
+                            "Naive pair-up — agent should confirm semantic match before sizing."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"topic":"trump","limit":5},
+                            input_schema={"type":"object","properties":{"topic":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10,"default":5}},"required":["topic"]},
+                            body_type="json",
+                            output=OutputConfig(example={"topic_keyword":"trump","status":"ok","polymarket_candidates":2,"limitless_candidates":2,"pairs":[{"polymarket_slug":"trump-out-2026","polymarket_question":"Trump out as President before 2027?","polymarket_yes_mid":0.10,"limitless_condition_id":"0x1128...","limitless_slug":"trump-out-as-president-before-2027","limitless_title":"Trump out as President before 2027?","limitless_yes_mid":0.0955,"spread_yes_polymarket_minus_limitless":0.0045,"spread_bps":45,"arbitrage_direction":"tight"}],"agent_note":"Spread > 200bps in either direction is a candidate arbitrage; verify same-condition resolution before sizing."},schema={"type":"object"}),
                         )},
                     ),
                 },
@@ -8571,6 +8647,7 @@ def build_app():
             or scope["path"].startswith("/hyperliquid/")
             or scope["path"].startswith("/kalshi/")
             or scope["path"].startswith("/kalshi-polymarket/")
+            or scope["path"].startswith("/predmarket/")
             or scope["path"].startswith("/onchain-x402/")
         ):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.
