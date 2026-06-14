@@ -57,6 +57,7 @@ Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x40
 | `POST /kalshi/consensus-trend` | $0.05 | Kalshi consensus-probability slope + acceleration (uses Kalshi-unique forecast_history) |
 | `POST /kalshi-polymarket/spread` | $0.05 | Cross-source arbitrage spread between Kalshi and Polymarket on a topic — JOIN passthrough APIs can't return |
 | `POST /kalshi/sports-live-edge` | $0.05 | Live sports mispricing: play-by-play momentum vs market reaction; flags latency-arb windows |
+| `POST /predmarket/spread` | $0.05 | **Polymarket ↔ Limitless cross-venue spread** on a topic — paired markets, per-pair yes-mid spread (bps), arbitrage direction. JOIN single-venue passthroughs can't return |
 
 ```bash
 # Try it
