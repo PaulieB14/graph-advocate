@@ -1,0 +1,91 @@
+---
+title: "Prediction-market cross-venue spread"
+description: "One paid endpoint that JOINs Polymarket and Limitless on a topic. Per-pair yes-mid spread, arbitrage direction, and the JOIN single-venue passthroughs structurally can't return."
+---
+
+One x402 endpoint for **cross-venue prediction-market arbitrage**. Polymarket has its own public API. Limitless has its own. Neither can answer "where do these two markets disagree?" in a single call — that's the JOIN Graph Advocate assembles.
+
+## What you get
+
+| Endpoint | Cost | Returns |
+|---|---:|---|
+| `POST /predmarket/spread` | $0.05 | Same-topic markets paired across Polymarket + Limitless, per-pair yes-mid spread (bps), arbitrage direction. **JOIN single-venue passthroughs structurally can't return** |
+
+Per-call payment in USDC on Base via x402. No subscription, no API key, no free tier.
+
+## Why cross-venue over single-venue
+
+Polymarket's Gamma API is public and free. Limitless's REST search is public and free. A consuming agent could call both and diff in code — but every agent then re-implements the same matching:
+
+- Pull candidate markets from each venue by topic keyword
+- Normalize the yes-side price from each venue's response shape (Polymarket uses JSON-encoded `outcomePrices`, Limitless uses a `prices: [yes, no]` array)
+- Pair candidates by closest-price-match (titles rarely overlap word-for-word)
+- Compute spread in basis points and emit arbitrage direction
+
+Graph Advocate does it once. The cross-venue `/spread` endpoint is the **defensible play**: passthrough APIs return one venue at a time and can't JOIN. As more prediction-market venues come online, the JOIN gets *more* valuable, not less.
+
+## Sample request
+
+```bash
+curl -X POST 'https://graphadvocate.com/predmarket/spread' \
+  -H 'Content-Type: application/json' \
+  -d '{"topic": "trump", "limit": 5}'
+```
+
+Response:
+
+```json
+{
+  "topic_keyword": "trump",
+  "status": "ok",
+  "polymarket_candidates": 2,
+  "limitless_candidates": 2,
+  "pairs": [
+    {
+      "polymarket_slug": "trump-out-2026",
+      "polymarket_question": "Trump out as President before 2027?",
+      "polymarket_yes_mid": 0.10,
+      "limitless_condition_id": "0x11287d02d8067ff3d3d8bd21b212ebcfdc20b638f7f6440e4115f649e6b57015",
+      "limitless_slug": "trump-out-as-president-before-2027",
+      "limitless_title": "Trump out as President before 2027?",
+      "limitless_yes_mid": 0.0955,
+      "spread_yes_polymarket_minus_limitless": 0.0045,
+      "spread_bps": 45,
+      "arbitrage_direction": "tight"
+    }
+  ],
+  "agent_note": "Spread > 200bps in either direction is a candidate arbitrage; verify the two markets actually resolve on the same condition (same end date, same resolution source) before sizing. Naive title-overlap pair-up — confirm semantically before trading."
+}
+```
+
+**How to use it.** `spread_bps` is the basis-point gap on the yes-side mid. `arbitrage_direction` collapses the signal into one of:
+
+- `long-polymarket-short-limitless` — Polymarket is more expensive; if the two markets resolve identically, sell Polymarket and buy Limitless.
+- `long-limitless-short-polymarket` — Limitless is more expensive; reverse.
+- `tight` — within ±200bps; no edge after fees.
+
+The `status` field tells you which venues had candidates so you don't waste a call interpreting an empty `pairs[]`:
+
+- `ok` — both venues returned matches, pairs computed
+- `polymarket_only` — Limitless had no markets for the topic (try a crypto/AI/tech keyword)
+- `limitless_only` — Polymarket had no markets (try a broader politics/sports keyword)
+- `no_matches` — neither venue matched; broaden the keyword
+
+**Important:** pairing uses keyword overlap + closest-price-match scoring. You must **verify the two markets actually resolve on the same on-chain condition** (same end date, same resolution source, same outcome definitions) before sizing — otherwise the "arbitrage" is just basis risk.
+
+## How it differs from `/kalshi-polymarket/spread`
+
+Same JOIN-shaped value-add, different venue pair:
+
+- `/predmarket/spread` — Polymarket ↔ **Limitless** (Base-native CTF prediction market, public REST search, no auth required)
+- `/kalshi-polymarket/spread` — Polymarket ↔ **Kalshi** (US-regulated, public REST)
+
+Topic coverage skews differently. Limitless leans crypto / AI / tech. Kalshi leans US politics / sports / economics. Polymarket overlaps everything. Pick the endpoint by the venue pair you actually want to arbitrage.
+
+## Routing for free first
+
+If you want to inspect the routing for free, send a plain-English question to `POST /` (A2A JSON-RPC) and Graph Advocate will name the right `predmarket/*` endpoint and hand back the exact paid curl — without charging.
+
+## Source
+
+[`limitless_intel.py`](https://github.com/PaulieB14/graph-advocate/blob/main/limitless_intel.py) — the cross-venue search + closest-price-match pairing logic and how it fetches from Polymarket's Gamma API and Limitless's REST search.
