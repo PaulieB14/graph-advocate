@@ -1,11 +1,11 @@
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Graph Advocate",
-  "description": "Onchain data routing + agent-priced trader intelligence. Find the right subgraph and get a ready-to-run GraphQL query for any onchain need (15,500+ subgraphs across 20+ chains). Live data via Token API (wallet balances, DEX swaps, NFTs, holder rankings) across EVM, Solana, and TON. Plus x402-paid trader-intelligence endpoints designed for autonomous agents: four for Polymarket (skill score, full PnL, size-the-room screen, ghost-fill risk) and five for Hyperliquid perps (skill score, per-coin PnL, top-traders screen, vault evaluator, liquidation+funding risk). Operates the x402-bazaar-intelligence service (the non-CDP view of the x402 economy on Base). Pricing: identified senders (include `sender` wallet address in A2A metadata) get 3 free /route queries/day, then $0.01 USDC via x402 on Base. Anonymous senders (no metadata) pay $0.01 from call 1. /polymarket and /hyperliquid endpoints are paid from call 1 regardless of metadata. Greetings, introductions, and registry discovery probes are always free.",
+  "description": "Onchain data routing + agent-priced trader intelligence + cross-venue prediction-market spreads. Find the right subgraph and get a ready-to-run GraphQL query for any onchain need (15,500+ subgraphs across 20+ chains). Live data via Token API (wallet balances, DEX swaps, NFTs, holder rankings) across EVM, Solana, and TON. x402-paid trader-intelligence endpoints designed for autonomous agents: four for Polymarket (skill score, full PnL, size-the-room screen, ghost-fill risk), five for Hyperliquid perps (skill score, per-coin PnL, top-traders screen, vault evaluator, liquidation+funding risk), three Kalshi derived-signals (consensus trend, sports live-edge, plus the Kalshi-Polymarket cross-source spread), and the Polymarket-Limitless cross-venue spread JOIN that single-venue passthroughs structurally can't return. Plus x402 settlement natural-language Q&A over 132M+ payments and decentralized onchain x402 address lookup. Operates the x402-bazaar-intelligence service (the non-CDP view of the x402 economy on Base). Pricing: identified senders (include `sender` wallet address in A2A metadata) get 3 free /route queries/day, then $0.01 USDC via x402 on Base. Anonymous senders (no metadata) pay $0.01 from call 1. /polymarket, /hyperliquid, /kalshi, and /predmarket endpoints are paid from call 1 regardless of metadata. Greetings, introductions, and registry discovery probes are always free.",
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-05-22T00:00:00Z",
+  "updatedAt": "2026-06-14T19:00:00Z",
   "mcpTools": ["find_subgraph", "write_query", "onchain_data"],
   "a2aSkills": [
     "find_subgraph",
@@ -20,7 +20,13 @@
     "hyperliquid_pnl",
     "hyperliquid_screen",
     "hyperliquid_vault",
-    "hyperliquid_risk"
+    "hyperliquid_risk",
+    "kalshi_consensus_trend",
+    "kalshi_polymarket_spread",
+    "kalshi_sports_live_edge",
+    "predmarket_spread",
+    "x402_settlements_ask",
+    "onchain_x402_address"
   ],
   "services": [
     {
@@ -55,7 +61,13 @@
         "Liquidation Risk Profiling",
         "Funding Burn Analysis",
         "Vault Leader Evaluation",
-        "Copy-Trade Due Diligence"
+        "Copy-Trade Due Diligence",
+        "Cross-Venue Prediction-Market Spread (Polymarket vs Limitless)",
+        "Cross-Source Prediction-Market Spread (Kalshi vs Polymarket)",
+        "Kalshi Consensus-Probability Trajectory Analysis",
+        "Kalshi Sports Latency-Arbitrage Detection",
+        "x402 Settlement Natural-Language Q&A (132M+ payments)",
+        "Onchain x402 Address Lookup (Decentralized via Subgraph)"
       ],
       "domains": [
         "technology/blockchain",
