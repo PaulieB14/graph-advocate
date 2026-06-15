@@ -3152,11 +3152,19 @@ async def quality_stats_endpoint(request: Request):
 
 # ── /logs and /dashboard endpoints ───────────────────────────────────────────
 
-# Onchain balance snapshot for the dashboard. Cached 60s to avoid hammering RPCs
-# every 15s poll. Read-only — queries Base and Arbitrum for wallet balances +
-# compares to x402-paid/x402-tip log count so settlement anomalies surface.
+# Onchain balance snapshot for the dashboard. Cached 600s (10 min) to avoid
+# hammering public Base/Arbitrum RPCs from every dashboard poll. Read-only —
+# queries Base and Arbitrum for wallet balances + compares to x402-paid/
+# x402-tip log count so settlement anomalies surface.
+#
+# Previous TTL of 60s combined with the dashboard's ~15s poll interval
+# produced ~3,000 RPC calls/day per public endpoint (mainnet.base.org +
+# arb1.arbitrum.io). Public RPC endpoints can throttle aggressive callers,
+# and wallet balances don't actually need 60s freshness — the dashboard
+# widget shows lifetime totals + a balance number that moves in cents/min
+# at most. 10 min refresh is plenty.
 _ONCHAIN_CACHE: dict = {"data": None, "ts": 0.0}
-_ONCHAIN_CACHE_TTL_SEC = 60
+_ONCHAIN_CACHE_TTL_SEC = 600
 _BASE_RPC_URL = os.environ.get("BASE_RPC_URL", "https://mainnet.base.org")
 _ARB_RPC_URL = os.environ.get("ARB_RPC_URL", "https://arb1.arbitrum.io/rpc")
 _USDC_BASE_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
