@@ -2919,6 +2919,41 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
         log.warning(f"Quality score write failed: {e}")
 
 
+async def skill_md_endpoint(request: Request):
+    """GET /SKILL.md — Agent Skills (agentskills.io) compatible skill manifest.
+
+    Per the spec, a SKILL.md file with YAML frontmatter (`name`, `description`,
+    plus instructions) lets any compatible agent runtime install GA as a skill.
+    Hermes Agent (NousResearch), Claude Code, and any other agentskills.io-
+    compatible client can install via:
+
+        hermes skills install https://graphadvocate.com/SKILL.md
+
+    Content is served from openclaw-skill/graph-advocate/SKILL.md in the repo
+    (same source we publish to ClawHub) so there's a single source of truth.
+    """
+    import os as _os
+    _skill_path = _os.path.join(
+        _os.path.dirname(_os.path.abspath(__file__)),
+        "openclaw-skill", "graph-advocate", "SKILL.md",
+    )
+    try:
+        with open(_skill_path, "r", encoding="utf-8") as _f:
+            _body = _f.read()
+    except FileNotFoundError:
+        _body = (
+            "# Graph Advocate\n\n"
+            "SKILL.md source unavailable. See full skill at "
+            "https://github.com/PaulieB14/graph-advocate/blob/main/"
+            "openclaw-skill/graph-advocate/SKILL.md\n"
+        )
+    return PlainTextResponse(
+        _body,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 async def llms_txt_endpoint(request: Request):
     """GET /llms.txt — compact discovery file for LLM-driven dev tools.
 
@@ -8477,6 +8512,8 @@ def build_app():
         Route("/claw/scout", claw_scout_endpoint),
         # Discovery surfaces for LLM-driven dev tools and other agents
         Route("/llms.txt", llms_txt_endpoint),
+        Route("/SKILL.md", skill_md_endpoint),
+        Route("/skill.md", skill_md_endpoint),  # case-insensitive fallback
         Route("/agents/index.json", agents_index_endpoint),
         Route("/agents/capabilities.json", capabilities_endpoint),
         Route("/mcp/catalog", mcp_catalog_endpoint),
@@ -8752,7 +8789,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip", "/ask")
