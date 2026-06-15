@@ -1979,27 +1979,38 @@ class GraphAdvocateExecutor(AgentExecutor):
                 return
 
             log.info(f"GREETING task={task_id} | fast-handled")
-            _log_request(task_id, user_text, "introduction", "high", "greeting")
-            await event_queue.enqueue_event(
-                new_agent_text_message(json.dumps({
-                    "recommendation": "introduction",
-                    "name": "Graph Advocate",
-                    "description": "I route onchain data requests to the right Graph Protocol service.",
-                    "confidence": "high",
-                    "services": ["token-api", "subgraph-registry", "substreams", "graph-aave-mcp", "graph-lending-mcp", "graph-polymarket-mcp", "predictfun-mcp"],
-                    "example_requests": [
-                        "I need Curve pool data on Ethereum — which subgraph?",
-                        "Write a GraphQL query for Aave V3 liquidations above $50K",
-                        "What subgraphs exist for NFT sales on Base?",
-                        "Compare lending rates across Aave, Compound, and Morpho",
-                        "How do I query Lido withdrawal requests from The Graph?",
-                        "Find ERC-8004 agents on Base by capability",
-                    ],
-                    "query_ready": None,
-                    "alternatives": [],
-                    "hint": "Send an onchain data request and I'll return the exact tool call to run.",
-                }))
-            )
+            _intro_payload = {
+                "recommendation": "introduction",
+                "name": "Graph Advocate",
+                "description": "I route onchain data requests to the right Graph Protocol service. Free for handshakes, intros, and quota checks; paid endpoints (e.g. /polymarket/*, /hyperliquid/*, /predmarket/spread) settle in USDC on Base via x402.",
+                "confidence": "high",
+                "services": [
+                    "token-api", "subgraph-registry", "substreams",
+                    "graph-aave-mcp", "graph-lending-mcp", "graph-polymarket-mcp",
+                    "graph-limitless-mcp", "predictfun-mcp",
+                ],
+                "example_requests": [
+                    "I need Curve pool data on Ethereum — which subgraph?",
+                    "Write a GraphQL query for Aave V3 liquidations above $50K",
+                    "What subgraphs exist for NFT sales on Base?",
+                    "Compare lending rates across Aave, Compound, and Morpho",
+                    "Polymarket vs Limitless spread on 'trump' (paid /predmarket/spread)",
+                    "Score Hyperliquid trader 0x... (paid /hyperliquid/score)",
+                    "Find ERC-8004 agents on Base by capability",
+                ],
+                "paid_endpoints": {
+                    "POST /predmarket/spread": "$0.05 — Polymarket↔Limitless cross-venue spread on a topic",
+                    "POST /polymarket/pnl-quick": "$0.02 — derived skill metrics for a Polymarket wallet",
+                    "POST /hyperliquid/score": "$0.02 — Hyperliquid perps trader skill score",
+                    "POST /kalshi-polymarket/spread": "$0.05 — Kalshi↔Polymarket cross-source spread",
+                    "POST /ask": "$0.05 — natural-language Q&A over 132M+ x402 settlements on Base",
+                },
+                "query_ready": None,
+                "alternatives": [],
+                "hint": "Send a plain-English data request and I'll return the right service + a ready-to-run query. For paid endpoints, the 402 challenge body now includes an `output_example` field so you can preview the payload shape before paying.",
+            }
+            _log_request(task_id, user_text, "introduction", "high", "greeting", response=_intro_payload)
+            await event_queue.enqueue_event(new_agent_text_message(json.dumps(_intro_payload)))
             return
 
         # ── Fast-reject: known junk protocols (no Claude call) ───────────────
@@ -2046,17 +2057,16 @@ class GraphAdvocateExecutor(AgentExecutor):
                         del _intro_spam_seen[k]
             else:
                 log.debug(f"REPEAT   task={task_id} | throttled intro (suppressed)")
-            _log_request(task_id, user_text, "introduction", "high", "throttled")
-            await event_queue.enqueue_event(
-                new_agent_text_message(json.dumps({
-                    "recommendation": "introduction",
-                    "reason": "You've introduced yourself recently — I remember you. Send an onchain data request and I'll return the exact tool call to run.",
-                    "confidence": "high",
-                    "query_ready": None,
-                    "alternatives": [],
-                    "hint": "Try: 'Top 20 USDC holders on Ethereum' or 'Uniswap V3 swaps last 100 blocks'",
-                }))
-            )
+            _throttled_payload = {
+                "recommendation": "introduction",
+                "reason": "You've introduced yourself recently — I remember you. Send an onchain data request and I'll return the exact tool call to run.",
+                "confidence": "high",
+                "query_ready": None,
+                "alternatives": [],
+                "hint": "Try: 'Top 20 USDC holders on Ethereum', 'Uniswap V3 swaps last 100 blocks', or POST /predmarket/spread {topic:'sol'} for a paid cross-venue prediction-market spread.",
+            }
+            _log_request(task_id, user_text, "introduction", "high", "throttled", response=_throttled_payload)
+            await event_queue.enqueue_event(new_agent_text_message(json.dumps(_throttled_payload)))
             return
 
         rec, updated_history = ask_graph_advocate(
