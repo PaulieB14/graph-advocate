@@ -1391,8 +1391,47 @@ def _fallback_route(request: str) -> dict:
     # reads work via token-api today on Sepolia and on Base mainnet post-Beryl.
     # The Asset-variant (USDB, rebasing tokens) requires scaledBalanceOf instead
     # of balanceOf for the human-readable amount — surfaced in the reason text
-    # below so callers don't silently under-read rebased balances.
-    elif any(w in req for w in ["b20", "usdb", "scaledbalanceof", "scaled balance"]):
+    # below so callers don't silently under-read rebased balances. Compliance
+    # metadata (PolicyRegistry allowlist/blocklist, freeze-and-seize) lives on
+    # 0x8453…0002; routes to token-api as well since it's contract-read.
+    elif any(w in req for w in [
+        "b20", "usdb", "scaledbalanceof", "scaled balance",
+        "policyregistry", "policy registry", "allowlist", "blocklist",
+        "freeze and seize", "freezeandseize", "activationregistry",
+        "activation registry",
+    ]):
+        svc = "token-api"
+    # Basenames — ENS-on-Base resolver. ENSIP-10 wildcard + ENSIP-19 cross-chain;
+    # name → address resolution is a contract read against the Base resolver.
+    elif any(w in req for w in [
+        "basename", "basenames", "base.eth", ".base.eth",
+    ]):
+        svc = "subgraph-registry"
+    # L2 EAS (Ethereum Attestation Service) — predeployed at 0x4200…0020/0021
+    # on Base. Sign In With Base, Coinbase Verifications, Base Account reputation
+    # all live here. Best surface for "what attestations does wallet X have?" is
+    # a Base EAS subgraph (multiple indexers).
+    elif any(w in req for w in [
+        "attestation", "attestations", "eas ", "ethereum attestation",
+        "sign in with base", "base verify", "coinbase verification",
+    ]):
+        svc = "subgraph-registry"
+    # EIP-7702 EOA→smart-account delegation (Isthmus, live mainnet). Detection
+    # requires reading the authorization list field on transactions — tx-level
+    # data, canonical via substreams. Token-api won't surface this.
+    elif any(w in req for w in [
+        "eip-7702", "eip7702", "7702 delegation", "7702 authorization",
+        "eoa delegation", "authorization list",
+    ]):
+        svc = "substreams"
+    # Beryl multi-proof withdrawal status — TEE+ZK fast-path stays 1 day,
+    # single-proof cuts from 7 to 5 days. Caller wants "when does my withdrawal
+    # finalize?" — contract read against L2ToL1MessagePasser + DisputeGameFactory.
+    elif any(w in req for w in [
+        "withdrawal finalization", "withdrawal status", "withdrawal proof",
+        "multi-proof", "multiproof", "withdrawal finalize", "dispute game",
+        "optimismportal",
+    ]):
         svc = "token-api"
     elif any(w in req for w in ["balance", "holder", "transfer", "swap", "nft", "wallet", "price",
                                   "volume", "whale", "top holder", "biggest", "solana", "ton"]):
@@ -1422,6 +1461,78 @@ def _fallback_route(request: str) -> dict:
             "returns the raw unscaled value). Pre-activation testing: use Base "
             "Sepolia; post-activation: Base mainnet. Original: "
             + request[:100]
+        )
+    elif svc == "token-api" and any(w in req for w in [
+        "policyregistry", "policy registry", "allowlist", "blocklist",
+        "freeze and seize", "freezeandseize", "activationregistry",
+        "activation registry",
+    ]):
+        reason = (
+            "B20 compliance metadata. PolicyRegistry precompile is "
+            "0x8453000000000000000000000000000000000002 (allowlist/blocklist "
+            "via isAuthorized — never reverts; built-in ALWAYS_ALLOW id=0 / "
+            "ALWAYS_BLOCK; two-step admin transfer). ActivationRegistry is "
+            "0x8453000000000000000000000000000000000001 (gates whether a "
+            "specific B20 feature is live on chain — check isActive() per "
+            "feature even post-Beryl, since individual variants can be "
+            "flag-gated off). Freeze-and-seize is on IB20Asset; emits "
+            "FrozenAccount / SeizedAssets events. Pre-2026-06-25: testnet "
+            "only. Original: " + request[:100]
+        )
+    elif svc == "subgraph-registry" and any(w in req for w in [
+        "basename", "basenames", "base.eth", ".base.eth",
+    ]):
+        reason = (
+            "Basenames (ENS-on-Base). Resolution uses ENSIP-10 wildcard + "
+            "ENSIP-19 cross-chain — any ENSIP-10 client resolves alice.base.eth "
+            "without code changes. For 'who owns X.base.eth?' or 'list names "
+            "owned by 0x…' use a Basenames subgraph (live on Base mainnet); "
+            "for a one-shot name→address, the Base resolver contract is "
+            "directly callable via CCIP-read. Original: " + request[:100]
+        )
+    elif svc == "subgraph-registry" and any(w in req for w in [
+        "attestation", "attestations", "eas ", "ethereum attestation",
+        "sign in with base", "base verify", "coinbase verification",
+    ]):
+        reason = (
+            "L2 EAS (Ethereum Attestation Service). Predeployed on Base at "
+            "SchemaRegistry 0x4200000000000000000000000000000000000020 and "
+            "EAS 0x4200000000000000000000000000000000000021 — any wallet can "
+            "be subject or attester. Sign In With Base / Coinbase "
+            "Verifications all emit EAS attestations; query a Base EAS "
+            "subgraph for 'attestations about wallet X' or 'attestations "
+            "issued by attester Y matching schema S'. Original: "
+            + request[:100]
+        )
+    elif svc == "substreams" and any(w in req for w in [
+        "eip-7702", "eip7702", "7702 delegation", "7702 authorization",
+        "eoa delegation", "authorization list",
+    ]):
+        reason = (
+            "EIP-7702 EOA→smart-account delegation (live on Base since the "
+            "Isthmus hardfork). Detection is tx-level: txs carry an "
+            "`authorization_list` field; an EOA with an active 7702 "
+            "delegation has bytecode `0xef0100 || implementation_addr` "
+            "instead of empty. Token-api can't surface this — pull via "
+            "substreams (raw-tx stream filtered on authorization_list "
+            "presence) or eth_getCode against the EOA. Common assumption "
+            "EOA == no code is now WRONG on Base. Original: " + request[:100]
+        )
+    elif svc == "token-api" and any(w in req for w in [
+        "withdrawal finalization", "withdrawal status", "withdrawal proof",
+        "multi-proof", "multiproof", "withdrawal finalize", "dispute game",
+        "optimismportal",
+    ]):
+        reason = (
+            "Beryl multi-proof withdrawal finalization on Base. Three paths: "
+            "(1) TEE+ZK dual-proof fast path — finalizes in 1 day; (2) "
+            "single-proof TEE or ZK — finalizes in 5 days (Beryl cuts from "
+            "7); (3) failed dispute — never finalizes, must re-prove. Look "
+            "up withdrawals via L2ToL1MessagePasser 0x4200…0016 (L2 storage "
+            "root embedded in block header post-Isthmus) → DisputeGameFactory "
+            "0x43ed…cb40e (L1 mainnet) → OptimismPortal 0x4904…4e97e for "
+            "finalize. Pending-proof state lives in the AggregateVerifier "
+            "dispute game. Original: " + request[:100]
         )
     curl = example.get("curl_example", "")
     query_ready = None
@@ -2182,12 +2293,21 @@ def _auto_search(request: str) -> str:
         "frax", "convex", "morpho", "spark", "sky", "pendle",
         "hyperliquid", "drift", "perpetual", "perp", "margin",
         "rewards", "incentive", "emission", "vote", "gauge",
+        # Base ecosystem primitives — indexed by Base subgraphs (Basenames
+        # resolver, L2 EAS attestations on Base predeploys 0x4200…0020/0021).
+        "basename", "basenames", "base.eth",
+        "attestation", "attestations", "ethereum attestation",
+        "sign in with base", "base verify", "coinbase verification",
     ]
     # Keywords that suggest substreams
     SUBSTREAMS_KEYWORDS = [
         "substream", "raw block", "event log", "trace", "streaming",
         "block data", "decode", "spkg",
         "real-time", "realtime", "firehose", "sink", "pipeline",
+        # EIP-7702 delegation needs raw-tx stream filtered on authorization_list
+        # presence — token-api can't surface this. Live on Base since Isthmus.
+        "eip-7702", "eip7702", "7702 delegation", "7702 authorization",
+        "authorization list",
     ]
     # Keywords that suggest Token API
     TOKEN_API_KEYWORDS = [
@@ -2201,8 +2321,14 @@ def _auto_search(request: str) -> str:
         # B20 — Base's enshrined token standard activating with the Beryl
         # hardfork on 2026-06-25 18:00 UTC. ERC-20 selector parity so balance
         # reads route here; the rebase + Asset-variant gotcha surfaces in the
-        # reason text downstream.
+        # reason text downstream. PolicyRegistry / ActivationRegistry
+        # compliance metadata reads route here too (precompile contract reads).
+        # Multi-proof withdrawal status is L2ToL1MessagePasser + portal reads.
         "b20", "usdb", "scaledbalanceof",
+        "policyregistry", "policy registry", "allowlist", "blocklist",
+        "freeze and seize", "activationregistry", "activation registry",
+        "withdrawal finalization", "withdrawal status", "multi-proof",
+        "multiproof", "dispute game", "optimismportal",
         "nft sale", "nft floor", "nft owner",
         "polymarket", "prediction market", "open interest",
     ]

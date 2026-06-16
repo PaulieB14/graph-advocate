@@ -115,6 +115,51 @@ class TestFallbackRoute(unittest.TestCase):
     def test_b20_scaled_balance_routes_to_token_api(self):
         self._check("scaledBalanceOf for a B20 Asset variant", "token-api")
 
+    # B20 compliance metadata — PolicyRegistry + ActivationRegistry precompiles.
+    # Same routing target as B20 token reads (token-api over precompile addrs),
+    # but a different gotcha surface (isAuthorized never reverts; isActive must
+    # be checked per-feature even post-Beryl).
+    def test_policy_registry_routes_to_token_api(self):
+        self._check("is account 0xabc on the PolicyRegistry allowlist", "token-api")
+
+    def test_blocklist_routes_to_token_api(self):
+        self._check("which addresses are on the B20 blocklist", "token-api")
+
+    def test_freeze_and_seize_routes_to_token_api(self):
+        self._check("freeze and seize events for B20 Asset variant", "token-api")
+
+    # Basenames — ENS-on-Base. Subgraph routing for "list names owned by X" and
+    # for "who owns alice.base.eth" (resolver indexed by subgraphs).
+    def test_basenames_owner_routes_to_subgraph(self):
+        self._check("who owns alice.base.eth", "subgraph-registry")
+
+    def test_basenames_list_routes_to_subgraph(self):
+        self._check("list basenames owned by 0xabc", "subgraph-registry")
+
+    # L2 EAS attestations — predeployed at 0x4200…0020/0021. Routes to a Base
+    # EAS subgraph for "what attestations does wallet X have?".
+    def test_eas_attestations_routes_to_subgraph(self):
+        self._check("attestations issued to wallet 0xabc on Base", "subgraph-registry")
+
+    def test_sign_in_with_base_routes_to_subgraph(self):
+        self._check("Sign In With Base verification status for 0xabc", "subgraph-registry")
+
+    # EIP-7702 EOA delegation — tx-level data via substreams; token-api can't
+    # surface authorization_list field on transactions.
+    def test_eip7702_delegation_routes_to_substreams(self):
+        self._check("is EOA 0xabc using EIP-7702 delegation", "substreams")
+
+    def test_authorization_list_routes_to_substreams(self):
+        self._check("show me transactions with authorization list on Base", "substreams")
+
+    # Beryl multi-proof withdrawal finalization — token-api can read L1
+    # OptimismPortal + DisputeGameFactory state.
+    def test_withdrawal_finalization_routes_to_token_api(self):
+        self._check("when will my Base withdrawal finalize", "token-api")
+
+    def test_multi_proof_routes_to_token_api(self):
+        self._check("multi-proof status for my pending withdrawal", "token-api")
+
     def test_swap_routes_to_token_api(self):
         self._check("biggest DEX swaps on Base today", "token-api")
 
@@ -270,6 +315,10 @@ class TestAutoSearchKeywords(unittest.TestCase):
             "frax", "convex", "morpho", "spark", "sky", "pendle",
             "hyperliquid", "drift", "perpetual", "perp", "margin",
             "rewards", "incentive", "emission", "vote", "gauge",
+            # Base ecosystem primitives — Basenames + L2 EAS attestations.
+            "basename", "basenames", "base.eth",
+            "attestation", "attestations", "ethereum attestation",
+            "sign in with base", "base verify", "coinbase verification",
         ]
         self.TOKEN_API_KEYWORDS = [
             "balance", "holder", "transfer", "wallet", "nft",
@@ -279,9 +328,22 @@ class TestAutoSearchKeywords(unittest.TestCase):
             "largest", "richest", "portfolio", "token amount",
             "usdc", "usdt", "weth", "eth holder", "btc holder",
             # B20 — Base's enshrined token standard (Beryl hardfork, 2026-06-25)
+            # plus compliance metadata (PolicyRegistry / ActivationRegistry)
+            # and Beryl multi-proof withdrawal status.
             "b20", "usdb", "scaledbalanceof",
+            "policyregistry", "policy registry", "allowlist", "blocklist",
+            "freeze and seize", "activationregistry", "activation registry",
+            "withdrawal finalization", "withdrawal status", "multi-proof",
+            "multiproof", "dispute game", "optimismportal",
             "nft sale", "nft floor", "nft owner",
             "polymarket", "prediction market", "open interest",
+        ]
+        self.SUBSTREAMS_KEYWORDS = [
+            "substream", "raw block", "event log", "trace", "streaming",
+            "block data", "decode", "spkg",
+            "real-time", "realtime", "firehose", "sink", "pipeline",
+            "eip-7702", "eip7702", "7702 delegation", "7702 authorization",
+            "authorization list",
         ]
 
     def _run_subgraph(self, text):
@@ -289,6 +351,9 @@ class TestAutoSearchKeywords(unittest.TestCase):
 
     def _run_token(self, text):
         return self._any_word_match(self.TOKEN_API_KEYWORDS, text.lower())
+
+    def _run_substreams(self, text):
+        return self._any_word_match(self.SUBSTREAMS_KEYWORDS, text.lower())
 
     def test_staking_triggers_subgraph(self):
         self.assertTrue(self._run_subgraph("Lido staking rewards"))
@@ -313,6 +378,21 @@ class TestAutoSearchKeywords(unittest.TestCase):
 
     def test_volume_triggers_token_api(self):
         self.assertTrue(self._run_token("24h trading volume on Base"))
+
+    def test_basename_triggers_subgraph(self):
+        self.assertTrue(self._run_subgraph("resolve alice.base.eth"))
+
+    def test_attestation_triggers_subgraph(self):
+        self.assertTrue(self._run_subgraph("attestations on Base for 0xabc"))
+
+    def test_policy_registry_triggers_token_api(self):
+        self.assertTrue(self._run_token("PolicyRegistry allowlist check"))
+
+    def test_withdrawal_finalization_triggers_token_api(self):
+        self.assertTrue(self._run_token("withdrawal finalization on Base"))
+
+    def test_eip7702_triggers_substreams(self):
+        self.assertTrue(self._run_substreams("EIP-7702 delegation on Base"))
 
 
 class TestServiceCurlExamples(unittest.TestCase):
