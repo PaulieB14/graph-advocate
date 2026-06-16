@@ -1386,6 +1386,14 @@ def _fallback_route(request: str) -> dict:
         svc = "mcp8004"
     elif any(w in req for w in ["find agent", "discover agent", "erc-8004", "erc8004", "8004"]):
         svc = "8004scan"
+    # B20 — Base's enshrined token standard, activating with the Beryl hardfork
+    # on 2026-06-25 18:00 UTC. ERC-20 selector parity so balance/holder/transfer
+    # reads work via token-api today on Sepolia and on Base mainnet post-Beryl.
+    # The Asset-variant (USDB, rebasing tokens) requires scaledBalanceOf instead
+    # of balanceOf for the human-readable amount — surfaced in the reason text
+    # below so callers don't silently under-read rebased balances.
+    elif any(w in req for w in ["b20", "usdb", "scaledbalanceof", "scaled balance"]):
+        svc = "token-api"
     elif any(w in req for w in ["balance", "holder", "transfer", "swap", "nft", "wallet", "price",
                                   "volume", "whale", "top holder", "biggest", "solana", "ton"]):
         svc = "token-api"
@@ -1399,6 +1407,22 @@ def _fallback_route(request: str) -> dict:
     # For token-api fallbacks, generate a more specific response based on the
     # actual tokens/request instead of always returning the generic USDC example
     reason = f"Keyword-based fallback routing for: {request[:100]}"
+    # B20 routing note — surface the rebase-multiplier gotcha + activation date
+    # so callers don't pull balanceOf and get a misleadingly small number on
+    # rebasing Asset-variant tokens (USDB included), and so they don't burn an
+    # RPC call against the precompile before Beryl is live on Base mainnet.
+    if svc == "token-api" and any(w in req for w in ["b20", "usdb", "scaledbalanceof", "scaled balance"]):
+        reason = (
+            "B20 (Base's enshrined token standard via the Beryl hardfork, "
+            "activates 2026-06-25 18:00 UTC). Routes here because B20 has full "
+            "ERC-20 selector parity — balance/holder/transfer reads behave the "
+            "same. Gotcha: Asset variants like USDB are rebasing — call "
+            "scaledBalanceOf(holder) on the IB20Factory precompile "
+            "0xB20f000000000000000000000000000000000000 (NOT balanceOf, which "
+            "returns the raw unscaled value). Pre-activation testing: use Base "
+            "Sepolia; post-activation: Base mainnet. Original: "
+            + request[:100]
+        )
     curl = example.get("curl_example", "")
     query_ready = None
 
@@ -2174,6 +2198,11 @@ def _auto_search(request: str) -> str:
         "swap", "price", "volume", "whale", "top holder", "biggest",
         "largest", "richest", "portfolio", "token amount",
         "usdc", "usdt", "weth", "eth holder", "btc holder",
+        # B20 — Base's enshrined token standard activating with the Beryl
+        # hardfork on 2026-06-25 18:00 UTC. ERC-20 selector parity so balance
+        # reads route here; the rebase + Asset-variant gotcha surfaces in the
+        # reason text downstream.
+        "b20", "usdb", "scaledbalanceof",
         "nft sale", "nft floor", "nft owner",
         "polymarket", "prediction market", "open interest",
     ]

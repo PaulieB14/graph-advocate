@@ -102,6 +102,19 @@ class TestFallbackRoute(unittest.TestCase):
     def test_holder_routes_to_token_api(self):
         self._check("top 20 USDC holders on Ethereum", "token-api")
 
+    # B20 — Base's enshrined token standard, shipping with the Beryl hardfork
+    # on 2026-06-25. Drop-in ERC-20 selector parity, so balance/holder reads
+    # belong on token-api; the rebase-multiplier and Asset-variant nuances
+    # surface via the reason text rather than a separate route.
+    def test_b20_balance_routes_to_token_api(self):
+        self._check("show me my USDB balance on Base", "token-api")
+
+    def test_b20_holders_routes_to_token_api(self):
+        self._check("top B20 stablecoin holders", "token-api")
+
+    def test_b20_scaled_balance_routes_to_token_api(self):
+        self._check("scaledBalanceOf for a B20 Asset variant", "token-api")
+
     def test_swap_routes_to_token_api(self):
         self._check("biggest DEX swaps on Base today", "token-api")
 
@@ -265,6 +278,8 @@ class TestAutoSearchKeywords(unittest.TestCase):
             "swap", "price", "volume", "whale", "top holder", "biggest",
             "largest", "richest", "portfolio", "token amount",
             "usdc", "usdt", "weth", "eth holder", "btc holder",
+            # B20 — Base's enshrined token standard (Beryl hardfork, 2026-06-25)
+            "b20", "usdb", "scaledbalanceof",
             "nft sale", "nft floor", "nft owner",
             "polymarket", "prediction market", "open interest",
         ]
