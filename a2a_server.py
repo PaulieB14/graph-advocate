@@ -246,7 +246,121 @@ def _get_daily_count(task_id: str) -> int:
         return entry["count"] if entry["date"] == today else 0
 
 
-def _x402_payment_required_response(*, anonymous: bool = False) -> dict:
+# ── Representative output samples for the A2A 402 challenge ──────────────────
+# A bare "payment required" gives a probing agent nothing to decide on. Each
+# 402 we return on the A2A endpoint now embeds ONE of these so the caller sees
+# the exact SHAPE of what $0.01 (or the skill price) buys. Shapes mirror the
+# dedicated /route + /polymarket/* + /hyperliquid/* + /onchain-x402 bazaar
+# OutputConfig examples below — keep them in sync. Preview only; anonymous
+# senders still pay from call 1.
+_A2A_ROUTING_EXAMPLE = {
+    "recommendation": "token-api",
+    "reason": "wallet balance query on an EVM chain",
+    "confidence": "high",
+    "query_ready": {"tool": "getV1EvmBalances", "args": {"network": "base", "address": "0x..."}},
+    "alternatives": [],
+}
+
+_A2A_OUTPUT_EXAMPLES = {
+    "polymarket/pnl-quick": {
+        "wallet": "0x38e598961dd0456a7fb2e758bd433d3e59fb8a4a",
+        "skill_score": 71.4, "classification": "sharp", "sharpe_like": 0.84,
+        "win_rate": 0.612, "sample_size": 213, "confidence": 0.93,
+        "max_drawdown_usdc": 412.55, "realized_pnl_usdc": 1820.4,
+        "unrealized_pnl_usdc": 220.1, "total_pnl_usdc": 2040.5,
+        "open_positions_count": 14,
+    },
+    "polymarket/pnl": {
+        "wallet": "0x38e5...", "method": "hifo",
+        "scores": {"skill_score": 71.4, "classification": "sharp", "sample_size": 213},
+        "realized": [{"market_slug": "btc-updown-5m-1771359600", "outcome": "Up", "qty": 100, "buy_price": 0.42, "sell_price": 0.91, "pnl_usdc": 49.0}],
+        "open": [{"market_slug": "will-x-happen-by-eoy", "outcome": "Yes", "qty": 500, "avg_buy_price": 0.31}],
+    },
+    "polymarket/risk": {
+        "wallet": "0x38e5...", "wallet_type": "smart_account_erc1967",
+        "ghost_fill_risk": "low",
+        "reason": "ERC-1967 proxy wallet. Likely Polymarket deposit wallet — ghost-fill-immune by design.",
+        "recent_outflow_24h": {"flag": False, "events_24h": 0},
+    },
+    "hyperliquid/score": {
+        "user": "0xecb63caa…", "skill_score": 62.4, "classification": "neutral",
+        "liquidation_count": 0, "sample_size_trades": 14626475,
+        "realized_pnl_usdc": 11605542.69,
+    },
+    "hyperliquid/pnl": {
+        "user": "0xecb63caa…",
+        "scores": {"skill_score": 62.4, "classification": "neutral"},
+        "open_positions": [{"coin": "PUMP", "position_size": -1478968317}],
+        "recent_activity": [],
+    },
+    "hyperliquid/risk": {
+        "user": "0xecb63caa…", "risk_level": "low", "liquidation_count": 0,
+        "funding_paid_per_volume_bps": -0.33, "skill_score": 62.4,
+        "recent_24h_outflow_flag": False,
+    },
+    "hyperliquid/screen": {
+        "coin": "SOL", "traders_screened": 20, "sharp_count": 2,
+        "retail_count": 3, "neutral_count": 15,
+        "traders": [{"rank": 1, "user": "0x…", "skill_score": 78.1}],
+    },
+    "hyperliquid/vault": {
+        "vault": "0xdfc24b…", "vault_quality_score": 56.8, "classification": "neutral",
+        "redemption_pressure": 0.789, "top_depositor_share": 0.06,
+        "depositor_count": 9524, "lifetime_deposits_usdc": 482212104.29,
+    },
+    "hyperliquid/fills": {
+        "coin": "SOL", "fill_count": 8,
+        "summary": {"buy_count": 4, "sell_count": 4, "notional_usdc": 2342.15, "whale_fill_count": 0, "unique_users": 8},
+        "fills": [{"side": "ASK", "price": 73430, "size": 0.00084, "notional": 61.68, "user": "0x1738e6cb…", "direction": "OPEN_SHORT", "fee": 0.048, "timestamp": "2026-05-28 17:22:28"}],
+    },
+    "onchain-x402/address": {
+        "address": "0x0ff5a6ecef783bba35463ec2f8403b9b5e9e7c86",
+        "as_recipient": {"totalPayments": "47", "totalVolumeDecimal": "0.47", "lastPaymentTimestamp": "1780500000"},
+        "as_payer": None,
+        "recent_received": [{"blockNumber": "46500000", "amountDecimal": "0.01", "from": "0xab…", "transferMethod": "EIP3009"}],
+        "is_in_index": True, "indexed_through_block": 46514000,
+        "source": "graph-network:x402-base",
+    },
+}
+
+
+def _pick_output_example(user_text: str | None) -> tuple[str, dict]:
+    """Match a paywalled question to a representative sample payload so the 402
+    shows the caller what they'd get. Falls back to the generic routing sample."""
+    t = (user_text or "").lower()
+
+    def has(*ws):
+        return any(w in t for w in ws)
+
+    poly = "polymarket" in t
+    hl = "hyperliquid" in t or "perp" in t
+    label = None
+    if has("ghost-fill", "ghost fill"):
+        label = "polymarket/risk"
+    elif poly and has("pnl", "p&l", "hifo", "fifo", "lifo"):
+        label = "polymarket/pnl"
+    elif poly and has("score", "sharp", "retail", "skill"):
+        label = "polymarket/pnl-quick"
+    elif hl and has("vault"):
+        label = "hyperliquid/vault"
+    elif hl and has("liquidation", "funding", "burn"):
+        label = "hyperliquid/risk"
+    elif hl and has("fill", "flow", "whale"):
+        label = "hyperliquid/fills"
+    elif hl and has("top ", "screen", "rank", "traders"):
+        label = "hyperliquid/screen"
+    elif hl and has("pnl", "per-coin", "per coin", "breakdown"):
+        label = "hyperliquid/pnl"
+    elif hl and has("score", "sharp", "skill", "copy"):
+        label = "hyperliquid/score"
+    elif has("x402") and has("summary", "lifetime", "received", "payer", "payment"):
+        label = "onchain-x402/address"
+    if label and label in _A2A_OUTPUT_EXAMPLES:
+        return label, _A2A_OUTPUT_EXAMPLES[label]
+    return "routing", _A2A_ROUTING_EXAMPLE
+
+
+def _x402_payment_required_response(*, anonymous: bool = False, user_text: str | None = None) -> dict:
     """Return a 402 Payment Required response with x402 v2 details.
 
     Two reason variants:
@@ -268,6 +382,7 @@ def _x402_payment_required_response(*, anonymous: bool = False) -> dict:
             f"You have exceeded the free tier of {DAILY_FREE_QUERIES} queries"
             "/day. Additional queries require x402 payment."
         )
+    _ex_label, _ex = _pick_output_example(user_text)
     return {
         "recommendation": "payment-required",
         "reason": reason,
@@ -295,6 +410,16 @@ def _x402_payment_required_response(*, anonymous: bool = False) -> dict:
         }],
         "query_ready": None,
         "alternatives": [],
+        "output_example": _ex,
+        "output_example_for": _ex_label,
+        "hint": (
+            "`output_example` is a SAMPLE of the payload shape you'll get — not "
+            "live data. To get the real result, resend this exact request with "
+            "payment: prefix the A2A message text with `x402:<signed-payment>` (or "
+            "send an `X-PAYMENT` header to the HTTP /route endpoint). Most x402 SDKs "
+            "sign + retry automatically. Identified senders (add a `sender` wallet "
+            f"or `name` to A2A metadata) get {DAILY_FREE_QUERIES} free queries/day."
+        ),
     }
 
 
@@ -1766,12 +1891,11 @@ class GraphAdvocateExecutor(AgentExecutor):
                 else:
                     log.info(f"X402-FAIL task={task_id} | payment verification failed")
                     _log_request(task_id, user_text, "x402-failed", "high", "invalid")
+                    _pf = _x402_payment_required_response(user_text=user_text)
+                    _pf["recommendation"] = "payment-failed"
+                    _pf["reason"] = "x402 payment verification failed. Please retry with a valid payment."
                     await event_queue.enqueue_event(
-                        new_agent_text_message(json.dumps({
-                            "recommendation": "payment-failed",
-                            "reason": "x402 payment verification failed. Please retry with a valid payment.",
-                            "x402": _x402_payment_required_response()["x402"],
-                        }))
+                        new_agent_text_message(json.dumps(_pf))
                     )
                     return
             else:
@@ -1780,7 +1904,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                 _log_request(task_id, user_text, "payment-required", "high", "x402")
                 await event_queue.enqueue_event(
                     new_agent_text_message(json.dumps(
-                        _x402_payment_required_response(anonymous=sender_is_anonymous)
+                        _x402_payment_required_response(anonymous=sender_is_anonymous, user_text=user_text)
                     ))
                 )
                 return
