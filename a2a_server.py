@@ -3478,7 +3478,12 @@ async def backfill_quality_endpoint(request: Request):
             ),
         })
     except Exception as e:
-        return JSONResponse({"error": str(e), "type": type(e).__name__}, status_code=500)
+        import traceback as _tb
+        return JSONResponse({
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": _tb.format_exc().splitlines()[-8:],
+        }, status_code=500)
 
 
 # ── /logs and /dashboard endpoints ───────────────────────────────────────────
