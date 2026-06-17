@@ -1094,19 +1094,37 @@ _CANONICAL_SERVICES = {
 
 # Services excluded from the headline quality avg — probes, system responses,
 # billing events. Kept in the by-service breakdown so they're still visible.
+# Agent-exchange-* services are excluded by PREFIX (see _qx_where_clause) so
+# new AE variants (commons-opportunity, new-bot-intro, job-failed, etc.) auto-
+# exclude without needing to remember to add them here.
 _META_SERVICES_EXCLUDED_FROM_HEADLINE = {
     "conformance", "introduction", "cached", "out-of-scope",
     "operational-confirmation", "registry-info", "rate-limited",
     "x402-paid", "x402-failed", "x402-tip", "payment-required",
     "chat", "unknown",
-    # Agent-exchange webhook process logs — heartbeats, self-echoes, jobs
-    # missing the actual query payload, and the bare incoming-webhook log.
-    # These get auto-scored 1.0 by the parse-based scorer but aren't real
-    # responses; counting them drags the rolling avg. Mirrored in
-    # _score_response's write-time gate.
-    "agent-exchange-replay", "agent-exchange-self-echo",
-    "agent-exchange-job-skipped", "agent-exchange-incoming",
 }
+
+# Anything starting with this prefix is an Agent Exchange event broadcast or
+# webhook re-emission, not a real Q&A response. Auto-scored 1.0 by the
+# parse-based scorer because the payload looks malformed by Q&A standards,
+# but counting it tanks the rolling avg. Mirrored in _score_response's
+# write-time gate and the activity-feed read-side filters.
+_AGENT_EXCHANGE_PREFIX = "agent-exchange-"
+_AGENT_EXCHANGE_TASK_PREFIXES = ("ae-replay:", "ae-self-echo:", "ae-commons:", "ae-newbot-intro:")
+
+
+def _is_agent_exchange_service(service: str | None) -> bool:
+    return bool(service and service.startswith(_AGENT_EXCHANGE_PREFIX))
+
+
+def _qx_where_clause(excluded: list[str]) -> tuple[str, list]:
+    """Build a SQL WHERE clause that excludes the explicit set AND any
+    agent-exchange-* service via prefix match. Returns (clause, params)
+    where params extend whatever caller already has.
+    """
+    placeholders = ",".join(["?"] * len(excluded))
+    clause = f"(service NOT IN ({placeholders}) AND service NOT LIKE 'agent-exchange-%')"
+    return clause, list(excluded)
 
 
 def _normalize_service(service: str | None) -> str:
@@ -2401,14 +2419,14 @@ async def export_stats_endpoint(request: Request):
         first = conn.execute("SELECT MIN(timestamp) FROM activity").fetchone()[0]
         last = conn.execute("SELECT MAX(timestamp) FROM activity").fetchone()[0]
         # Grant-reportable "legit" queries — exclude probes, system responses,
-        # and the four agent-exchange process-log categories (heartbeat replays,
-        # self-echoes, jobs missing payload, bare incoming-webhook logs). Those
-        # are bookkeeping, not real responses, and would inflate grant counts.
+        # and ALL agent-exchange-* process-log categories (heartbeats, self-
+        # echoes, malformed jobs, webhook re-broadcasts, commons broadcasts,
+        # new-bot intros, etc.). Those are bookkeeping, not real responses,
+        # and would inflate grant counts. Prefix-match catches new AE variants.
         legit = conn.execute(
             "SELECT COUNT(*) FROM activity WHERE service NOT IN ("
-            "'introduction', 'out-of-scope', 'rate-limited', 'awaiting-request', "
-            "'agent-exchange-replay', 'agent-exchange-self-echo', "
-            "'agent-exchange-job-skipped', 'agent-exchange-incoming')"
+            "'introduction', 'out-of-scope', 'rate-limited', 'awaiting-request') "
+            "AND service NOT LIKE 'agent-exchange-%'"
         ).fetchone()[0]
         # conn.close() moved below — was closing before remaining queries
 
@@ -2426,13 +2444,12 @@ async def export_stats_endpoint(request: Request):
         ).fetchone()[0]
 
         # Top queries (most common requests) — same exclusion set as legit
-        # so heartbeat replays / job-skipped logs don't dominate the top-10.
+        # so AE broadcasts don't dominate the top-10. Prefix-match for AE.
         top_queries = conn.execute(
             "SELECT request, service, COUNT(*) as cnt FROM activity "
             "WHERE service NOT IN ("
-            "'introduction', 'out-of-scope', 'rate-limited', "
-            "'agent-exchange-replay', 'agent-exchange-self-echo', "
-            "'agent-exchange-job-skipped', 'agent-exchange-incoming') "
+            "'introduction', 'out-of-scope', 'rate-limited') "
+            "AND service NOT LIKE 'agent-exchange-%' "
             "GROUP BY request ORDER BY cnt DESC LIMIT 10"
         ).fetchall()
 
@@ -2892,35 +2909,23 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
     try:
         service = _normalize_service(rec.get("recommendation"))
 
-        # Skip scoring entirely for Agent Exchange dedupe / process-log entries.
-        # These are heartbeat re-broadcasts, self-echoes, malformed jobs, and
-        # bare incoming-webhook logs (tagged by agent-exchange-webhook in
-        # commit 07cbba2). They're activity-feed noise — not actual routing
-        # responses — and scoring them at 1.0 was dragging the rolling avg
-        # (24h dropped from 1.30 → 1.13 on 2026-06-10). Keep them visible in
-        # the activity feed but exclude from quality_scores so AVG/COUNT
-        # reflect real scored responses only.
-        AE_PROCESS_SERVICES = {
-            "agent-exchange-replay",
-            "agent-exchange-self-echo",
-            "agent-exchange-job-skipped",
-            "agent-exchange-incoming",
-        }
-        if service in AE_PROCESS_SERVICES:
+        # Skip scoring entirely for any Agent Exchange dedupe / process-log
+        # entry — heartbeat re-broadcasts, self-echoes, malformed jobs, bare
+        # incoming-webhook logs, commons-opportunity broadcasts, new-bot
+        # intros, job-completed/failed events. They're activity-feed noise,
+        # not real Q&A — auto-scored 1.0 by the parse-based scorer otherwise.
+        # Prefix-match catches new AE variants automatically.
+        if _is_agent_exchange_service(service):
             return
 
         # Same exclusion at the task_id layer — handles rows where the caller
         # tagged the dedupe/process category via task_id (e.g. "ae-replay:<bot>",
-        # "ae-self-echo:<bot>") but the response/recommendation didn't normalize
-        # back to the AE service string. Without this, a webhook re-broadcast
-        # that lands with service="unknown" still gets scored 1.0 and pollutes
-        # the rolling avg the same way the service-keyed entries did.
+        # "ae-commons:<bot>") but the response/recommendation didn't normalize
+        # back to the AE service string. Prefix-match here too.
         if task_id:
             tid = str(task_id)
-            if (tid.startswith("ae-replay:")
-                or tid.startswith("ae-self-echo:")
-                or tid == "agent-exchange-incoming"
-                or tid == "agent-exchange-job-skipped"):
+            if (any(tid.startswith(p) for p in _AGENT_EXCHANGE_TASK_PREFIXES)
+                or tid.startswith(_AGENT_EXCHANGE_PREFIX)):
                 return
 
         # Skip scoring entirely for non-routing service classes.
@@ -3230,14 +3235,15 @@ async def quality_stats_endpoint(request: Request):
             return JSONResponse({"total": 0, "message": "No quality data yet"})
 
         excluded = list(_META_SERVICES_EXCLUDED_FROM_HEADLINE)
-        placeholders = ",".join(["?"] * len(excluded))
-        where_real = f"WHERE service NOT IN ({placeholders})"
+        _qx_clause, _qx_params = _qx_where_clause(excluded)
+        where_real = f"WHERE {_qx_clause}"
 
-        # Headline metrics — real routing traffic only
+        # Headline metrics — real routing traffic only (agent-exchange-* and
+        # the explicit meta-service set both excluded).
         row = conn.execute(
             f"SELECT COUNT(*), AVG(score), AVG(parse_success)*100, "
             f"AVG(has_query_ready)*100, AVG(has_subgraph_id)*100, AVG(has_curl_example)*100 "
-            f"FROM quality_scores {where_real}", excluded
+            f"FROM quality_scores {where_real}", _qx_params
         ).fetchone()
         real_total, real_avg, real_parse, real_qr, real_sg, real_curl = row
         real_total = real_total or 0
@@ -3838,12 +3844,8 @@ def _build_dashboard_data() -> dict:
             # show up in the activity feed but have no quality_scores rows.
             # Tagging them "healthy" is misleading and "low-quality" is wrong
             # (no score exists). Surface a neutral "no-score" status instead.
-            if svc in {
-                "agent-exchange-replay",
-                "agent-exchange-self-echo",
-                "agent-exchange-job-skipped",
-                "agent-exchange-incoming",
-            }:
+            # Prefix-match catches every agent-exchange-* variant.
+            if _is_agent_exchange_service(svc):
                 health_status = "no-score"
             elif quality is not None and quality < 2:
                 health_status = "low-quality"
@@ -3894,9 +3896,7 @@ def _build_dashboard_data() -> dict:
     quality_summary = {"avg_score": None, "total_scored": 0}
     try:
         conn = _sq.connect(str(DB_PATH))
-        _qx = list(_META_SERVICES_EXCLUDED_FROM_HEADLINE)
-        _qx_ph = ",".join(["?"] * len(_qx))
-        _qx_where = f"service NOT IN ({_qx_ph})"
+        _qx_where, _qx = _qx_where_clause(list(_META_SERVICES_EXCLUDED_FROM_HEADLINE))
         r = conn.execute(
             f"SELECT AVG(score), COUNT(*) FROM quality_scores WHERE {_qx_where}",
             _qx,
