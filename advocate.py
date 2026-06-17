@@ -1389,11 +1389,12 @@ def _fallback_route(request: str) -> dict:
     # B20 — Base's enshrined token standard, activating with the Beryl hardfork
     # on 2026-06-25 18:00 UTC. ERC-20 selector parity so balance/holder/transfer
     # reads work via token-api today on Sepolia and on Base mainnet post-Beryl.
-    # The Asset-variant (USDB, rebasing tokens) requires scaledBalanceOf instead
-    # of balanceOf for the human-readable amount — surfaced in the reason text
-    # below so callers don't silently under-read rebased balances. Compliance
-    # metadata (PolicyRegistry allowlist/blocklist, freeze-and-seize) lives on
-    # 0x8453…0002; routes to token-api as well since it's contract-read.
+    # Asset variants are rebasing via a WAD-precision multiplier; both
+    # balanceOf and scaledBalanceOf return the post-multiplier (human-readable)
+    # view per the B20 spec — raw stored balances are internal, recoverable
+    # only via toRawBalance(scaled). Compliance metadata (PolicyRegistry
+    # allowlist/blocklist) lives at 0x8453…0002; routes to token-api as well
+    # since it's contract-read.
     elif any(w in req for w in [
         "b20", "usdb", "scaledbalanceof", "scaled balance",
         "policyregistry", "policy registry", "allowlist", "blocklist",
@@ -1401,8 +1402,9 @@ def _fallback_route(request: str) -> dict:
         "activation registry",
     ]):
         svc = "token-api"
-    # Basenames — ENS-on-Base resolver. ENSIP-10 wildcard + ENSIP-19 cross-chain;
-    # name → address resolution is a contract read against the Base resolver.
+    # Basenames — ENS-on-Base. Per the Base docs, multi-chain compatibility
+    # is provided by ENSIP-10 (Wildcard Resolution); any ENSIP-10-compliant
+    # client resolves alice.base.eth without code changes.
     elif any(w in req for w in [
         "basename", "basenames", "base.eth", ".base.eth",
     ]):
@@ -1455,11 +1457,14 @@ def _fallback_route(request: str) -> dict:
             "B20 (Base's enshrined token standard via the Beryl hardfork, "
             "activates 2026-06-25 18:00 UTC). Routes here because B20 has full "
             "ERC-20 selector parity — balance/holder/transfer reads behave the "
-            "same. Gotcha: Asset variants like USDB are rebasing — call "
-            "scaledBalanceOf(holder) on the IB20Factory precompile "
-            "0xB20f000000000000000000000000000000000000 (NOT balanceOf, which "
-            "returns the raw unscaled value). Pre-activation testing: use Base "
-            "Sepolia; post-activation: Base mainnet. Original: "
+            "same. Asset variants are rebasing: both balanceOf and "
+            "scaledBalanceOf return the multiplier-scaled (human-readable) "
+            "view — scaledBalanceOf is defined as `raw × multiplier`. Raw "
+            "stored balances are internal; recover via toRawBalance(scaled). "
+            "B20Factory precompile is 0xB20f000000000000000000000000000000000000. "
+            "Pre-activation testing: use Base Sepolia; post-activation: Base "
+            "mainnet. (B20 spec doesn't name USDB or other specific tokens — "
+            "Asset/Stablecoin variant assignment is per-token.) Original: "
             + request[:100]
         )
     elif svc == "token-api" and any(w in req for w in [
@@ -1472,23 +1477,29 @@ def _fallback_route(request: str) -> dict:
             "0x8453000000000000000000000000000000000002 (allowlist/blocklist "
             "via isAuthorized — never reverts; built-in ALWAYS_ALLOW id=0 / "
             "ALWAYS_BLOCK; two-step admin transfer). ActivationRegistry is "
-            "0x8453000000000000000000000000000000000001 (gates whether a "
-            "specific B20 feature is live on chain — check isActive() per "
-            "feature even post-Beryl, since individual variants can be "
-            "flag-gated off). Freeze-and-seize is on IB20Asset; emits "
-            "FrozenAccount / SeizedAssets events. Pre-2026-06-25: testnet "
-            "only. Original: " + request[:100]
+            "0x8453000000000000000000000000000000000001 (state-changing "
+            "PolicyRegistry functions gate on it; createB20 reverts with "
+            "IActivationRegistry.FeatureNotActivated when the variant's "
+            "feature isn't live). Freeze-and-seize lives on the base IB20 "
+            "interface (shared by Asset and Stablecoin variants): freeze by "
+            "adding the account to a BLOCKLIST policy attached to "
+            "TRANSFER_SENDER_POLICY, then call burnBlocked (gated by "
+            "BURN_BLOCKED_ROLE) to seize — emits a standard ERC-20 "
+            "Transfer(account, address(0), amount), NOT a dedicated "
+            "FrozenAccount/SeizedAssets event. Pre-2026-06-25: testnet only. "
+            "Original: " + request[:100]
         )
     elif svc == "subgraph-registry" and any(w in req for w in [
         "basename", "basenames", "base.eth", ".base.eth",
     ]):
         reason = (
-            "Basenames (ENS-on-Base). Resolution uses ENSIP-10 wildcard + "
-            "ENSIP-19 cross-chain — any ENSIP-10 client resolves alice.base.eth "
-            "without code changes. For 'who owns X.base.eth?' or 'list names "
-            "owned by 0x…' use a Basenames subgraph (live on Base mainnet); "
-            "for a one-shot name→address, the Base resolver contract is "
-            "directly callable via CCIP-read. Original: " + request[:100]
+            "Basenames (ENS-on-Base). Per the Base docs, multi-chain "
+            "compatibility is provided by ENSIP-10 (Wildcard Resolution): a "
+            "Basename works on any chain as long as the app is ENSIP-10 "
+            "compliant. For 'who owns X.base.eth?' or 'list names owned by "
+            "0x…' use a Basenames subgraph (live on Base mainnet); for a "
+            "one-shot name→address, call the Base L2 resolver directly. "
+            "Original: " + request[:100]
         )
     elif svc == "subgraph-registry" and any(w in req for w in [
         "attestation", "attestations", "eas ", "ethereum attestation",
@@ -1498,11 +1509,12 @@ def _fallback_route(request: str) -> dict:
             "L2 EAS (Ethereum Attestation Service). Predeployed on Base at "
             "SchemaRegistry 0x4200000000000000000000000000000000000020 and "
             "EAS 0x4200000000000000000000000000000000000021 — any wallet can "
-            "be subject or attester. Sign In With Base / Coinbase "
-            "Verifications all emit EAS attestations; query a Base EAS "
-            "subgraph for 'attestations about wallet X' or 'attestations "
-            "issued by attester Y matching schema S'. Original: "
-            + request[:100]
+            "be subject or attester. For 'attestations about wallet X' or "
+            "'attestations issued by attester Y matching schema S' query a "
+            "Base EAS subgraph. Identity surfaces like Sign In With Base / "
+            "Coinbase Verifications are commonly built on this layer, but "
+            "confirm the specific schema UID before relying on a vendor's "
+            "attestation as authoritative. Original: " + request[:100]
         )
     elif svc == "substreams" and any(w in req for w in [
         "eip-7702", "eip7702", "7702 delegation", "7702 authorization",
@@ -1525,14 +1537,16 @@ def _fallback_route(request: str) -> dict:
     ]):
         reason = (
             "Beryl multi-proof withdrawal finalization on Base. Three paths: "
-            "(1) TEE+ZK dual-proof fast path — finalizes in 1 day; (2) "
-            "single-proof TEE or ZK — finalizes in 5 days (Beryl cuts from "
-            "7); (3) failed dispute — never finalizes, must re-prove. Look "
-            "up withdrawals via L2ToL1MessagePasser 0x4200…0016 (L2 storage "
-            "root embedded in block header post-Isthmus) → DisputeGameFactory "
-            "0x43ed…cb40e (L1 mainnet) → OptimismPortal 0x4904…4e97e for "
-            "finalize. Pending-proof state lives in the AggregateVerifier "
-            "dispute game. Original: " + request[:100]
+            "(1) TEE+ZK dual-proof fast path (introduced in Azul) stays at 1 "
+            "day; (2) single-proof TEE or ZK — finalizes in 5 days post-Beryl "
+            "(cut from 7); (3) failed dispute — never finalizes, must "
+            "re-prove. Look up withdrawals via L2ToL1MessagePasser "
+            "0x4200000000000000000000000000000000000016 (L2 storage root "
+            "embedded in block header post-Isthmus) → Base L1 mainnet "
+            "DisputeGameFactoryProxy "
+            "0x43edB88C4B80fDD2AdFF2412A7BebF9dF42cB40e → OptimismPortal "
+            "0x49048044D57e1C92A77f79988d21Fa8fAF74E97e for finalize. "
+            "Original: " + request[:100]
         )
     curl = example.get("curl_example", "")
     query_ready = None
