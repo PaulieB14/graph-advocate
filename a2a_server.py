@@ -3280,6 +3280,197 @@ async def quality_stats_endpoint(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# Service classes the historical-scoring backfill applies to. Mirrors the
+# REST_ONLY_SERVICES + MCP_SERVICES sets in _score_response, so the recompute
+# below produces the same scores _score_response would produce today for new
+# rows. Kept as module-level constants so other admin scripts can import.
+_BACKFILL_MCP_SERVICES = {
+    "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
+    "graph-limitless-mcp", "predictfun-mcp", "mcp8004",
+}
+_BACKFILL_NO_CURL_NEEDED = {
+    "token-api", "8004scan", "x402-analytics", "substreams",
+    "hyperliquid-token-api", "polymarket-token-api",
+}
+_BACKFILL_REST_ONLY = _BACKFILL_MCP_SERVICES | _BACKFILL_NO_CURL_NEEDED
+
+
+def _backfill_recompute_score(service: str, parse_ok: bool, has_query_ready: bool,
+                              has_subgraph_id: bool, has_curl: bool, has_install: bool) -> int:
+    """Re-apply the current _score_response rubric to a historical row.
+
+    Operates on the boolean columns the original row recorded — we don't
+    re-run the request. Auto-credits subgraph_id, curl, and install for
+    REST-only and MCP services where those fields don't apply by design.
+    """
+    is_rest_only = service in _BACKFILL_REST_ONLY
+    if is_rest_only:
+        curl_credit = 1 if (
+            has_curl
+            or service in _BACKFILL_NO_CURL_NEEDED
+            or service in _BACKFILL_MCP_SERVICES
+        ) else 0
+        install_credit = 1 if (
+            has_install
+            or service in _BACKFILL_NO_CURL_NEEDED
+            or service in _BACKFILL_MCP_SERVICES
+        ) else 0
+        return sum([
+            1 if parse_ok else 0,
+            1 if (has_query_ready or has_curl) else 0,
+            1,  # subgraph_id N/A — auto-credit
+            curl_credit,
+            install_credit,
+        ])
+    install_na = service in {"subgraph-registry", "substreams"}
+    return sum([
+        1 if parse_ok else 0,
+        1 if has_query_ready else 0,
+        1 if has_subgraph_id else 0,
+        1 if has_curl else 0,
+        1 if (has_install or install_na) else 0,
+    ])
+
+
+async def backfill_quality_endpoint(request: Request):
+    """GET/POST /admin/backfill-quality — re-score historical MCP + REST rows.
+
+    Dry-run by default (any GET, or POST without apply=true): returns the
+    50 lowest-scoring graph-aave-mcp rows with flag-combo frequency, plus a
+    per-service projection of old → new avg if backfilled.
+
+    POST /admin/backfill-quality?token=...&apply=true rewrites the score
+    column for all REST-only and MCP service rows using the current rubric.
+    The boolean columns aren't touched — only `score` is recomputed from
+    existing flags. Idempotent: re-running produces the same scores.
+
+    Why this exists: the MCP-credit logic in _score_response only applies
+    to NEW rows. Historical rows scored under the old rubric stay stuck
+    until rewritten. (graph-aave-mcp: 2.05 across 880 calls as of 2026-06-17.)
+    """
+    if not _check_admin(request):
+        return _unauthorized()
+
+    apply = (request.query_params.get("apply", "").lower() in ("1", "true", "yes"))
+    sample_service = request.query_params.get("sample_service", "graph-aave-mcp")
+    try:
+        sample_n = int(request.query_params.get("sample_n", "50"))
+    except ValueError:
+        sample_n = 50
+
+    try:
+        import sqlite3 as _sq
+        from collections import defaultdict as _dd
+
+        conn = _sq.connect(str(DB_PATH))
+        conn.row_factory = _sq.Row
+
+        # ── Deep sample of low-scoring rows for `sample_service` ──────────
+        sample_rows = conn.execute(
+            "SELECT timestamp, request, parse_success, has_query_ready, "
+            "has_subgraph_id, has_curl_example, has_install, score "
+            "FROM quality_scores WHERE service = ? "
+            "ORDER BY score ASC, timestamp DESC LIMIT ?",
+            (sample_service, sample_n),
+        ).fetchall()
+
+        sample_out = []
+        flag_combos: dict[str, int] = _dd(int)
+        for r in sample_rows:
+            flags = (
+                f"parse={int(r['parse_success'])} qr={int(r['has_query_ready'])} "
+                f"sg={int(r['has_subgraph_id'])} curl={int(r['has_curl_example'])} "
+                f"install={int(r['has_install'])}"
+            )
+            flag_combos[flags] += 1
+            new_score = _backfill_recompute_score(
+                sample_service,
+                bool(r["parse_success"]),
+                bool(r["has_query_ready"]),
+                bool(r["has_subgraph_id"]),
+                bool(r["has_curl_example"]),
+                bool(r["has_install"]),
+            )
+            sample_out.append({
+                "ts": r["timestamp"][:19],
+                "request": (r["request"] or "")[:140],
+                "flags": flags,
+                "old_score": r["score"],
+                "new_score": new_score,
+            })
+
+        # ── Projection per service ────────────────────────────────────────
+        projection = []
+        rows_per_service: dict[str, list] = {}
+        for svc in sorted(_BACKFILL_REST_ONLY):
+            svc_rows = conn.execute(
+                "SELECT rowid, score, parse_success, has_query_ready, "
+                "has_subgraph_id, has_curl_example, has_install "
+                "FROM quality_scores WHERE service = ?",
+                (svc,),
+            ).fetchall()
+            if not svc_rows:
+                continue
+            old_avg = sum(r["score"] for r in svc_rows) / len(svc_rows)
+            new_scores = [
+                _backfill_recompute_score(
+                    svc, bool(r["parse_success"]), bool(r["has_query_ready"]),
+                    bool(r["has_subgraph_id"]), bool(r["has_curl_example"]),
+                    bool(r["has_install"]),
+                )
+                for r in svc_rows
+            ]
+            new_avg = sum(new_scores) / len(new_scores)
+            changed = sum(1 for r, n in zip(svc_rows, new_scores) if r["score"] != n)
+            projection.append({
+                "service": svc,
+                "n": len(svc_rows),
+                "old_avg": round(old_avg, 2),
+                "new_avg": round(new_avg, 2),
+                "changed": changed,
+            })
+            rows_per_service[svc] = list(zip(svc_rows, new_scores))
+
+        # ── Apply or not ──────────────────────────────────────────────────
+        applied = 0
+        if apply:
+            for svc, pairs in rows_per_service.items():
+                for r, new_score in pairs:
+                    if r["score"] != new_score:
+                        conn.execute(
+                            "UPDATE quality_scores SET score = ? WHERE rowid = ?",
+                            (new_score, r["rowid"]),
+                        )
+                        applied += 1
+            conn.commit()
+
+        conn.close()
+
+        return JSONResponse({
+            "mode": "applied" if apply else "dry-run",
+            "rows_updated": applied,
+            "sample": {
+                "service": sample_service,
+                "n_returned": len(sample_out),
+                "flag_combo_frequency": [
+                    {"combo": c, "count": n}
+                    for c, n in sorted(flag_combos.items(), key=lambda x: -x[1])
+                ],
+                "rows": sample_out,
+            },
+            "projection": projection,
+            "hint": (
+                "POST /admin/backfill-quality?token=...&apply=true to write the "
+                "recomputed scores. Re-running is idempotent."
+            ) if not apply else (
+                "Refresh /dashboard/data — quality_summary.avg_score and "
+                "service_health quality values should reflect the new rubric."
+            ),
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e), "type": type(e).__name__}, status_code=500)
+
+
 # ── /logs and /dashboard endpoints ───────────────────────────────────────────
 
 # Onchain balance snapshot for the dashboard. Cached 600s (10 min) to avoid
@@ -8638,6 +8829,7 @@ def build_app():
         Route("/feedback", feedback_endpoint, methods=["POST"]),
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
+        Route("/admin/backfill-quality", backfill_quality_endpoint, methods=["GET", "POST"]),
         Route("/quota", quota_endpoint),
         Route("/bazaar/search", bazaar_search_endpoint),
         Route("/bazaar/active", bazaar_active_endpoint),
