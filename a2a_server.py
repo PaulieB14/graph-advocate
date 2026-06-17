@@ -3403,8 +3403,12 @@ async def backfill_quality_endpoint(request: Request):
         projection = []
         rows_per_service: dict[str, list] = {}
         for svc in sorted(_BACKFILL_REST_ONLY):
+            # Alias `rowid` so sqlite3.Row can resolve it by name — bare
+            # `rowid` doesn't show up in cursor.description on some sqlite
+            # builds, causing r["rowid"] to raise IndexError. Alias dodges
+            # the whole problem.
             svc_rows = conn.execute(
-                "SELECT rowid, score, parse_success, has_query_ready, "
+                "SELECT rowid AS rid, score, parse_success, has_query_ready, "
                 "has_subgraph_id, has_curl_example, has_install "
                 "FROM quality_scores WHERE service = ?",
                 (svc,),
@@ -3429,15 +3433,11 @@ async def backfill_quality_endpoint(request: Request):
                 "new_avg": round(new_avg, 2),
                 "changed": changed,
             })
-            # Materialize as plain tuples (rowid, old_score, new_score) before
-            # the apply loop. sqlite3.Row's __getitem__ resolves keys against
-            # the cursor description, and that gets clobbered the first time
-            # we run conn.execute(UPDATE...) on the same connection — every
-            # subsequent r["score"]/r["rowid"] access then raises IndexError
-            # "No item with that key". Converting to a flat tuple sidesteps
-            # the whole problem and is cheaper to iterate.
+            # Materialize as plain tuples (rid, old_score, new_score) before
+            # the apply loop. Cheaper to iterate and avoids any Row state
+            # issues across the UPDATE statements that follow.
             rows_per_service[svc] = [
-                (r["rowid"], r["score"], n)
+                (r["rid"], r["score"], n)
                 for r, n in zip(svc_rows, new_scores)
             ]
 
@@ -3445,11 +3445,11 @@ async def backfill_quality_endpoint(request: Request):
         applied = 0
         if apply:
             for svc, pairs in rows_per_service.items():
-                for rowid, old_score, new_score in pairs:
+                for rid, old_score, new_score in pairs:
                     if old_score != new_score:
                         conn.execute(
                             "UPDATE quality_scores SET score = ? WHERE rowid = ?",
-                            (new_score, rowid),
+                            (new_score, rid),
                         )
                         applied += 1
             conn.commit()
