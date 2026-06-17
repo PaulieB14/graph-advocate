@@ -3429,17 +3429,27 @@ async def backfill_quality_endpoint(request: Request):
                 "new_avg": round(new_avg, 2),
                 "changed": changed,
             })
-            rows_per_service[svc] = list(zip(svc_rows, new_scores))
+            # Materialize as plain tuples (rowid, old_score, new_score) before
+            # the apply loop. sqlite3.Row's __getitem__ resolves keys against
+            # the cursor description, and that gets clobbered the first time
+            # we run conn.execute(UPDATE...) on the same connection — every
+            # subsequent r["score"]/r["rowid"] access then raises IndexError
+            # "No item with that key". Converting to a flat tuple sidesteps
+            # the whole problem and is cheaper to iterate.
+            rows_per_service[svc] = [
+                (r["rowid"], r["score"], n)
+                for r, n in zip(svc_rows, new_scores)
+            ]
 
         # ── Apply or not ──────────────────────────────────────────────────
         applied = 0
         if apply:
             for svc, pairs in rows_per_service.items():
-                for r, new_score in pairs:
-                    if r["score"] != new_score:
+                for rowid, old_score, new_score in pairs:
+                    if old_score != new_score:
                         conn.execute(
                             "UPDATE quality_scores SET score = ? WHERE rowid = ?",
-                            (new_score, r["rowid"]),
+                            (new_score, rowid),
                         )
                         applied += 1
             conn.commit()
