@@ -1014,6 +1014,18 @@ def _init_activity_db():
             pass
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_paid_by_wallet ON activity(paid_by_wallet)")
 
+        # paid_by_wallet_tx — onchain transaction hash that settled this paid
+        # request, recorded so re-attribution is a deterministic UPDATE by
+        # tx_hash and so the dashboard can deep-link from a customer row to
+        # the basescan tx. Populated by the backfill matcher (matches
+        # activity_ts → onchain Transfer event → captures tx) and by the
+        # PayerCapture middleware when a settled X-PAYMENT-RESPONSE header is
+        # present. NULL on free traffic. Idempotent ALTER.
+        try:
+            conn.execute("ALTER TABLE activity ADD COLUMN paid_by_wallet_tx TEXT")
+        except Exception:
+            pass
+
         # Feedback table — agents report whether responses were useful
         conn.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
@@ -3867,9 +3879,12 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
         ]
 
         # ── 5. Apply (or not) ─────────────────────────────────────────────
-        # safe_only=true (default) only writes unique_match rows. The 21
-        # ambiguous_took_closest rows from the adversarial-flagged set stay
-        # NULL until manually re-verified, per the workflow's TIGHTEN verdict.
+        # safe_only=true (default) only writes unique_match rows. Setting
+        # safe_only=false ALSO writes ambiguous_took_closest rows, which is
+        # now SAFE because we also persist paid_by_wallet_tx — any later
+        # re-attribution is a deterministic single-row UPDATE by tx hash.
+        # Per the wrjjb61w7 adversarial verdict, this provenance is exactly
+        # what was missing before.
         applied = 0
         skipped_ambiguous = 0
         if apply:
@@ -3878,9 +3893,9 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
                     skipped_ambiguous += 1
                     continue
                 conn.execute(
-                    "UPDATE activity SET paid_by_wallet = ? "
+                    "UPDATE activity SET paid_by_wallet = ?, paid_by_wallet_tx = ? "
                     "WHERE id = ? AND (paid_by_wallet IS NULL OR paid_by_wallet = '')",
-                    (m["paid_by_wallet"], m["activity_id"]),
+                    (m["paid_by_wallet"], m.get("tx"), m["activity_id"]),
                 )
                 applied += 1
             conn.commit()
