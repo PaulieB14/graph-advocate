@@ -585,6 +585,60 @@ class TestHyperliquidRouting(unittest.TestCase):
                              f"{q!r} should route to token-api via HIP-4 fallback")
 
 
+class TestLogPaidFailureNormalization(unittest.TestCase):
+    """_log_paid_failure should normalize non-Exception args so the row never
+    silently shows exception_type='str' (bug observed 2026-06-18T05:33Z on the
+    onchain-x402-address handler, which passed the literal string 'timeout')."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        # Avoid touching the real activity DB
+        os.environ["LOG_PATH"] = "/tmp/test_paid_failure_logs.json"
+        os.environ["ACTIVITY_DB_PATH"] = "/tmp/test_paid_failure_activity.db"
+        self.captured = []
+
+        # Monkeypatch _log_request inside a2a_server so we can capture args
+        import a2a_server as _srv
+        self._srv = _srv
+        self._orig = _srv._log_request
+        def _capture(*args, **kwargs):
+            self.captured.append({"args": args, "kwargs": kwargs})
+        _srv._log_request = _capture
+
+    def tearDown(self):
+        self._srv._log_request = self._orig
+
+    def _row(self):
+        self.assertEqual(len(self.captured), 1)
+        c = self.captured[0]
+        # signature: (task_id, request, service, confidence, tool, response=...)
+        return c["args"][4], c["kwargs"].get("response", {})
+
+    def test_exception_arg_records_class_and_message(self):
+        self._srv._log_paid_failure("desc", TimeoutError("upstream took too long"))
+        tool, resp = self._row()
+        self.assertEqual(tool, "TimeoutError")
+        self.assertEqual(resp["exception_type"], "TimeoutError")
+        self.assertEqual(resp["message"], "upstream took too long")
+
+    def test_string_arg_does_not_leak_str_to_exception_type(self):
+        # The historical bug: callers passing 'timeout' made exception_type='str'.
+        # The normalized contract: exception_type becomes 'unknown', message
+        # preserves the string content.
+        self._srv._log_paid_failure("desc", "timeout")
+        tool, resp = self._row()
+        self.assertEqual(tool, "unknown")
+        self.assertEqual(resp["exception_type"], "unknown")
+        self.assertEqual(resp["message"], "timeout")
+
+    def test_none_arg_does_not_crash(self):
+        self._srv._log_paid_failure("desc", None)
+        tool, resp = self._row()
+        self.assertEqual(tool, "unknown")
+        self.assertEqual(resp["exception_type"], "unknown")
+        self.assertIn("no message", resp["message"])
+
+
 class TestCompareRoute(unittest.TestCase):
     """_compare_route should detect multi-service comparison requests."""
 
@@ -617,6 +671,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestPolymarketRouting))
     suite.addTests(loader.loadTestsFromTestCase(TestHyperliquidRouting))
     suite.addTests(loader.loadTestsFromTestCase(TestCompareRoute))
+    suite.addTests(loader.loadTestsFromTestCase(TestLogPaidFailureNormalization))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

@@ -1246,7 +1246,7 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         log.warning(f"Auto-score failed: {e}")
 
 
-def _log_paid_failure(descriptor: str, exc: Exception) -> None:
+def _log_paid_failure(descriptor: str, exc) -> None:
     """Record a paid x402 request that crashed inside its handler.
 
     Paid handlers log success via _log_request, but historically returned
@@ -1255,15 +1255,29 @@ def _log_paid_failure(descriptor: str, exc: Exception) -> None:
     settle on a >=400 response, so the caller is not charged; but the
     operator still needs to see that a paid attempt failed.) This closes
     that gap: failed paid traffic is logged under service 'x402-failed'.
+
+    Defensive: callers should pass the actual exception object, but two
+    historical sites passed string literals ("timeout") which made the
+    activity row's exception_type / tool fields both read 'str' — useless
+    for triage. If the caller hands us a non-Exception, normalize before
+    writing so the row still tells the operator something.
     """
+    if isinstance(exc, BaseException):
+        exc_class = type(exc).__name__
+        exc_msg = str(exc)
+    else:
+        # Caller passed a string/sentinel — preserve it as the message and
+        # mark exception_type 'unknown' instead of leaking 'str' to the row.
+        exc_class = "unknown"
+        exc_msg = str(exc) if exc is not None else "(no message)"
     try:
         _log_request(
             "x402-paid", descriptor, "x402-failed", "high",
-            type(exc).__name__,
+            exc_class,
             response={
                 "error": "handler_failed",
-                "exception_type": type(exc).__name__,
-                "message": str(exc)[:200],
+                "exception_type": exc_class,
+                "message": exc_msg[:200],
             },
         )
     except Exception as log_exc:
@@ -7806,8 +7820,11 @@ def build_app():
                              "onchain-x402-address", "high", "x402-base-subgraph",
                              response=payload)
                 return _RouteJSON(payload)
-            except _httpx_ox.TimeoutException:
-                _log_paid_failure(f"onchain-x402-addr {addr_lower[:10]}", "timeout")
+            except _httpx_ox.TimeoutException as exc:
+                # Pass the actual exception object — passing the bare string
+                # "timeout" makes _log_paid_failure record exception_type='str'
+                # and tool='str' on the activity row (observed 2026-06-18T05:33Z).
+                _log_paid_failure(f"onchain-x402-addr {addr_lower[:10]}", exc)
                 return _RouteJSON({"error": "upstream_timeout",
                                    "message": "Graph gateway didn't respond in 20s. Retry.",
                                    "retry_after_seconds": 15},
@@ -7863,8 +7880,10 @@ def build_app():
                              "x402-settlements-ask", "high", "x402-watch",
                              response=payload)
                 return _RouteJSON(payload)
-            except _httpx_ask.TimeoutException:
-                _log_paid_failure(f"ask {question[:80]}", "timeout")
+            except _httpx_ask.TimeoutException as exc:
+                # Pass the actual exception — same bug as the onchain-x402-addr
+                # handler above (string literal blanks out exception_type/tool).
+                _log_paid_failure(f"ask {question[:80]}", exc)
                 return _RouteJSON({"error": "upstream_timeout",
                                    "message": "x402-watch backend didn't respond in 60s. Retry.",
                                    "retry_after_seconds": 30},
