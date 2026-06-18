@@ -1435,6 +1435,26 @@ def _fallback_route(request: str) -> dict:
         "optimismportal",
     ]):
         svc = "token-api"
+    # HIP-4 outcome markets on Hyperliquid (Pinax token-api v3.21.0-pre1). Six
+    # new /v1/hyperliquid/outcomes/* endpoints with embedded OutcomeContext /
+    # OutcomeLegContext (outcome_id, question_id, status, settle_fraction).
+    # Caught here for HIP-4-specific phrasing (e.g. "outcome leaderboard",
+    # "settle_fraction") that doesn't name the chain explicitly. Same-release
+    # BREAKING: /v1/hyperliquid/markets buy_volume_24h, sell_volume_24h,
+    # volume_24h, trades_24h are now taker-aggressor-only (~half previous
+    # magnitude); buys/sells columns removed from /markets/ohlc,
+    # /markets/liquidations/ohlc, /platform. Recalibrate baselines on the
+    # paid /hyperliquid/screen + /score + /vault handlers before v3.21.0 GA.
+    elif any(w in req for w in [
+        "hip-4", "hip4", "outcome market", "outcome markets",
+        "settle_fraction", "settle fraction", "outcome leg",
+        "outcome leaderboard", "outcome ohlc", "outcome candle",
+        "outcome composition", "outcome mint", "outcome redeem",
+        "outcome settlement", "outcome positions", "outcome holdings",
+        "outcome shares", "outcome trades", "outcome fills",
+        "outcome activity",
+    ]):
+        svc = "token-api"
     elif any(w in req for w in ["balance", "holder", "transfer", "swap", "nft", "wallet", "price",
                                   "volume", "whale", "top holder", "biggest", "solana", "ton"]):
         svc = "token-api"
@@ -1547,6 +1567,36 @@ def _fallback_route(request: str) -> dict:
             "0x43edB88C4B80fDD2AdFF2412A7BebF9dF42cB40e → OptimismPortal "
             "0x49048044D57e1C92A77f79988d21Fa8fAF74E97e for finalize. "
             "Original: " + request[:100]
+        )
+    elif svc == "token-api" and any(w in req for w in [
+        "hip-4", "hip4", "outcome market", "outcome markets",
+        "hyperliquid outcomes", "hl outcomes", "settle_fraction",
+        "settle fraction", "outcome leg", "outcome leaderboard",
+        "outcome ohlc", "outcome candle", "outcome trades",
+        "outcome fills", "outcome positions", "outcome holdings",
+        "outcome shares", "outcome mint", "outcome redeem",
+        "outcome settlement", "outcome composition", "outcome activity",
+    ]):
+        reason = (
+            "HIP-4 outcome markets on Hyperliquid (Pinax token-api "
+            "v3.21.0-pre1). Six endpoints under /v1/hyperliquid/outcomes/*: "
+            "(1) /outcomes — universe with price + 24h metrics; "
+            "(2) /outcomes/ohlc — per-leg OHLCV candles; "
+            "(3) /outcomes/trades — taker fills feed, supports ?direction= "
+            "CSV for buy/sell decomposition; "
+            "(4) /outcomes/users — per-user-per-outcome P&L (omit ?user for "
+            "leaderboard mode); "
+            "(5) /outcomes/users/positions — current share holdings; "
+            "(6) /outcomes/users/activity — composition events "
+            "(mints/redeems/settlements). Every response embeds "
+            "OutcomeContext (outcome_id, question_id, status, "
+            "settle_fraction) or OutcomeLegContext (adds coin, side_index, "
+            "side_label). Heads-up: same release made /v1/hyperliquid/markets "
+            "buy_volume_24h, sell_volume_24h, volume_24h, trades_24h "
+            "taker-aggressor-only (~half previous magnitude) and removed "
+            "buys/sells columns from /markets/ohlc, "
+            "/markets/liquidations/ohlc, /platform. Original: "
+            + request[:100]
         )
     curl = example.get("curl_example", "")
     query_ready = None
@@ -2345,6 +2395,18 @@ def _auto_search(request: str) -> str:
         "multiproof", "dispute game", "optimismportal",
         "nft sale", "nft floor", "nft owner",
         "polymarket", "prediction market", "open interest",
+        # HIP-4 outcome markets on Hyperliquid (Pinax token-api v3.21.0-pre1).
+        # Six new /v1/hyperliquid/outcomes/* endpoints — universe, ohlc, trades,
+        # users (leaderboard when ?user omitted), positions, activity
+        # (mint/redeem/settle). OutcomeContext / OutcomeLegContext embedded in
+        # every response.
+        "hip-4", "hip4", "outcome market", "outcome markets",
+        "hyperliquid outcomes", "hl outcomes", "settle_fraction",
+        "settle fraction", "outcome leg", "outcome ohlc", "outcome candle",
+        "outcome trades", "outcome fills", "outcome leaderboard",
+        "outcome positions", "outcome holdings", "outcome shares",
+        "outcome mint", "outcome redeem", "outcome settlement",
+        "outcome composition", "outcome activity",
     ]
     # Multi-word phrases matched as substrings (safe — no false positives)
     TOKEN_API_PHRASES = [

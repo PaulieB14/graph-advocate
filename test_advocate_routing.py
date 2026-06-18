@@ -563,6 +563,27 @@ class TestHyperliquidRouting(unittest.TestCase):
             self.assertEqual(r["recommendation"], "hyperliquid-token-api",
                              f"{q!r} should route to hyperliquid-token-api")
 
+    def test_hip4_outcomes_to_token_api(self):
+        """HIP-4 outcome market queries → token-api (Pinax v3.21.0-pre1)."""
+        for q in ["Hyperliquid HIP-4 outcome leaderboard",
+                  "Show settle_fraction for outcome 42",
+                  "Outcome leg OHLC for question 7",
+                  "Outcome composition mint redeem activity",
+                  "Outcome positions for wallet 0xabc on Hyperliquid",
+                  "Top traders on Hyperliquid outcome markets"]:
+            r = self.fn(q)
+            self.assertEqual(r["recommendation"], "token-api",
+                             f"{q!r} should route to token-api")
+
+    def test_hip4_outcomes_without_hyperliquid_keyword(self):
+        """HIP-4 keywords alone (no 'hyperliquid') still route to token-api."""
+        for q in ["outcome leaderboard",
+                  "settle_fraction analysis",
+                  "outcome composition flow"]:
+            r = self.fn(q)
+            self.assertEqual(r["recommendation"], "token-api",
+                             f"{q!r} should route to token-api via HIP-4 fallback")
+
 
 class TestCompareRoute(unittest.TestCase):
     """_compare_route should detect multi-service comparison requests."""
