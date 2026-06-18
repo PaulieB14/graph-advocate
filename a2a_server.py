@@ -3687,6 +3687,14 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
         return _unauthorized()
 
     apply = (request.query_params.get("apply", "").lower() in ("1", "true", "yes"))
+    # safe_only=true restricts writes to unique_match rows only — skips the
+    # ambiguous_took_closest bucket where the closest-by-time heuristic could
+    # mis-attribute. Default TRUE because the adversarial pass (2026-06-18,
+    # wf wrjjb61w7) showed 21/39 matches were ambiguous and recommended we
+    # not silently overwrite paid_by_wallet without provenance. Override with
+    # ?safe_only=false to also write ambiguous matches (NOT recommended
+    # without a follow-on confidence column or tx-hash provenance store).
+    safe_only = (request.query_params.get("safe_only", "true").lower() not in ("0", "false", "no"))
     try:
         max_blocks_back = int(request.query_params.get("max_blocks_back", "200000"))
     except ValueError:
@@ -3859,9 +3867,16 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
         ]
 
         # ── 5. Apply (or not) ─────────────────────────────────────────────
+        # safe_only=true (default) only writes unique_match rows. The 21
+        # ambiguous_took_closest rows from the adversarial-flagged set stay
+        # NULL until manually re-verified, per the workflow's TIGHTEN verdict.
         applied = 0
+        skipped_ambiguous = 0
         if apply:
             for m in matched:
+                if safe_only and m["status"] != "unique_match":
+                    skipped_ambiguous += 1
+                    continue
                 conn.execute(
                     "UPDATE activity SET paid_by_wallet = ? "
                     "WHERE id = ? AND (paid_by_wallet IS NULL OR paid_by_wallet = '')",
@@ -3878,7 +3893,9 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
 
         return JSONResponse({
             "mode": "applied" if apply else "dry-run",
+            "safe_only": safe_only,
             "rows_updated": applied,
+            "skipped_ambiguous_in_apply": skipped_ambiguous,
             "total_candidates": total_candidates,
             "skipped_no_price": total_candidates - len(candidates),
             "status_counts": dict(status_counts),
@@ -3890,8 +3907,10 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
             "rpc_chunks_scanned": chunks,
             "transfers_seen_total": len(transfers),
             "hint": (
-                "POST /admin/backfill-paid-by-wallet?token=...&apply=true to write the "
-                "matched paid_by_wallet values. Idempotent — only NULL rows are updated."
+                "POST /admin/backfill-paid-by-wallet?token=...&apply=true to write "
+                "the matched paid_by_wallet values. safe_only=true (default) skips "
+                "the ambiguous_took_closest bucket. Idempotent — only NULL rows are "
+                "updated."
             ) if not apply else (
                 "Refresh /dashboard/data — repeat_payers[] should populate."
             ),
