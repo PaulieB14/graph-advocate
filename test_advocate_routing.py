@@ -585,6 +585,64 @@ class TestHyperliquidRouting(unittest.TestCase):
                              f"{q!r} should route to token-api via HIP-4 fallback")
 
 
+class TestPayerCapture(unittest.TestCase):
+    """_extract_payer_addr should pull the EVM 'from' address from a verified
+    x402 PaymentPayload regardless of how the SDK shapes the payload tree
+    (dict, dataclass with model_dump, dataclass with dict()). The middleware
+    contract is: payer never blocks the request — return None on structural
+    mismatch, never raise."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("ACTIVITY_DB_PATH", "/tmp/test_paid_payer.db")
+        import a2a_server as _srv
+        self._srv = _srv
+
+    def test_dict_payload_with_authorization_from(self):
+        # The shape PaymentMiddlewareASGI sets on request.state today for
+        # the exact EVM scheme — a pydantic model whose .payload is a dict
+        # containing "authorization" with a "from" address.
+        class _PP:
+            payload = {"authorization": {"from": "0xAaBbCc11223344556677889900AaBbCc11223344"}}
+        out = self._srv._extract_payer_addr(_PP())
+        self.assertEqual(out, "0xaabbcc11223344556677889900aabbcc11223344")
+
+    def test_pydantic_payload_with_model_dump(self):
+        class _Auth:
+            def model_dump(self): return {"from": "0xDDee00ff11223344556677889900aaBbCcDD00ff"}
+        class _Payload:
+            def model_dump(self): return {"authorization": _Auth()}
+        class _PP:
+            payload = _Payload()
+        out = self._srv._extract_payer_addr(_PP())
+        self.assertEqual(out, "0xddee00ff11223344556677889900aabbccdd00ff")
+
+    def test_permit2_authorization_path(self):
+        # Permit2 scheme stores signer under permit2_authorization.from
+        class _PP:
+            payload = {"permit2_authorization": {"from_address": "0xFEdcba9876543210FEDCBA9876543210FEDCBA98"}}
+        out = self._srv._extract_payer_addr(_PP())
+        self.assertEqual(out, "0xfedcba9876543210fedcba9876543210fedcba98")
+
+    def test_returns_none_on_malformed_payload(self):
+        # Each of these is structurally wrong somewhere — must NOT raise.
+        cases = [
+            None,
+            {"payload": None},
+            {"payload": "not-a-dict"},
+            type("X", (), {"payload": None})(),
+            type("X", (), {"payload": {}})(),
+            type("X", (), {"payload": {"authorization": None}})(),
+            type("X", (), {"payload": {"authorization": {}}})(),
+            type("X", (), {"payload": {"authorization": {"from": ""}}})(),
+        ]
+        for case in cases:
+            self.assertIsNone(
+                self._srv._extract_payer_addr(case),
+                f"expected None for malformed payload {case!r}",
+            )
+
+
 class TestLogPaidFailureNormalization(unittest.TestCase):
     """_log_paid_failure should normalize non-Exception args so the row never
     silently shows exception_type='str' (bug observed 2026-06-18T05:33Z on the
@@ -672,6 +730,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestHyperliquidRouting))
     suite.addTests(loader.loadTestsFromTestCase(TestCompareRoute))
     suite.addTests(loader.loadTestsFromTestCase(TestLogPaidFailureNormalization))
+    suite.addTests(loader.loadTestsFromTestCase(TestPayerCapture))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

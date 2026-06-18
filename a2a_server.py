@@ -1001,6 +1001,19 @@ def _init_activity_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_service ON activity(service)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_sender ON activity(sender_type)")
 
+        # paid_by_wallet — the recovered EVM signer of the x402 X-PAYMENT
+        # header. Populated only on settled paid traffic; NULL for free /route
+        # calls, intros, agent-exchange events, etc. Lets the dashboard show
+        # which WALLETS are repeat payers (the leaderboard 'x402-paid' bucket
+        # collapses all payers into one label, useless for cohort analysis).
+        # Idempotent ALTER: SQLite raises 'duplicate column' if it already
+        # exists — swallow and continue.
+        try:
+            conn.execute("ALTER TABLE activity ADD COLUMN paid_by_wallet TEXT")
+        except Exception:
+            pass
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_paid_by_wallet ON activity(paid_by_wallet)")
+
         # Feedback table — agents report whether responses were useful
         conn.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
@@ -1183,9 +1196,116 @@ def _normalize_service(service: str | None) -> str:
     return s
 
 
-def _log_request(task_id: str, request: str, service: str, confidence: str, tool: str, response: dict | None = None):
+# ContextVar holding the recovered EVM signer address of the current x402
+# paid request, populated by _payer_capture_middleware just after x402's
+# PaymentMiddlewareASGI verifies the X-PAYMENT header. _log_request reads
+# this and persists it as activity.paid_by_wallet — that's the cohort key
+# the dashboard's repeat_payers panel groups on. None on free traffic
+# (intros, agent-exchange events, unpaid /route, etc.).
+import contextvars as _contextvars
+_current_payer_addr: "_contextvars.ContextVar[str | None]" = _contextvars.ContextVar(
+    "current_payer_addr", default=None,
+)
+
+
+class _PayerCaptureASGI:
+    """Thin ASGI middleware that populates _current_payer_addr for every
+    inbound x402 paid request, so _log_request can persist the EVM payer
+    address as activity.paid_by_wallet.
+
+    Wiring: this wraps _inner_route_app BEFORE PaymentMiddlewareASGI. The
+    outer x402 middleware sets request.state.payment_payload on verify;
+    when our wrapper runs (as part of the inner app), scope['state'] has
+    payment_payload populated. We extract the 'from' address, set the
+    ContextVar for this request's lifetime, and reset on exit so the
+    value never leaks to the next request on the same worker.
+
+    Never raises out of here — payer capture is observability-only and
+    must not break the request.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        token = None
+        try:
+            state = scope.get("state")
+            if state is not None:
+                pp = getattr(state, "payment_payload", None)
+                if pp is not None:
+                    addr = _extract_payer_addr(pp)
+                    if addr:
+                        token = _current_payer_addr.set(addr)
+            await self.app(scope, receive, send)
+        finally:
+            if token is not None:
+                try:
+                    _current_payer_addr.reset(token)
+                except Exception:
+                    pass
+
+
+def _extract_payer_addr(payment_payload) -> str | None:
+    """Pull the EVM signer ('from') address from a verified PaymentPayload.
+
+    Defensive — every level of the payload tree could be a pydantic model,
+    a dict, or absent on a different scheme. Returns None on any structural
+    mismatch rather than raising; payer capture is observability-only and
+    must never affect the request itself.
+
+    Supports the `exact` EVM scheme today (TransferWithAuthorization). Other
+    schemes (Permit2, Solana) put the signer in a different field — extend
+    here as new schemes ship.
+    """
+    try:
+        payload_field = getattr(payment_payload, "payload", None)
+        if payload_field is None and isinstance(payment_payload, dict):
+            payload_field = payment_payload.get("payload")
+        if not payload_field:
+            return None
+        if hasattr(payload_field, "model_dump"):
+            payload_field = payload_field.model_dump()
+        elif hasattr(payload_field, "dict") and callable(payload_field.dict):
+            payload_field = payload_field.dict()
+        if not isinstance(payload_field, dict):
+            return None
+        auth = payload_field.get("authorization") or payload_field.get("permit2_authorization")
+        if not auth:
+            return None
+        if hasattr(auth, "model_dump"):
+            auth = auth.model_dump()
+        elif hasattr(auth, "dict") and callable(auth.dict):
+            auth = auth.dict()
+        if not isinstance(auth, dict):
+            return None
+        from_addr = (
+            auth.get("from")
+            or auth.get("from_address")
+            or auth.get("fromAddress")
+        )
+        if not from_addr:
+            return None
+        return str(from_addr).lower()
+    except Exception:
+        return None
+
+
+def _log_request(task_id: str, request: str, service: str, confidence: str, tool: str, response: dict | None = None, paid_by_wallet: str | None = None):
     service = _normalize_service(service)
     ts = datetime.now(timezone.utc).isoformat()
+    # If caller didn't pass paid_by_wallet explicitly, pull from the contextvar
+    # populated by _payer_capture_middleware on the inbound paid request. This
+    # keeps the 16+ paid handlers unchanged — they just call _log_request like
+    # always and the payer wires through automatically.
+    if paid_by_wallet is None:
+        try:
+            paid_by_wallet = _current_payer_addr.get()
+        except Exception:
+            paid_by_wallet = None
     REQUEST_LOG.append({
         "ts": ts,
         "task_id": task_id,
@@ -1194,6 +1314,7 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         "confidence": confidence,
         "tool": tool,
         "response": response,
+        "paid_by_wallet": paid_by_wallet,
     })
     _save_log()
 
@@ -1224,10 +1345,10 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
 
         conn = sqlite3.connect(str(DB_PATH))
         conn.execute(
-            "INSERT INTO activity (timestamp, task_id, sender_type, request, service, confidence, tool, response_json, reason, graph_subgraphs, alternatives) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO activity (timestamp, task_id, sender_type, request, service, confidence, tool, response_json, reason, graph_subgraphs, alternatives, paid_by_wallet) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, task_id, sender_type, request, service, confidence, tool,
              json.dumps(response) if response else None,
-             reason, graph_subgraphs, alternatives),
+             reason, graph_subgraphs, alternatives, paid_by_wallet),
         )
         conn.commit()
         conn.close()
@@ -4028,6 +4149,68 @@ def _build_dashboard_data() -> dict:
     except Exception:
         pass
 
+    # ── Repeat payers (per-wallet cohort, not per-task-id label) ──────────
+    # The task_id 'x402-paid' bucket above collapses every paying agent into
+    # a single row — useless for spotting who comes back. paid_by_wallet (the
+    # recovered EVM signer of the X-PAYMENT header, populated by the
+    # _PayerCaptureASGI middleware) lets us group by ACTUAL wallet, count
+    # repeat hits, sum revenue per the same price ladder as x402_log_count,
+    # and surface the top 10 cohort. NULL paid_by_wallet rows (free traffic)
+    # are excluded.
+    repeat_payers = []
+    try:
+        conn = _sq.connect(str(DB_PATH))
+        rows = conn.execute("""
+            SELECT
+                paid_by_wallet,
+                COUNT(*) AS call_count,
+                MIN(timestamp) AS first_seen,
+                MAX(timestamp) AS last_seen,
+                COALESCE(SUM(
+                    CASE
+                        WHEN request LIKE 'pm-pnl-quick%' THEN 0.02
+                        WHEN request LIKE 'pm-pnl%'      THEN 0.05
+                        WHEN request LIKE 'pm-screen%'   THEN 0.02
+                        WHEN request LIKE 'pm-risk%'     THEN 0.02
+                        WHEN request LIKE 'hl-score%'    THEN 0.02
+                        WHEN request LIKE 'hl-pnl%'      THEN 0.05
+                        WHEN request LIKE 'hl-screen%'   THEN 0.05
+                        WHEN request LIKE 'hl-vault%'    THEN 0.10
+                        WHEN request LIKE 'hl-risk%'     THEN 0.02
+                        WHEN request LIKE 'hl-fills%'    THEN 0.02
+                        WHEN request LIKE 'kalshi-consensus%'   THEN 0.05
+                        WHEN request LIKE 'kalshi-spread%'      THEN 0.05
+                        WHEN request LIKE 'kalshi-sports%'      THEN 0.05
+                        WHEN request LIKE 'predmarket-spread%'  THEN 0.05
+                        WHEN request LIKE 'ask%'                THEN 0.05
+                        WHEN request LIKE 'onchain-x402-addr%'  THEN 0.05
+                        WHEN service = 'subgraph-registry'      THEN 0.01
+                        WHEN service = 'token-api'              THEN 0.01
+                        ELSE 0
+                    END
+                ), 0) AS usdc_total
+            FROM activity
+            WHERE paid_by_wallet IS NOT NULL AND paid_by_wallet != ''
+              AND service NOT IN ('x402-failed', 'payment-required')
+            GROUP BY paid_by_wallet
+            ORDER BY call_count DESC, usdc_total DESC
+            LIMIT 10
+        """).fetchall()
+        for wallet, cnt, first_seen, last_seen, usdc in rows:
+            short = (wallet[:6] + "…" + wallet[-4:]) if wallet and len(wallet) > 10 else (wallet or "?")
+            repeat_payers.append({
+                "wallet": wallet,
+                "short": short,
+                "call_count": cnt,
+                "usdc_total": round(usdc or 0, 4),
+                "first_seen": (first_seen or "")[:19],
+                "last_seen": (last_seen or "")[11:19],
+                "is_repeat": cnt > 1,
+            })
+        conn.close()
+    except Exception:
+        pass
+
     # ── Service health grid ───────────────────────────────────────────────
     service_health = []
     try:
@@ -4186,6 +4369,7 @@ def _build_dashboard_data() -> dict:
         "recent": recent,
         "timeseries": timeseries,
         "leaderboard": leaderboard,
+        "repeat_payers": repeat_payers,
         "service_health": service_health,
         "hero_24h": hero_24h,
         "quality_summary": quality_summary,
@@ -7923,6 +8107,12 @@ def build_app():
 
         x402_server = _get_x402_server()
         if x402_server:
+            # Wrap _inner_route_app with _PayerCaptureASGI so the recovered
+            # EVM signer address (set on request.state by PaymentMiddlewareASGI's
+            # verify step) lands in a ContextVar that _log_request reads. This
+            # is how activity.paid_by_wallet gets populated per paid request
+            # without touching the 17 paid-handler signatures.
+            _inner_route_app = _PayerCaptureASGI(_inner_route_app)
             _x402_route_app = PaymentMiddlewareASGI(
                 app=_inner_route_app,
                 routes={
