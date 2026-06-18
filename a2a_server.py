@@ -3621,6 +3621,290 @@ async def backfill_quality_endpoint(request: Request):
         }, status_code=500)
 
 
+# Price ladder for x402-paid activity rows. Mirrors the CASE-WHEN in
+# dashboard_data_endpoint's usdc_paid_lifetime sum. Used by the
+# backfill-paid-by-wallet matcher to size each row's expected payment so
+# it can be matched against an onchain Transfer event.
+def _expected_price_atomic(request_descriptor: str, service: str) -> int | None:
+    """Return the expected USDC price in atomic units (6 decimals), or None."""
+    req = (request_descriptor or "").lower()
+    svc = (service or "").lower()
+    # Order matters — pm-pnl-quick must match before pm-pnl
+    if req.startswith("pm-pnl-quick"):       return 20000
+    if req.startswith("pm-pnl"):             return 50000
+    if req.startswith("pm-screen"):          return 20000
+    if req.startswith("pm-risk"):            return 20000
+    if req.startswith("hl-score"):           return 20000
+    if req.startswith("hl-pnl"):             return 50000
+    if req.startswith("hl-screen"):          return 50000
+    if req.startswith("hl-vault"):           return 100000
+    if req.startswith("hl-risk"):            return 20000
+    if req.startswith("hl-fills"):           return 20000
+    if req.startswith("kalshi-consensus"):   return 50000
+    if req.startswith("kalshi-spread"):      return 50000
+    if req.startswith("kalshi-sports"):      return 50000
+    if req.startswith("predmarket-spread"):  return 50000
+    if req.startswith("ask"):                return 50000
+    if req.startswith("onchain-x402-addr"):  return 50000
+    # Pure routing falls through to /route at $0.01
+    if svc in ("subgraph-registry", "token-api", "substreams"):
+        return 10000
+    return None
+
+
+async def backfill_paid_by_wallet_endpoint(request: Request):
+    """GET/POST /admin/backfill-paid-by-wallet — retro-populate
+    activity.paid_by_wallet by matching historical x402-paid rows against
+    onchain USDC Transfer events to GA's inbound wallet.
+
+    Pre-43c6724 `task_id` was always the literal string 'x402-paid', which
+    collapsed every paying wallet into one bucket — leaderboard, repeat_payers,
+    everything. The PayerCapture middleware now writes paid_by_wallet on every
+    NEW request, but the historical 150+ rows in 'x402-paid' bucket stay
+    opaque. This endpoint solves that by:
+
+    1. SELECT all activity rows with task_id='x402-paid' AND paid_by_wallet IS NULL.
+    2. For each row, compute the expected USDC price (atomic units) from the
+       request prefix (pm-pnl-quick → 20000, hl-vault → 100000, etc. — same
+       ladder as dashboard_data_endpoint.usdc_paid_lifetime).
+    3. Scan onchain Transfer events to 0x0FF5…7C86 (GA inbound payTo) — paginate
+       via direct Base RPC eth_getLogs in 10k-block chunks (the 5000-block
+       facilitator window is enough for the bulk of paid history).
+    4. Within ±60s of each activity row's timestamp, find the Transfer whose
+       amount matches expected_price.
+       - Exactly one match → assign paid_by_wallet = Transfer.from.lower()
+       - Zero matches → leave NULL, flag as 'no_onchain_match'
+       - Multiple matches → take closest in time, mark 'ambiguous'
+
+    Dry-run by default: returns projection only.
+    POST ?apply=true: actually writes the UPDATEs.
+
+    Idempotent: only updates rows where paid_by_wallet IS NULL.
+    Cost: a handful of eth_getLogs calls per dry-run. Free RPC, no rate limit
+    concern at this volume.
+    """
+    if not _check_admin(request):
+        return _unauthorized()
+
+    apply = (request.query_params.get("apply", "").lower() in ("1", "true", "yes"))
+    try:
+        max_blocks_back = int(request.query_params.get("max_blocks_back", "200000"))
+    except ValueError:
+        max_blocks_back = 200000
+    # ±N seconds window for matching activity_ts → onchain_ts. 60s covers
+    # x402 facilitator settle latency + clock drift between Railway and Base.
+    try:
+        time_window_s = int(request.query_params.get("time_window_s", "120"))
+    except ValueError:
+        time_window_s = 120
+
+    try:
+        import sqlite3 as _sq
+        import httpx as _httpx_oc
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+
+        # ── 1. Pull candidate rows ────────────────────────────────────────
+        conn = _sq.connect(str(DB_PATH))
+        conn.row_factory = _sq.Row
+        rows = conn.execute("""
+            SELECT id, timestamp, request, service
+            FROM activity
+            WHERE task_id = 'x402-paid'
+              AND (paid_by_wallet IS NULL OR paid_by_wallet = '')
+            ORDER BY timestamp ASC
+        """).fetchall()
+        total_candidates = len(rows)
+
+        # Materialize what we need before any cursor mutations
+        candidates = []
+        for r in rows:
+            try:
+                ts = _dt.fromisoformat((r["timestamp"] or "").replace("Z", "+00:00"))
+            except Exception:
+                continue
+            expected = _expected_price_atomic(r["request"] or "", r["service"] or "")
+            if expected is None:
+                continue
+            candidates.append({
+                "id": r["id"],
+                "ts": ts,
+                "ts_epoch": int(ts.timestamp()),
+                "request": r["request"],
+                "service": r["service"],
+                "expected_atomic": expected,
+            })
+
+        # ── 2. Pull onchain Transfer history to inbound wallet ────────────
+        INBOUND = "0x0ff5a6ecef783bba35463ec2f8403b9b5e9e7c86"
+        USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+        TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+        TOPIC_TO = "0x000000000000000000000000" + INBOUND[2:]
+
+        async with _httpx_oc.AsyncClient(
+            base_url="https://mainnet.base.org",
+            headers={"User-Agent": "graph-advocate-backfill/1.0"},
+            timeout=20.0,
+        ) as oc:
+            head_resp = await oc.post("/", json={
+                "jsonrpc": "2.0", "method": "eth_blockNumber",
+                "params": [], "id": 1
+            })
+            head = int(head_resp.json()["result"], 16)
+
+            # Walk back in 9999-block chunks (Base public RPC limit is 10000)
+            CHUNK = 9999
+            transfers = []  # list of {block, ts, sender, amount_atomic, tx}
+            chunks = max(1, max_blocks_back // CHUNK)
+            for i in range(chunks):
+                to_b = head - i * CHUNK
+                fr_b = max(0, to_b - CHUNK + 1)
+                logs_resp = await oc.post("/", json={
+                    "jsonrpc": "2.0", "method": "eth_getLogs",
+                    "params": [{
+                        "address": USDC,
+                        "topics": [TRANSFER_TOPIC, None, TOPIC_TO],
+                        "fromBlock": hex(fr_b),
+                        "toBlock": hex(to_b),
+                    }],
+                    "id": 1,
+                })
+                logs = logs_resp.json().get("result") or []
+                for lg in logs:
+                    block_n = int(lg["blockNumber"], 16)
+                    transfers.append({
+                        "block": block_n,
+                        "sender": "0x" + lg["topics"][1][-40:],
+                        "amount_atomic": int(lg["data"], 16),
+                        "tx": lg["transactionHash"],
+                    })
+                if fr_b == 0:
+                    break
+
+            # Resolve block → timestamp for matched candidates only
+            # (avoid 1 RPC call per Transfer for the full history; cache per-block)
+            block_ts_cache: dict[int, int] = {}
+
+            async def _block_ts(block_n: int) -> int:
+                if block_n in block_ts_cache:
+                    return block_ts_cache[block_n]
+                resp = await oc.post("/", json={
+                    "jsonrpc": "2.0", "method": "eth_getBlockByNumber",
+                    "params": [hex(block_n), False], "id": 1,
+                })
+                ts = int(resp.json()["result"]["timestamp"], 16)
+                block_ts_cache[block_n] = ts
+                return ts
+
+            # Index transfers by amount for fast lookup
+            by_amount: dict[int, list] = {}
+            for t in transfers:
+                by_amount.setdefault(t["amount_atomic"], []).append(t)
+
+            # ── 3. Match each candidate to a Transfer ─────────────────────
+            matches = []  # {activity_id, paid_by_wallet, evidence, status}
+            for c in candidates:
+                possible = by_amount.get(c["expected_atomic"], [])
+                if not possible:
+                    matches.append({
+                        "activity_id": c["id"],
+                        "status": "no_amount_match",
+                        "expected_atomic": c["expected_atomic"],
+                        "ts": c["ts"].isoformat(),
+                        "request": c["request"],
+                    })
+                    continue
+                # Resolve block timestamps for these possibles
+                close = []
+                for t in possible:
+                    bts = await _block_ts(t["block"])
+                    dt = abs(bts - c["ts_epoch"])
+                    if dt <= time_window_s:
+                        close.append((dt, t, bts))
+                if not close:
+                    matches.append({
+                        "activity_id": c["id"],
+                        "status": "no_time_match",
+                        "expected_atomic": c["expected_atomic"],
+                        "ts": c["ts"].isoformat(),
+                        "request": c["request"],
+                        "n_amount_candidates": len(possible),
+                    })
+                    continue
+                close.sort(key=lambda x: x[0])
+                best_dt, best_t, best_bts = close[0]
+                status = "unique_match" if len(close) == 1 else "ambiguous_took_closest"
+                matches.append({
+                    "activity_id": c["id"],
+                    "paid_by_wallet": best_t["sender"].lower(),
+                    "status": status,
+                    "expected_atomic": c["expected_atomic"],
+                    "ts": c["ts"].isoformat(),
+                    "request": c["request"],
+                    "tx": best_t["tx"],
+                    "block": best_t["block"],
+                    "block_ts": best_bts,
+                    "time_delta_s": best_dt,
+                    "n_close": len(close),
+                })
+
+        # ── 4. Aggregate stats ────────────────────────────────────────────
+        from collections import Counter as _Cnt
+        status_counts = _Cnt(m["status"] for m in matches)
+        matched = [m for m in matches if m.get("paid_by_wallet")]
+        by_wallet = _Cnt(m["paid_by_wallet"] for m in matched)
+        projection = [
+            {"wallet": w, "match_count": n,
+             "short": (w[:6] + "…" + w[-4:]) if len(w) > 10 else w}
+            for w, n in by_wallet.most_common(20)
+        ]
+
+        # ── 5. Apply (or not) ─────────────────────────────────────────────
+        applied = 0
+        if apply:
+            for m in matched:
+                conn.execute(
+                    "UPDATE activity SET paid_by_wallet = ? "
+                    "WHERE id = ? AND (paid_by_wallet IS NULL OR paid_by_wallet = '')",
+                    (m["paid_by_wallet"], m["activity_id"]),
+                )
+                applied += 1
+            conn.commit()
+        conn.close()
+
+        # Sample preview — first 10 unique matches per status
+        sample_unique = [m for m in matches if m["status"] == "unique_match"][:10]
+        sample_no_time = [m for m in matches if m["status"] == "no_time_match"][:5]
+        sample_no_amt = [m for m in matches if m["status"] == "no_amount_match"][:5]
+
+        return JSONResponse({
+            "mode": "applied" if apply else "dry-run",
+            "rows_updated": applied,
+            "total_candidates": total_candidates,
+            "skipped_no_price": total_candidates - len(candidates),
+            "status_counts": dict(status_counts),
+            "matched_count": len(matched),
+            "projection_top_payers": projection,
+            "sample_unique_matches": sample_unique,
+            "sample_no_time_match": sample_no_time,
+            "sample_no_amount_match": sample_no_amt,
+            "rpc_chunks_scanned": chunks,
+            "transfers_seen_total": len(transfers),
+            "hint": (
+                "POST /admin/backfill-paid-by-wallet?token=...&apply=true to write the "
+                "matched paid_by_wallet values. Idempotent — only NULL rows are updated."
+            ) if not apply else (
+                "Refresh /dashboard/data — repeat_payers[] should populate."
+            ),
+        })
+    except Exception as e:
+        import traceback as _tb
+        return JSONResponse({
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": _tb.format_exc().splitlines()[-10:],
+        }, status_code=500)
+
+
 # ── /logs and /dashboard endpoints ───────────────────────────────────────────
 
 # Onchain balance snapshot for the dashboard. Cached 600s (10 min) to avoid
@@ -9054,6 +9338,7 @@ def build_app():
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
         Route("/admin/backfill-quality", backfill_quality_endpoint, methods=["GET", "POST"]),
+        Route("/admin/backfill-paid-by-wallet", backfill_paid_by_wallet_endpoint, methods=["GET", "POST"]),
         Route("/quota", quota_endpoint),
         Route("/bazaar/search", bazaar_search_endpoint),
         Route("/bazaar/active", bazaar_active_endpoint),
@@ -9337,7 +9622,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/admin/backfill-quality", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip", "/ask")
