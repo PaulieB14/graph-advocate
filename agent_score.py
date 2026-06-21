@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import time
 from dataclasses import dataclass, asdict, field
 from typing import Optional
@@ -417,14 +418,82 @@ def _verdict_text(score: int, signals: ScoreSignals) -> str:
 
 
 # ============================================================================
+# Cache — 24h TTL SQLite-backed.
+# ============================================================================
+# Cold scan is ~3 min on a 90d window (RPC chunks dominate). For a paid
+# endpoint, that's untenable on first hit but acceptable once amortized over
+# 24h of cached returns. Keyed on (wallet, days) so different window requests
+# don't collide.
+_SCORE_CACHE_DB = os.environ.get("AGENT_SCORE_CACHE_DB", "graph_advocate.db")
+_SCORE_CACHE_TTL = 24 * 3600  # 24h
+
+
+def _ensure_cache_table() -> None:
+    with sqlite3.connect(_SCORE_CACHE_DB, timeout=10.0) as conn:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS agent_score_cache (
+                wallet TEXT NOT NULL,
+                days INTEGER NOT NULL,
+                ts INTEGER NOT NULL,
+                result_json TEXT NOT NULL,
+                PRIMARY KEY (wallet, days)
+            )"""
+        )
+
+
+def cache_get(wallet: str, days: int) -> Optional[dict]:
+    try:
+        _ensure_cache_table()
+        with sqlite3.connect(_SCORE_CACHE_DB, timeout=10.0) as conn:
+            row = conn.execute(
+                "SELECT ts, result_json FROM agent_score_cache WHERE wallet=? AND days=?",
+                (wallet.lower(), days),
+            ).fetchone()
+    except Exception as exc:
+        log.warning(f"cache_get failed: {exc}")
+        return None
+    if not row:
+        return None
+    ts, blob = row
+    if time.time() - ts > _SCORE_CACHE_TTL:
+        return None
+    try:
+        result = json.loads(blob)
+        result["cache_age_sec"] = int(time.time() - ts)
+        return result
+    except Exception:
+        return None
+
+
+def cache_set(wallet: str, days: int, result: dict) -> None:
+    try:
+        _ensure_cache_table()
+        with sqlite3.connect(_SCORE_CACHE_DB, timeout=10.0) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_score_cache (wallet, days, ts, result_json) VALUES (?,?,?,?)",
+                (wallet.lower(), days, int(time.time()), json.dumps(result)),
+            )
+    except Exception as exc:
+        log.warning(f"cache_set failed: {exc}")
+
+
+# ============================================================================
 # Public API
 # ============================================================================
 
-async def score_agent(wallet: str, *, days: int = 30) -> dict:
+async def score_agent(wallet: str, *, days: int = 90, use_cache: bool = True) -> dict:
     """Score an agent by its owner/operator wallet address.
 
-    Combines ERC-8004 registration, IPFS metadata, and USDC settlement
-    activity into a 0-100 composite score with full signal breakdown.
+    Combines ERC-8004 registration, IPFS metadata, USDC settlement activity,
+    and ERC-8004 feedback/validation registry events into a 0-100 composite
+    score with full signal breakdown.
+
+    Args:
+        wallet: 0x-prefixed Ethereum address
+        days:   USDC settlement scan window. Default 90d — long enough to
+                surface real adoption rhythms (30d misses sparse-traffic
+                agents). Range 1-365.
+        use_cache: If True (default), returns cached result within 24h TTL.
 
     Returns:
         {
@@ -435,11 +504,19 @@ async def score_agent(wallet: str, *, days: int = 30) -> dict:
           'awarded_points': {signal_name: points, ...},
           'verdict': human-readable summary string,
           'computed_at_ts': unix timestamp,
+          'cache_hit': bool,
         }
     """
     if not (isinstance(wallet, str) and wallet.startswith("0x") and len(wallet) == 42):
         raise ValueError(f"invalid wallet address: {wallet!r}")
     addr = wallet.lower()
+
+    if use_cache:
+        cached = cache_get(addr, days)
+        if cached is not None:
+            cached["cache_hit"] = True
+            return cached
+
     sig = ScoreSignals()
 
     async with httpx.AsyncClient(headers=_HTTP_HEADERS, timeout=20.0) as client:
@@ -500,7 +577,7 @@ async def score_agent(wallet: str, *, days: int = 30) -> dict:
         sig.sample_recent_payers = settle.get("sample_senders") or []
 
     score, awarded = _compute_score(sig)
-    return {
+    result = {
         "wallet": wallet,
         "score": score,
         "max_score": _MAX_SCORE,
@@ -508,5 +585,10 @@ async def score_agent(wallet: str, *, days: int = 30) -> dict:
         "signals": asdict(sig),
         "awarded_points": awarded,
         "verdict": _verdict_text(score, sig),
+        "window_days": days,
         "computed_at_ts": int(time.time()),
+        "cache_hit": False,
     }
+    if use_cache:
+        cache_set(addr, days, result)
+    return result

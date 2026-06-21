@@ -7869,6 +7869,61 @@ def build_app():
                     "retry_after_seconds": 30,
                 }, status_code=502)
 
+        async def _agent_score_handler(request):
+            """$0.02 — Composite 0-100 reputation score for any Base wallet.
+
+            Combines three on-chain ground-truth axes (each resistant to
+            operator-faked listing metadata):
+              - identity:    ERC-8004 registration (Agent0 Base) + IPFS metadata
+              - activity:    USDC settlement velocity (chunked Transfer-event scan)
+              - reputation:  ERC-8004 feedback + validation registry events,
+                             aggregated across ALL agents owned by this wallet
+
+            Hard gate: unregistered wallets score 0 regardless of activity, so
+            burn addresses (0x0 received $494M in 30d but isn't an agent), USDC
+            contract, and CEX hot wallets are correctly filtered out.
+
+            Cached 24h. First cold call on a 90d window takes ~3 min (130
+            chunks × ~1s RPC each); subsequent calls within 24h return
+            instantly. Set `days` to 30 in body for a faster cold path.
+
+            POST {wallet: "0x…", days: 90}
+            """
+            from agent_score import score_agent as _score_agent_fn
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            wallet = (body.get("wallet") or body.get("address") or "").strip()
+            if not (wallet.startswith("0x") and len(wallet) == 42):
+                return _RouteJSON({"error": "invalid_wallet",
+                                   "message": "POST {wallet: '0x…40hex'} required",
+                                   "expected_body": {"wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292", "days": 90}},
+                                  status_code=400)
+            days_raw = body.get("days", 90)
+            try:
+                days = int(days_raw)
+            except (TypeError, ValueError):
+                days = 90
+            if days < 1 or days > 365:
+                return _RouteJSON({"error": "invalid_days",
+                                   "message": "days must be an integer 1-365"},
+                                  status_code=400)
+            try:
+                result = await _score_agent_fn(wallet, days=days)
+                _log_request("x402-paid", f"agent-score {wallet[:10]}",
+                             "agent-score", "high", "erc8004+base-rpc+ipfs",
+                             response=result)
+                return _RouteJSON(result)
+            except Exception as exc:
+                log.exception(f"agent-score crashed: {wallet}")
+                _log_paid_failure(f"agent-score {wallet[:10]}", exc)
+                return _RouteJSON({
+                    "error": "upstream_unavailable",
+                    "message": "One of Agent0 subgraph, Base RPC, or IPFS gateway unreachable; retry shortly.",
+                    "retry_after_seconds": 60,
+                }, status_code=502)
+
         async def _kalshi_sports_handler(request):
             """$0.05 — live sports-market mispricing detector."""
             try:
@@ -8421,6 +8476,7 @@ def build_app():
             _RouteRoute("/kalshi-polymarket/spread", _kalshi_spread_handler, methods=["POST"]),
             _RouteRoute("/kalshi/sports-live-edge", _kalshi_sports_handler, methods=["POST"]),
             _RouteRoute("/predmarket/spread", _predmarket_spread_handler, methods=["POST"]),
+            _RouteRoute("/agent/score", _agent_score_handler, methods=["POST"]),
         ])
 
         x402_server = _get_x402_server()
@@ -8913,6 +8969,40 @@ def build_app():
                             input_schema={"type":"object","properties":{"coin":{"type":"string"},"n":{"type":"integer","minimum":1,"maximum":10,"default":10}},"required":["coin"]},
                             body_type="json",
                             output=OutputConfig(example={"coin":"BTC","fill_count":10,"summary":{"buy_count":4,"sell_count":6,"notional_usdc":2342.15,"whale_fill_count":0,"unique_users":8},"fills":[{"side":"ASK","price":73430,"size":0.00084,"notional":61.68,"user":"0x1738e6cb…","direction":"OPEN_SHORT","fee":0.048,"timestamp":"2026-05-28 17:22:28"}]},schema={"type":"object"}),
+                        )},
+                    ),
+                    # ── Agent reputation score (0-100, on-chain-derived) ────
+                    "POST /agent/score": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.02",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Composite 0-100 reputation score for any Base wallet. "
+                            "POST {wallet, days?=90}. Combines ERC-8004 registration "
+                            "(Agent0 subgraph), USDC settlement velocity (Base RPC scan), "
+                            "and ERC-8004 feedback+validation registry events aggregated "
+                            "across all of the owner's agents. Hard-gates on 8004 "
+                            "registration to filter burn addresses + CEX wallets. "
+                            "Cached 24h. Use for: should I integrate/pay/trust this peer agent."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"wallet":"0x575267eED09c338FAE5716A486A7B58A5749A292","days":90},
+                            input_schema={"type":"object","properties":{"wallet":{"type":"string","pattern":"^0x[a-fA-F0-9]{40}$","description":"Wallet address to score (owner or agentWallet)."},"days":{"type":"integer","minimum":1,"maximum":365,"default":90,"description":"USDC settlement scan window."}},"required":["wallet"]},
+                            body_type="json",
+                            output=OutputConfig(
+                                example={
+                                    "wallet":"0x575267eED09c338FAE5716A486A7B58A5749A292",
+                                    "score":65,
+                                    "max_score":100,
+                                    "tier":"active",
+                                    "verdict":"[active] ERC-8004 registered (75d old, agent #41034) — metadata valid — received $4.6620 USDC from 2 distinct sender(s) in 30d (9 tx) — last paid call 2.6d ago — 1 feedback event(s) from 1 distinct client(s), avg value 85.0.",
+                                    "awarded_points":{"erc8004_registered":15,"erc8004_age_gt_7d":5,"ipfs_metadata_valid":5,"ipfs_declares_x402":5,"received_any_30d":10,"active_last_7d":10,"any_feedback":10,"positive_avg_feedback":5},
+                                    "signals":{"erc8004_registered":True,"erc8004_agent_id":"41034","erc8004_agent_count_for_owner":1,"erc8004_age_days":75.2,"feedback_count":1,"distinct_feedback_clients":1,"avg_feedback_value":85.0,"usdc_received_30d_usdc":4.66,"distinct_senders_30d":2},
+                                    "window_days":90,"cache_hit":False
+                                },
+                                schema={"type":"object","required":["wallet","score","tier","verdict"],"properties":{"wallet":{"type":"string"},"score":{"type":"integer","minimum":0,"maximum":100},"tier":{"type":"string","enum":["active_verified","active","registered_or_settling","dormant_low_signal","no_evidence"]},"verdict":{"type":"string"},"cache_hit":{"type":"boolean"}}},
+                            ),
                         )},
                     ),
                     # ── Kalshi derived-signal endpoints (3) ─────────────────
@@ -9840,6 +9930,7 @@ def build_app():
             or scope["path"].startswith("/kalshi-polymarket/")
             or scope["path"].startswith("/predmarket/")
             or scope["path"].startswith("/onchain-x402/")
+            or scope["path"].startswith("/agent/")
         ):
             # Forward to the x402 PaymentMiddlewareASGI-wrapped app.
             # The middleware handles: 402 challenge, payment verification,
