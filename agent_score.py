@@ -25,17 +25,62 @@ Or from scripts/score_agent.py for batch scoring with pretty output.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import sqlite3
 import time
 from dataclasses import dataclass, asdict, field
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
+from eth_utils import to_checksum_address
 
 log = logging.getLogger("agent-score")
+
+# ---- counterparty-ref-v1 identity ------------------------------------------
+# Per https://github.com/giskard09/argentum-core/blob/main/docs/spec/counterparty-ref.md
+# The provider_id and rubric_version are stable strings included in the
+# preimage so verifiers can attribute the score to a specific provider and
+# rubric version. Bump RUBRIC_VERSION when the weight table or signal set
+# changes — old refs remain verifiable but new computations diverge.
+PROVIDER_ID = "graph-advocate.agent-score.v1"
+RUBRIC_VERSION = "graph-advocate.rubric.v1"
+
+
+def _jcs(obj: dict) -> str:
+    """RFC 8785 JCS canonical JSON — sort_keys, no whitespace, UTF-8 safe."""
+    return json.dumps(obj, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+
+
+def compute_counterparty_ref(
+    wallet: str, trailing_days: int, timestamp_iso: str,
+    *, provider_id: str = PROVIDER_ID, rubric_version: str = RUBRIC_VERSION,
+) -> tuple[str, dict, str]:
+    """Compute the counterparty-ref-v1 SHA-256 hex pointer for a snapshot.
+
+    Returns (counterparty_ref, preimage_dict, jcs_canonical_string) — all three
+    so the response can expose them for verifiers without re-deriving.
+
+    Spec: SHA-256(JCS({wallet, provider_id, rubric_version, trailing_days,
+    timestamp})). Wallet MUST be EIP-55 checksummed; timestamp MUST be ISO 8601
+    UTC. Without timestamp the hash is floating and cannot satisfy the anchor
+    requirement — caller is responsible for providing a stable timestamp tied
+    to the snapshot moment (i.e. the computed_at_ts).
+    """
+    preimage = {
+        "provider_id":    provider_id,
+        "rubric_version": rubric_version,
+        "timestamp":      timestamp_iso,
+        "trailing_days":  int(trailing_days),
+        "wallet":         to_checksum_address(wallet),
+    }
+    jcs_canonical = _jcs(preimage)
+    digest = hashlib.sha256(jcs_canonical.encode("utf-8")).hexdigest()
+    return digest, preimage, jcs_canonical
+
 
 # ---- canonical chain config -----------------------------------------------
 
@@ -577,17 +622,37 @@ async def score_agent(wallet: str, *, days: int = 90, use_cache: bool = True) ->
         sig.sample_recent_payers = settle.get("sample_senders") or []
 
     score, awarded = _compute_score(sig)
+    # counterparty-ref-v1 compliance: include the canonical preimage so
+    # verifiers can reconstruct the SHA-256 ref without needing to call us
+    # back. The timestamp is the snapshot moment, not request time — they're
+    # the same here, but if we ever serve cached results we want the original
+    # timestamp to flow through (see cache_get which restores the cached blob).
+    now_ts = int(time.time())
+    timestamp_iso = datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    ref, preimage, jcs_canonical = compute_counterparty_ref(
+        wallet=wallet, trailing_days=days, timestamp_iso=timestamp_iso,
+    )
     result = {
-        "wallet": wallet,
+        "wallet": preimage["wallet"],  # checksummed form, matches preimage
         "score": score,
         "max_score": _MAX_SCORE,
         "tier": _tier_for(score),
         "signals": asdict(sig),
         "awarded_points": awarded,
         "verdict": _verdict_text(score, sig),
-        "window_days": days,
-        "computed_at_ts": int(time.time()),
-        "cache_hit": False,
+        # counterparty-ref-v1 fields — see giskard09/argentum-core spec
+        "provider_id":      PROVIDER_ID,
+        "rubric_version":   RUBRIC_VERSION,
+        "trailing_days":    days,
+        "timestamp":        timestamp_iso,
+        "counterparty_ref": ref,
+        "counterparty_ref_preimage": preimage,
+        "counterparty_ref_jcs":      jcs_canonical,
+        # legacy/convenience
+        "window_days":   days,        # alias for trailing_days, kept for the
+                                      # docs that already showed this name
+        "computed_at_ts": now_ts,
+        "cache_hit":     False,
     }
     if use_cache:
         cache_set(addr, days, result)
