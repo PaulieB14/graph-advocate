@@ -1,7 +1,7 @@
 {
   "name": "graph-advocate",
-  "version": "2.7.0",
-  "description": "Ask any blockchain question in plain English — token balances, DeFi analytics, NFT data, prediction market odds, cross-venue prediction-market spreads (Polymarket ↔ Limitless, Polymarket ↔ Kalshi), Hyperliquid perps trader intelligence, x402 settlement analytics (132M+ payments + onchain agent-reputation lookups), and protocol stats. Covers 15,500+ subgraphs across 20+ chains.",
+  "version": "2.8.0",
+  "description": "Ask any blockchain question in plain English — token balances, DeFi analytics, NFT data, prediction market odds, cross-venue prediction-market spreads (Polymarket ↔ Limitless, Polymarket ↔ Kalshi), Hyperliquid perps trader intelligence, x402 settlement analytics (132M+ payments + onchain agent-reputation lookups), and an ERC-8004 + USDC-settlement composite reputation score for any Base wallet. Covers 15,500+ subgraphs across 20+ chains.",
   "author": "paulieb14",
   "license": "MIT-0",
   "homepage": "https://github.com/PaulieB14/graph-advocate",

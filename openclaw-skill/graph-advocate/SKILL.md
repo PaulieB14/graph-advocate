@@ -1,7 +1,7 @@
 ---
 name: graph-advocate
 description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 15,500+ subgraphs, Token API (EVM/Solana/TON + Polymarket + Hyperliquid), x402 payment analytics, cross-venue prediction-market spreads (Polymarket ↔ Limitless, Polymarket ↔ Kalshi), and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, Limitless, Kalshi, prediction market spread, arbitrage, Hyperliquid, perps, ENS, governance, x402, onchain data, blockchain."
-version: 2.7.0
+version: 2.8.0
 homepage: https://github.com/PaulieB14/graph-advocate
 metadata:
   clawdbot:

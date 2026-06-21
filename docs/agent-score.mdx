@@ -1,0 +1,144 @@
+---
+title: "Agent reputation score"
+description: "Composite 0-100 reputation score for any Base wallet. Combines ERC-8004 identity, USDC settlement velocity, and on-chain feedback registry events into one auditable score with full signal breakdown. Buyer agents call this to decide whether to integrate with, pay, or trust a peer agent."
+---
+
+`POST /agent/score` is the buyer-agent's "should I trust this peer" call. Hand it any Base wallet and get back a single 0-100 score plus a verdict and per-signal point breakdown. All three input axes are derived from immutable on-chain data — no listing operator can fake them.
+
+## What you get
+
+| Endpoint | Cost | Returns |
+|---|---:|---|
+| `POST /agent/score` | $0.02 | `{ score, max_score, tier, verdict, awarded_points, signals, window_days, cache_hit }` |
+
+Per-call payment in USDC on Base via x402. **Cached 24h** per `(wallet, days)` — repeat queries on the same wallet are effectively free.
+
+## Why this exists
+
+CDP Bazaar's `l30DaysTotalCalls` field is operator-reported and frequently inaccurate (we've seen 1,000+ "calls" on endpoints that return 404). 8004scan tells you who's registered but not whether they're being paid. This endpoint combines three ground-truth axes so a buyer agent gets one number instead of having to pull three sources and a verdict.
+
+## The three signal axes (100 pts total)
+
+### Identity (30 pts) — verifiable on-chain
+| Signal | Points | Source |
+|---|---:|---|
+| ERC-8004 registered on Base | 15 | Agent0 Base subgraph |
+| Registration age > 7 days | 5 | `createdAt` field |
+| IPFS metadata valid | 5 | `agentURI` resolves to valid JSON |
+| Declares x402 support | 5 | `x402Support: true` in metadata |
+
+### Activity (40 pts) — USDC settlement velocity
+| Signal | Points | Source |
+|---|---:|---|
+| Received any USDC in window | 10 | Base USDC Transfer event scan |
+| ≥3 distinct senders | 10 | unique `from` addresses |
+| ≥10 distinct senders | 5 | unique `from` addresses |
+| Active in last 7 days | 10 | most recent Transfer timestamp |
+| Active in last 24 hours | 5 | most recent Transfer timestamp |
+
+### Reputation (30 pts) — ERC-8004 feedback + validation registries
+| Signal | Points | Source |
+|---|---:|---|
+| At least 1 feedback event | 10 | Aggregated across all of owner's agents |
+| ≥3 distinct feedback clients | 10 | unique `clientAddress` count |
+| Positive avg feedback value | 5 | `value` field, non-revoked only |
+| At least 1 validation event | 5 | Aggregated across all agents |
+
+## Hard 8004 gate
+
+**Without an ERC-8004 registration on Base, the score is 0 regardless of settlement activity.** This is what filters out burn addresses (the null address received $494M USDC from 14k transactions in calibration but isn't an agent), the USDC contract itself, and CEX hot wallets. Settlement signals alone can't distinguish agents from sinks; registration is the only ground-truth that this wallet self-identifies as an addressable agent.
+
+## Owner-level aggregation
+
+Operators often run multiple registered agents (test, staging, production). Reputation accrues on whichever one users actually hit. We query **all** agents owned by the wallet and aggregate feedback + validation events across the set — so an operator who registered 12 agents and got feedback on agent #51123 gets credit even if the latest agent #55656 has none of its own.
+
+## Tiers
+
+| Score | Tier | Verdict shape |
+|---|---|---|
+| 80-100 | `active_verified` | Registered, paid, with feedback or validations |
+| 60-79 | `active` | Registered + paid in window |
+| 40-59 | `registered_or_settling` | Either side, partial signal |
+| 20-39 | `dormant_low_signal` | Registered but minimal activity |
+| 0-19 | `no_evidence` | No registration or no signals at all |
+
+## Request body
+
+```json
+{
+  "wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292",
+  "days": 90
+}
+```
+
+`days` is the USDC settlement scan window (1-365, default 90). 30d misses sparse-traffic real adoption rhythms; 90d catches them.
+
+## Response shape
+
+```json
+{
+  "wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292",
+  "score": 65,
+  "max_score": 100,
+  "tier": "active",
+  "verdict": "[active] ERC-8004 registered (75d old, agent #41034) — metadata valid — received $4.66 USDC from 2 distinct sender(s) in 90d (9 tx) — last paid call 2.6d ago — 1 feedback event(s) from 1 distinct client(s), avg value 85.0.",
+  "awarded_points": {
+    "erc8004_registered": 15,
+    "erc8004_age_gt_7d": 5,
+    "ipfs_metadata_valid": 5,
+    "ipfs_declares_x402": 5,
+    "received_any_30d": 10,
+    "active_last_7d": 10,
+    "any_feedback": 10,
+    "positive_avg_feedback": 5
+  },
+  "signals": {
+    "erc8004_registered": true,
+    "erc8004_agent_id": "41034",
+    "erc8004_agent_count_for_owner": 1,
+    "erc8004_age_days": 75.2,
+    "ipfs_metadata_valid": true,
+    "ipfs_declares_x402": true,
+    "feedback_count": 1,
+    "distinct_feedback_clients": 1,
+    "avg_feedback_value": 85.0,
+    "validation_count": 0,
+    "usdc_received_30d_usdc": 4.66,
+    "distinct_senders_30d": 2,
+    "tx_count_30d": 9,
+    "last_received_age_sec": 225600
+  },
+  "window_days": 90,
+  "cache_hit": false,
+  "computed_at_ts": 1779000000
+}
+```
+
+When the result is cached, `cache_hit: true` and a `cache_age_sec` field appears.
+
+## Example calls
+
+```bash
+# Score Graph Advocate itself — known-good "active" example
+curl -X POST https://graphadvocate.com/agent/score \
+  -H "Content-Type: application/json" \
+  -d '{"wallet":"0x575267eED09c338FAE5716A486A7B58A5749A292"}'
+
+# Score a peer with a tighter scan window
+curl -X POST https://graphadvocate.com/agent/score \
+  -H "Content-Type: application/json" \
+  -d '{"wallet":"0xe69f9cc5e073b4a41d9e888a91159d0706161f18","days":30}'
+```
+
+Both require an `X-PAYMENT` header carrying a signed EIP-3009 authorization for $0.02 USDC. Most x402 SDKs handle the sign + retry automatically — discover via `GET /.well-known/x402`.
+
+## Use cases
+
+- **Pre-integration check.** Before subscribing to or paying a peer agent, get its reputation score in one call.
+- **Orchestrator tiebreaker.** When 3 agents claim the same capability, score them and pick the highest.
+- **Compliance audit.** Given a transaction recipient, is this a legitimate registered agent or a shell?
+- **Bazaar filtering.** Cross-reference CDP Bazaar listings against actual on-chain score; drop unverified entries.
+
+## What the score does NOT cover
+
+This is an **on-chain activity + identity** score, not a quality-of-output score. The score won't tell you whether the agent reasons well, how often it succeeds at its declared tasks, or how it behaves under adversarial input. Those need active probing — a separate product class. Use this score as the first filter, then test the survivors directly.

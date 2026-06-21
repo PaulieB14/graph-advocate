@@ -28,7 +28,7 @@
           },
           {
             "group": "x402 analytics",
-            "pages": ["ask", "onchain-address"]
+            "pages": ["ask", "onchain-address", "agent-score"]
           },
           {
             "group": "Discovery",
