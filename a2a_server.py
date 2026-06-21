@@ -9115,62 +9115,171 @@ def build_app():
     # the activity DB so the dashboard reflects the full lifecycle.
     AGENT_EXCHANGE_BASE = "https://agentexchange.work"
 
+    # Maps a substring of a peer's declared `capability` (case-insensitive) to a
+    # GA-endpoint pitch. Used for capability-targeted intros + commons_post
+    # replies so peers see specifically how GA layers on top of their lane,
+    # not the kitchen-sink "/route + /polymarket + /hyperliquid + ..." dump.
+    #
+    # Order matters: more-specific substrings should match first. Iteration
+    # stops at the first hit per capability string.
+    CAPABILITY_PITCHES = [
+        # Exact-vertical overlaps (highest signal)
+        ("subgraph-discovery",
+         "/route $0.01 routes across 15,500+ subgraphs with reliability scores and ready-to-run GraphQL — overlaps your lane, let's chain instead of compete"),
+        ("on-chain-data-routing",
+         "/route $0.01 covers the same surface — we can cross-link instead of overlap; you get GA as a fallback for queries you don't cover"),
+        ("wallet-intel",
+         "/polymarket/risk $0.02 + /hyperliquid/score $0.02 — behavioral wallet signals (ghost_fill_risk, skill_score, classification) that layer above your sanctions/identity dimension"),
+        ("wallet-analytics",
+         "/onchain-x402/address $0.05 — x402 settlement history per wallet (paid-call count, USDC volume, repeat-payer flag, agent-vs-human heuristic)"),
+        ("prediction-markets",
+         "/predmarket/spread $0.05 + /kalshi/consensus-trend $0.05 — cross-venue Polymarket vs Kalshi divergence + consensus drift"),
+        ("polymarket",
+         "/polymarket/screen $0.02 + /polymarket/pnl-quick $0.01 — top-N holders ranked by skill_score; sharp/retail classification per wallet"),
+        ("hyperliquid",
+         "/hyperliquid/score $0.02 + /hyperliquid/vault $0.10 — derived trader skill_score (PnL, sharpe, win_rate) + vault evaluator (redemption_pressure, depositor concentration)"),
+        ("kalshi",
+         "/kalshi/consensus-trend $0.05 + /kalshi/sports-live-edge $0.05 — event consensus drift + sports live mispricing vs implied fair value"),
+        ("sports",
+         "/kalshi/sports-live-edge $0.05 — live sportsbook mispricing scores ranked by edge bps"),
+        ("forensics",
+         "/onchain-x402/address $0.05 — x402 settlement provenance (payer/recipient/facilitator roles, counterparty graph)"),
+        ("compliance",
+         "/polymarket/risk $0.02 + /hyperliquid/risk $0.02 — behavioral risk that complements sanctions/AML pattern matching"),
+        ("agent-discovery",
+         "/route covers 8004scan ERC-8004 lookups + /onchain-x402/address surfaces x402 settlement reputation per agent wallet"),
+        ("agent-identity",
+         "/route covers ERC-8004 agent registry queries; /onchain-x402/address scores any agent wallet by x402 settlement history"),
+        ("yield",
+         "/route $0.01 returns canonical Aave v3, Morpho Blue, Pendle, Yearn v3, Compound subgraph IDs + reliability scores — beats per-chain Goldsky/Allium setup"),
+        ("lending",
+         "/route routes to Aave V2/V3/V4 + Morpho + Compound subgraphs; for HL DeFi vaults try /hyperliquid/vault $0.10"),
+        ("defi",
+         "/route $0.01 routes to canonical Aave/Compound/Morpho/Curve/Balancer subgraphs; derived signals via /polymarket/* and /hyperliquid/*"),
+        ("trading",
+         "/hyperliquid/screen $0.05 + /polymarket/screen $0.02 — top-trader lists per coin/condition_id, ranked by skill_score"),
+        ("copy-trade",
+         "/hyperliquid/score $0.02 — pre-filter who's worth mirroring (skill_score 0-100 from PnL consistency, sharpe, drawdown, win-rate, hold-time)"),
+        ("nft",
+         "/route $0.01 routes to OpenSea/Reservoir/NFTPort subgraphs by collection; /onchain-x402/address surfaces x402-related NFT-buyer wallets"),
+        ("dex",
+         "/route $0.01 returns Uniswap V2/V3/V4 + Aerodrome + Curve + Balancer subgraph IDs across 50+ chains"),
+        ("lp",
+         "/route surfaces canonical LP subgraphs for any pool; for HL vaults try /hyperliquid/vault $0.10"),
+        ("perps",
+         "/hyperliquid/fills $0.02 + /hyperliquid/screen $0.05 — live HL fills feed + top-trader pre-screen by skill_score"),
+        ("solana",
+         "/route covers Solana token-program + Jupiter + Marinade subgraphs across the network"),
+        ("research",
+         "/onchain-x402/address $0.05 + /polymarket/screen $0.02 — wallet provenance + cohort screening to enrich qualitative research with onchain ground truth"),
+        ("news",
+         "/kalshi-polymarket/spread $0.05 + /kalshi/consensus-trend $0.05 — closes the loop from headline to mispriced market"),
+        ("sentiment",
+         "/polymarket/pnl-quick $0.01 + /kalshi/consensus-trend $0.05 — turns sentiment into mispricing scores agents can act on"),
+    ]
+
+    def _match_capability_pitches(capabilities) -> list[str]:
+        """Return targeted GA-endpoint pitches matching the peer's declared
+        capabilities. Each capability string is matched against
+        CAPABILITY_PITCHES substrings (case-insensitive); the FIRST hit per
+        capability is taken. Returns at most 3 pitch lines to keep the intro
+        agent-decision-loop-sized, not a wall of text.
+        """
+        if not capabilities:
+            return []
+        if isinstance(capabilities, str):
+            capabilities = [capabilities]
+        matches = []
+        seen_pitches = set()
+        for cap in capabilities:
+            cap_lower = (str(cap) or "").lower()
+            for keyword, pitch in CAPABILITY_PITCHES:
+                if keyword in cap_lower and pitch not in seen_pitches:
+                    matches.append(pitch)
+                    seen_pitches.add(pitch)
+                    break
+            if len(matches) >= 3:
+                break
+        return matches
+
+    async def _lookup_bot_endpoint(client, bot_id: str, max_attempts: int = 3):
+        """Resolve an Agent Exchange bot_id to its registered endpoint via
+        agentexchange.work/bots. Retries the directory at 0s/30s/60s to handle
+        the race between `new_bot` event firing and /bots reindexing.
+
+        Returns (endpoint, capabilities) on success or (None, []) on miss.
+        Logging is the caller's responsibility — this is pure lookup.
+        """
+        for attempt, delay_before in enumerate([0, 30, 60][:max_attempts]):
+            if delay_before:
+                await asyncio.sleep(delay_before)
+            try:
+                bots_resp = await client.get(f"{AGENT_EXCHANGE_BASE}/bots")
+                bots = bots_resp.json().get("bots", []) or []
+            except Exception:
+                continue
+            target = next((b for b in bots if b.get("id") == bot_id), None)
+            if target:
+                endpoint = (target.get("endpoint") or "").rstrip("/")
+                caps = target.get("capabilities") or []
+                if endpoint.startswith("http"):
+                    return endpoint, caps
+                return None, caps
+        return None, []
+
     async def _maybe_intro_new_bot(body: dict):
         """When AgentExchange tells us a new bot joined, look up its endpoint
-        via /bots and send a free A2A partnership intro. Passive outreach
-        scaling — every new bot in the network gets GA's offer the moment
-        they appear. Failures logged but never raised.
+        via /bots and send a capability-targeted A2A partnership intro. Every
+        new bot in the network gets GA's offer specifically tailored to their
+        declared capabilities; bots that match GA's lane (wallet-intel,
+        prediction-markets, hyperliquid-data, etc.) get a precise endpoint
+        pitch instead of the kitchen-sink fallback. Failures logged, never
+        raised.
 
-        Race-condition note: AgentExchange fires `new_bot` events the moment
-        a bot calls /register, BEFORE /bots is reindexed. First observed when
+        Race-condition note: AgentExchange fires `new_bot` events the moment a
+        bot calls /register, BEFORE /bots is reindexed. First observed when
         packrift's intro fired at 23:13:11 but /bots returned 'not in /bots
-        yet'. Mitigation: retry the directory lookup at 30s and 90s before
-        giving up. Total wait ≤ 2 min in the worst case."""
+        yet'. Mitigation: retry the directory lookup at 30s and 60s before
+        giving up. Total wait ≤ 90s in the worst case."""
         import httpx as _httpx
         bot_id = body.get("bot_id") or body.get("id") or ""
         if not bot_id or bot_id.startswith("graph-advocate"):
             return  # don't introduce GA to itself
         try:
             async with _httpx.AsyncClient(timeout=10.0) as client:
-                # Retry directory lookup to handle the race window.
-                # Delays chosen empirically: AgentExchange's /bots typically
-                # reflects new registrations within ~60s.
-                target = None
-                bots: list = []
-                for attempt, delay_before in enumerate([0, 30, 60]):
-                    if delay_before:
-                        await asyncio.sleep(delay_before)
-                    try:
-                        bots_resp = await client.get("https://agentexchange.work/bots")
-                        bots = bots_resp.json().get("bots", []) or []
-                    except Exception as exc:
-                        log.warning(f"[agent-exchange new_bot] /bots fetch failed (attempt {attempt+1}): {exc}")
-                        continue
-                    target = next((b for b in bots if b.get("id") == bot_id), None)
-                    if target:
-                        if attempt > 0:
-                            log.info(f"[agent-exchange new_bot] bot_id={bot_id} appeared on attempt {attempt+1}")
-                        break
-                if not target:
-                    log.info(f"[agent-exchange new_bot] bot_id={bot_id} not in /bots after 3 attempts (~90s) — giving up")
+                endpoint, caps = await _lookup_bot_endpoint(client, bot_id)
+                if not endpoint:
+                    log.info(f"[agent-exchange new_bot] bot_id={bot_id} not in /bots after retries — giving up")
                     _log_request(f"ga-newbot-miss:{bot_id}",
                                  f"new bot {bot_id} never indexed in /bots within 90s window",
                                  "agent-exchange-new-bot-miss", "low",
-                                 "not-found", response={"bot_id": bot_id, "attempts": 3})
+                                 "not-found", response={"bot_id": bot_id})
                     return
-                endpoint = (target.get("endpoint") or "").rstrip("/")
-                caps = target.get("capabilities") or []
-                if not endpoint.startswith("http"):
-                    return
-                # Send a tight, agent-decision-loop framed intro
-                intro = (
-                    "Graph Advocate here — welcoming you to Agent Exchange. "
-                    "If your callers ever ask about on-chain data (subgraphs, token balances, "
-                    "Polymarket PnL, Hyperliquid positions, Aave liquidation risk, or any "
-                    "of our 13 services at https://graphadvocate.com/openapi.json), I'm a "
-                    "$0.01-0.10 routing service paid via x402 USDC on Base. "
-                    "Happy to integrate if useful. Your capabilities: " + str(caps)
-                )
+                # Build a capability-targeted intro from the pitch table.
+                # Falls back to the generic offer if no capability matches —
+                # honest framing for off-vertical bots without burning their
+                # attention on irrelevant endpoints.
+                matched = _match_capability_pitches(caps)
+                if matched:
+                    intro = (
+                        "Graph Advocate here -- welcoming you to Agent Exchange.\n"
+                        f"Your declared capabilities ({', '.join(caps[:3])}) map to specific GA endpoints:\n\n"
+                        + "\n".join(f"  - {p}" for p in matched)
+                        + "\n\nAll x402-priced USDC on Base, no keys. "
+                        "Reply with x402 payment to any GA endpoint = handshake. "
+                        "Card: https://graphadvocate.com/.well-known/agent-card.json"
+                    )
+                    intro_kind = "targeted"
+                else:
+                    intro = (
+                        "Graph Advocate here -- welcoming you to Agent Exchange. "
+                        "If your callers ever ask about on-chain data (subgraphs, token balances, "
+                        "Polymarket PnL, Hyperliquid positions, Aave liquidation risk, or any "
+                        "of our 13 services at https://graphadvocate.com/openapi.json), I'm a "
+                        "$0.01-0.10 routing service paid via x402 USDC on Base. "
+                        "Happy to integrate if useful. Your capabilities: " + str(caps)
+                    )
+                    intro_kind = "generic"
                 payload = {
                     "jsonrpc": "2.0", "id": f"ga-newbot-intro-{bot_id}",
                     "method": "message/send",
@@ -9184,16 +9293,75 @@ def build_app():
                     },
                 }
                 r = await client.post(endpoint, json=payload, follow_redirects=True)
-                log.info(f"[agent-exchange new_bot] intro -> bot_id={bot_id} endpoint={endpoint} status={r.status_code}")
+                log.info(f"[agent-exchange new_bot] intro({intro_kind}) -> bot_id={bot_id} endpoint={endpoint} status={r.status_code}")
                 _log_request(f"ga-newbot-intro:{bot_id}",
-                             f"auto-intro to new AgentExchange bot {bot_id} ({caps})",
+                             f"auto-intro({intro_kind}) to new AgentExchange bot {bot_id} ({caps})",
                              "agent-exchange-new-bot-intro", "high",
                              "sent" if 200 <= r.status_code < 300 else f"http-{r.status_code}",
                              response={"bot_id": bot_id, "endpoint": endpoint,
-                                       "status": r.status_code,
+                                       "status": r.status_code, "intro_kind": intro_kind,
+                                       "matched_pitches": len(matched),
                                        "reply": (r.text[:300] if r.status_code < 400 else None)})
         except Exception as exc:
             log.warning(f"[agent-exchange new_bot] intro failed for {bot_id}: {exc}")
+
+    async def _maybe_reply_commons(body: dict):
+        """When AgentExchange broadcasts a commons_post from another bot,
+        check if the post's `capability` field overlaps GA's lane. If yes,
+        send a capability-targeted A2A reply via the poster's endpoint —
+        unsolicited but targeted, like commenting on a relevant thread.
+
+        Won't fire on off-vertical posts (paki-curator art-curation, etc.) —
+        those just log as before. Dedupe is handled by the existing
+        _ae_dedup_cache layer (one reply per bot per 24h max).
+        """
+        import httpx as _httpx
+        bot_id = body.get("bot_id") or ""
+        capability = body.get("capability") or body.get("type") or ""
+        if not bot_id or bot_id.startswith("graph-advocate"):
+            return
+        # Only reply if the capability has a GA-pitch match. Otherwise log + drop.
+        matched = _match_capability_pitches([capability])
+        if not matched:
+            return
+        try:
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                endpoint, caps = await _lookup_bot_endpoint(client, bot_id, max_attempts=2)
+                if not endpoint:
+                    log.info(f"[agent-exchange commons_post] {bot_id} not in /bots — can't reply")
+                    return
+                reply_msg = (
+                    f"Graph Advocate replying to your commons_post about '{capability}'.\n\n"
+                    "Your post overlaps GA's lane; specifically:\n\n"
+                    + "\n".join(f"  - {p}" for p in matched)
+                    + "\n\nAll x402-priced USDC on Base, no keys. "
+                    "If useful for the work you're doing, reply with x402 payment to any GA endpoint = handshake. "
+                    "Card: https://graphadvocate.com/.well-known/agent-card.json"
+                )
+                payload = {
+                    "jsonrpc": "2.0", "id": f"ga-commons-reply-{bot_id}",
+                    "method": "message/send",
+                    "params": {
+                        "metadata": {"sender": "Graph Advocate", "from_agent_id": "42161:734"},
+                        "message": {
+                            "role": "user",
+                            "messageId": f"ga-commons-reply-{bot_id}",
+                            "parts": [{"kind": "text", "text": reply_msg}],
+                        },
+                    },
+                }
+                r = await client.post(endpoint, json=payload, follow_redirects=True)
+                log.info(f"[agent-exchange commons_post] reply -> bot_id={bot_id} cap={capability} status={r.status_code}")
+                _log_request(f"ga-commons-reply:{bot_id}",
+                             f"capability-targeted reply to commons_post from {bot_id} ({capability})",
+                             "agent-exchange-commons-reply", "high",
+                             "sent" if 200 <= r.status_code < 300 else f"http-{r.status_code}",
+                             response={"bot_id": bot_id, "endpoint": endpoint,
+                                       "status": r.status_code, "capability": capability,
+                                       "matched_pitches": len(matched),
+                                       "reply": (r.text[:300] if r.status_code < 400 else None)})
+        except Exception as exc:
+            log.warning(f"[agent-exchange commons_post] reply failed for {bot_id}: {exc}")
 
     async def _fulfill_agent_exchange_job(body: dict):
         import httpx as _httpx
@@ -9206,12 +9374,18 @@ def build_app():
             await _maybe_intro_new_bot(body)
             return
         if ev == "commons_post":
-            # Log marketplace events as opportunities; no auto-action since
-            # most will be off-topic for GA. Surfaces in dashboard for review.
+            # Log every commons_post as an opportunity for the dashboard.
             _log_request(f"ae-commons:{body.get('bot_id','?')}",
                          f"{body.get('type','?')} from {body.get('bot_id','?')} ({body.get('capability','?')})",
                          "agent-exchange-commons-opportunity", "low",
                          "logged", response=body)
+            # Fire a capability-targeted reply if the post's capability maps
+            # to a GA-endpoint pitch. Off-vertical posts (paki-curator art-
+            # curation etc.) match nothing in CAPABILITY_PITCHES and are
+            # log-only; on-vertical ones get a tailored offer via A2A. The
+            # _ae_dedup_cache layer above already caps at one reply per
+            # (event, bot_id) per 24h, so this won't spam the same poster.
+            await _maybe_reply_commons(body)
             return
         # Be liberal in what we accept — webhook body shape isn't documented.
         # Parens matter: `A or B if C else None` parses as `A or (B if C else
