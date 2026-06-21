@@ -1929,6 +1929,31 @@ SKILLS = [
         input_modes=["text"],
         output_modes=["text"],
     ),
+    AgentSkill(
+        id="agent_score",
+        name="Agent reputation score (0-100, on-chain derived)",
+        description=(
+            "POST /agent/score {wallet, days?=90}. Composite 0-100 reputation score "
+            "for any Base wallet. Combines three on-chain ground-truth axes: identity "
+            "(ERC-8004 registration on Base + IPFS metadata), activity (USDC settlement "
+            "velocity), and reputation (ERC-8004 feedback + validation registry events, "
+            "aggregated across all agents owned by the wallet). Hard 8004 gate filters "
+            "out burn addresses, USDC contract, and CEX hot wallets — settlement signals "
+            "alone don't distinguish agents from sinks. Tier output: active_verified / "
+            "active / registered_or_settling / dormant_low_signal / no_evidence. Cached "
+            "24h. Use for: should I integrate / pay / trust this peer agent. $0.02 USDC "
+            "per call on Base."
+        ),
+        tags=["reputation", "8004", "erc-8004", "agent-trust", "agent-discovery",
+              "wallet-score", "x402", "base"],
+        examples=[
+            "Score 0xe69f9cc5e073b4a41d9e888a91159d0706161f18 — is this a real active agent?",
+            "What's the reputation score for the wallet I'm about to pay?",
+            "Rank these 5 peer agents by reputation before I integrate with one",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
 ]
 
 
@@ -3283,6 +3308,8 @@ Repository: https://github.com/PaulieB14/graph-advocate
 | POST /kalshi/consensus-trend   | $0.05        | Kalshi consensus slope+acceleration (forecast_history) |
 | POST /kalshi-polymarket/spread | $0.05        | Cross-source spread Kalshi↔Polymarket (JOIN) |
 | POST /kalshi/sports-live-edge  | $0.05        | Live sports mispricing (play-by-play vs candles) |
+| POST /predmarket/spread        | $0.05        | Cross-venue Polymarket↔Limitless spread (JOIN) |
+| POST /agent/score              | $0.02        | 0-100 reputation score: ERC-8004 + USDC settlement + on-chain feedback |
 
 All paid endpoints settle in USDC on Base via x402. Paid endpoints have no
 free tier — payment is required from call 1 regardless of sender metadata.
@@ -6433,6 +6460,7 @@ def build_app():
                 BASE_URL + "/kalshi-polymarket/spread",
                 BASE_URL + "/kalshi/sports-live-edge",
                 BASE_URL + "/predmarket/spread",
+                BASE_URL + "/agent/score",
             ],
             "instructions": (
                 "POST a plain-English onchain data request and receive a "
@@ -9237,9 +9265,13 @@ def build_app():
         ("compliance",
          "/polymarket/risk $0.02 + /hyperliquid/risk $0.02 — behavioral risk that complements sanctions/AML pattern matching"),
         ("agent-discovery",
-         "/route covers 8004scan ERC-8004 lookups + /onchain-x402/address surfaces x402 settlement reputation per agent wallet"),
+         "/agent/score $0.02 — composite 0-100 reputation score (ERC-8004 identity + USDC settlement velocity + on-chain feedback registry); /route also covers 8004scan agent registry lookups"),
         ("agent-identity",
-         "/route covers ERC-8004 agent registry queries; /onchain-x402/address scores any agent wallet by x402 settlement history"),
+         "/agent/score $0.02 — verifiable agent-identity score with hard 8004 gate (filters burn/CEX wallets); aggregates feedback across all of owner's agents"),
+        ("reputation",
+         "/agent/score $0.02 — 0-100 composite from ERC-8004 registration + USDC settlement velocity + on-chain feedback/validation events. Buyer-agent's 'should I trust this peer' decision in one call"),
+        ("agent-trust",
+         "/agent/score $0.02 — hard 8004 gate kills false positives from burn/CEX wallets; aggregates reputation across all owner's agents (one operator often runs many)"),
         ("yield",
          "/route $0.01 returns canonical Aave v3, Morpho Blue, Pendle, Yearn v3, Compound subgraph IDs + reliability scores — beats per-chain Goldsky/Allium setup"),
         ("lending",

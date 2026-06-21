@@ -46,6 +46,7 @@ Test: `python3 test_advocate_routing.py` (34 tests must pass)
 | `/export/csv` | GET | Activity CSV export |
 | `/export/stats` | GET | Summary stats for grant reporting |
 | `/logs` | GET | Last 100 requests as JSON |
+| `/agent/score` | POST | $0.02 — 0-100 reputation score (ERC-8004 + USDC settlements + feedback registry) |
 
 ## Routing services
 
