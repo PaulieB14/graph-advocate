@@ -1,7 +1,7 @@
 ---
 name: graph-advocate
 description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 15,500+ subgraphs, Token API (EVM/Solana/TON + Polymarket + Hyperliquid), x402 payment analytics, cross-venue prediction-market spreads (Polymarket ↔ Limitless, Polymarket ↔ Kalshi), and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, Limitless, Kalshi, prediction market spread, arbitrage, Hyperliquid, perps, ENS, governance, x402, onchain data, blockchain."
-version: 2.8.0
+version: 2.9.0
 homepage: https://github.com/PaulieB14/graph-advocate
 metadata:
   clawdbot:
@@ -28,7 +28,7 @@ Match the user's intent to the right service. Load only the reference you need.
 | **Limitless prediction markets** | graph-limitless-mcp | — | Markets on Base |
 | **Cross-venue prediction-market spread (Polymarket ↔ Limitless)** | `/predmarket/spread` (paid) | — | Same-topic markets paired across venues, per-pair yes-mid spread (bps), arbitrage direction. JOIN single-venue passthroughs can't return. $0.05 USDC. |
 | **Cross-source prediction-market spread (Kalshi ↔ Polymarket)** | `/kalshi-polymarket/spread` (paid) | — | Same-topic markets across Kalshi + Polymarket with mid-spread and arbitrage direction. $0.05 USDC. |
-| **Agent reputation score (0-100)** | `/agent/score` (paid) | — | Composite from ERC-8004 registration + USDC settlement velocity + on-chain feedback registry, aggregated across all of owner's agents. Hard 8004 gate filters burns/CEX. Buyer-agent's "should I trust this peer" call. $0.02 USDC. |
+| **Agent reputation score (0-100)** | `/agent/score` (paid) | — | Composite from ERC-8004 registration + USDC settlement velocity + on-chain feedback registry, aggregated across all of owner's agents. Hard 8004 gate filters burns/CEX. Buyer-agent's "should I trust this peer" call. Response includes counterparty-ref-v1 conformant SHA-256 + preimage + canonical JCS string so a verifier can re-derive byte-exact without callback. $0.02 USDC. |
 | **Kalshi consensus trend** | `/kalshi/consensus-trend` (paid) | — | Slope/acceleration/volatility band from Kalshi forecast_history. $0.05 USDC. |
 | **Kalshi sports live-edge** | `/kalshi/sports-live-edge` (paid) | — | Play-by-play momentum vs market candlesticks; flags latency-arb windows. $0.05 USDC. |
 | **Predict.fun prediction markets** | predictfun-mcp | — | BNB Chain prediction markets |
