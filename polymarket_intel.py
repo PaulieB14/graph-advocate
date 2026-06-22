@@ -270,10 +270,34 @@ async def _polygon_rpc(method: str, params: list) -> Any:
 
 async def detect_wallet_type(wallet: str) -> dict:
     """Classify a Polygon address by ghost-fill risk via on-chain bytecode
-    probe. EOA → high risk (legacy CLOB path). ERC-1967 proxy → likely
-    Polymarket deposit wallet (POLY_1271, sig type 3) → ghost-fill-immune
-    by design. Other contract bytecode → legacy proxy/Safe → medium."""
+    probe.
+
+    Detection order (most specific first):
+      0xef01… (EIP-7702 designator) → EIP-7702 delegated EOA, extract delegate
+      "" / "0x"                     → pure EOA, legacy CLOB signing
+      ERC-1967 impl slot set        → ERC-1967 proxy (Polymarket deposit wallet)
+      other bytecode                → legacy smart account (Gnosis Safe, etc.)
+    """
     code = await _polygon_rpc("eth_getCode", [wallet, "latest"])
+    code_lower = (code or "").lower()
+    # EIP-7702 set-code-transaction designator: 0xef01 + version + 20-byte
+    # delegate. The wallet is still an EOA at heart but executes the delegate's
+    # code when called. Classify distinctly because the ghost-fill risk depends
+    # entirely on whether the delegate implements ERC-1271.
+    if code_lower.startswith("0xef0100") and len(code_lower) >= 4 + 4 + 40:
+        delegate = "0x" + code_lower[8:48]
+        return {
+            "type": "eip7702_delegated_eoa",
+            "ghost_fill_risk": "depends_on_delegate",
+            "reason": (
+                f"EIP-7702 delegated EOA — delegates execution to {delegate}. "
+                f"Ghost-fill risk depends on whether the delegate implements "
+                f"ERC-1271 (low) or signs via legacy ECDSA (high). Probe the "
+                f"delegate contract for isValidSignature(bytes32,bytes) to "
+                f"determine."
+            ),
+            "delegate_address": delegate,
+        }
     if not code or code in ("0x", "0x0"):
         return {
             "type": "eoa",

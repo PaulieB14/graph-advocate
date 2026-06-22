@@ -8001,11 +8001,38 @@ def build_app():
             _gather as _hl_gather,
         )
 
+        async def _hl_native_fills_count(user: str) -> int:
+            """Query HL native userFills directly to cross-check Pinax's
+            'missing' verdict. HL is the ground truth — Pinax can lag by
+            hours for first-time micro-volume traders.
+
+            Returns 0 on any error (degrade silently to whatever the caller's
+            fallback was — don't let HL outages flip the verdict mid-call).
+            """
+            try:
+                import httpx as _httpx
+                async with _httpx.AsyncClient(timeout=5.0) as c:
+                    r = await c.post(
+                        "https://api.hyperliquid.xyz/info",
+                        json={"type": "userFills", "user": user},
+                    )
+                    if r.status_code != 200:
+                        return 0
+                    fills = r.json()
+                    return len(fills) if isinstance(fills, list) else 0
+            except Exception as exc:
+                log.debug(f"_hl_native_fills_count failed for {user}: {exc}")
+                return 0
+
         async def _hl_enrich_empty(user: str) -> dict:
             """When upstream returns no trading data, do one HL native /info userRole
             lookup so the caller learns whether the address is an agent sub-key
             (and which master to query instead) vs. a wallet that has truly never
-            touched HL. Best-effort — failures degrade silently to role:'unknown'."""
+            touched HL. Best-effort — failures degrade silently to role:'unknown'.
+
+            For the 'missing' case specifically, cross-check HL native userFills
+            so a real first-time trader with sub-Pinax-threshold activity isn't
+            falsely told they 'never interacted.'"""
             role_info = await hl_fetch_user_role(user)
             if not isinstance(role_info, dict):
                 return {"role": "unknown",
@@ -8039,7 +8066,22 @@ def build_app():
                     out["vault_address"] = vault.lower()
                 out["hint"] = "This address is a Hyperliquid vault. Use the hl-vault endpoint instead."
             elif role == "missing":
-                out["hint"] = "This address has never interacted with Hyperliquid."
+                # Pinax sometimes lags HL native — cross-check userFills before
+                # claiming "never interacted." A wallet with fills but no Pinax
+                # index entry is most likely a recent first-time user whose
+                # activity hasn't propagated to the indexer yet.
+                native_fills_n = await _hl_native_fills_count(user)
+                if native_fills_n > 0:
+                    out["role"] = "user"
+                    out["hint"] = (
+                        f"Active on HL native ({native_fills_n} lifetime fills) but "
+                        f"Pinax index doesn't have this address yet — likely a "
+                        f"recent first-time user with sub-threshold notional. "
+                        f"Skill score not computable from indexed stats; re-query "
+                        f"in 24h or pull HL native fills directly."
+                    )
+                else:
+                    out["hint"] = "This address has never interacted with Hyperliquid."
             elif role == "user":
                 out["hint"] = "Wallet exists on HL but has no fills, positions, or activity yet."
             return out
