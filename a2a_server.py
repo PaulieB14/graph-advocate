@@ -6688,6 +6688,8 @@ def build_app():
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Graph Advocate — Onchain Data Routing Agent</title>
   <meta name="description" content="Claude-powered routing agent for The Graph Protocol. Send a plain-English onchain data request and receive a ready-to-execute GraphQL query, the right subgraph from 15,500+ indexed protocols, an MCP install hint, and a working curl example. Free tier: 3 queries/day, then $0.01 USDC on Base via x402.">
+  <!-- Base App registration — dashboard.base.org domain verification -->
+  <meta name="base:app_id" content="6a396b7d2d9d578ecf123857" />
   <link rel="icon" type="image/png" href="/graphadvocate.png">
   <link rel="apple-touch-icon" href="/graphadvocate.png">
 
