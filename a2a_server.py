@@ -8340,7 +8340,12 @@ def build_app():
             SUBGRAPH_ID = "Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj"
             url = f"https://gateway.thegraph.com/api/{graph_api_key}/subgraphs/id/{SUBGRAPH_ID}"
 
-            query = """
+            # Two-phase query: cheap summary lookup first (fast across all indexers),
+            # then expensive recent-payment scans only if the address has activity.
+            # Addresses with no x402 history (~most queries) skip the slow path
+            # entirely. Was a single 8-18s query before — now ~1s for the no-activity
+            # case and ~10s for the with-activity case (parallel sub-fetch).
+            summary_query = """
             query AddressSummary($addr: Bytes!) {
               _meta { block { number timestamp hash } hasIndexingErrors }
               asRecipient: x402AddressSummaries(
@@ -8362,6 +8367,10 @@ def build_app():
                 id name isActive totalSettlements totalVolumeDecimal
                 addedAtTimestamp removedAtTimestamp
               }
+            }
+            """
+            recents_query = """
+            query Recents($addr: Bytes!) {
               recentReceived: x402Payments(
                 where: { to: $addr }, first: 10, orderBy: blockNumber, orderDirection: desc
               ) {
@@ -8390,21 +8399,39 @@ def build_app():
                         or "unavailable" in joined
                         or "bad indexers" in joined)
 
-            async def _query_gateway(client) -> tuple[dict, list]:
-                r = await client.post(url, json={"query": query,
+            async def _query_gateway(client, q: str) -> tuple[dict, list]:
+                r = await client.post(url, json={"query": q,
                                                  "variables": {"addr": addr_lower}})
                 r.raise_for_status()
                 rj = r.json()
                 return rj, rj.get("errors") or []
 
             try:
-                async with _httpx_ox.AsyncClient(timeout=20.0) as client:
-                    result, errs = await _query_gateway(client)
+                # 30s timeout — was 20s but Graph gateway can route to lagging
+                # indexers that take 8-18s on the full query; tight bound caused
+                # paying customer ReadTimeouts on 2026-06-22.
+                async with _httpx_ox.AsyncClient(timeout=30.0) as client:
+                    # Phase 1: cheap summary
+                    summary_result, errs = await _query_gateway(client, summary_query)
                     if errs and _is_indexer_lag(errs):
-                        # One retry — gateway will likely route to a different
-                        # indexer on the next call.
                         await asyncio.sleep(0.8)
-                        result, errs = await _query_gateway(client)
+                        summary_result, errs = await _query_gateway(client, summary_query)
+                    if not errs:
+                        # Phase 2: only fetch recents if address has any x402 history
+                        sd = summary_result.get("data") or {}
+                        has_activity = bool(
+                            (sd.get("asRecipient") or [None])[0]
+                            or (sd.get("asPayer") or [None])[0]
+                            or sd.get("facilitator")
+                        )
+                        recents_result = {"data": {"recentReceived": [], "recentSent": []}}
+                        if has_activity:
+                            recents_result, _ = await _query_gateway(client, recents_query)
+                        # Merge phase 1 + phase 2 into the shape downstream expects
+                        result = {"data": {
+                            **(summary_result.get("data") or {}),
+                            **(recents_result.get("data") or {}),
+                        }}
                 if errs:
                     # Lag persisted across retry — surface a clean retryable
                     # error so the agent can decide whether to come back.
