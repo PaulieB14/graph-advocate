@@ -90,6 +90,11 @@ _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df52
 
 # Agent0 ERC-8004 Base mainnet subgraph (verified id from wf wtas1wfx6)
 _AGENT0_SUBGRAPH_ID = "43s9hQRurMGjuYnC1r2ZwS6xSQktbFyXMPMqGKUFJojb"
+# ENS subgraph on Ethereum mainnet (ensdomains/ens) — verified working
+_ENS_SUBGRAPH_ID = "5XqPmWe6gjyrJtFn9cLy237i4cWw2j9HcUJEXsP5qGtH"
+# Ethereum mainnet RPC for ENS reverse resolution
+_ETH_RPC = os.environ.get("ETH_RPC_URL", "https://ethereum-rpc.publicnode.com")
+_ENS_REGISTRY = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
 _GRAPH_API_KEY = os.environ.get("GRAPH_API_KEY", "")
 
 _HTTP_HEADERS = {"User-Agent": "graph-advocate-score/1.0"}
@@ -166,6 +171,126 @@ def _tier_for(score: int) -> str:
         if score >= threshold:
             return tier
     return "no_evidence"
+
+
+# ============================================================================
+# Identity enrichment — informational, NOT weighted into the 100-pt score.
+# ============================================================================
+# Surfaces public identity surfaces (ENS, owned domains) for ID-having agents
+# while leaving the fields null for opsec-conscious agents. Deliberately not
+# weighted into the score — opsec-conscious agents are not "lower quality,"
+# they're choosing privacy. Buyer agents filter on these fields themselves
+# if they care about doxxed-ness.
+#
+# Not yet implemented (TODO):
+#   - basename: needs ENS Universal Resolver + CCIP-Read (ENSIP-19). Per Base
+#     docs the canonical lookup is viem's getEnsName({coinType: toCoinType(
+#     base.id)}). Adding this requires either rolling Universal Resolver in
+#     Python (~50 lines) or shelling out to a node + viem subprocess.
+#   - counterparty_top_wallets + funder_address: require chunked USDC scans
+#     that would defeat the post-fix <3s endpoint latency.
+
+@dataclass
+class IdentityEnrichment:
+    ens_reverse_name: Optional[str] = None
+    ens_owned_domains_count: int = 0
+    ens_owned_domains_sample: list[str] = field(default_factory=list)
+    basename: Optional[str] = None  # TODO: ENSIP-19 via Universal Resolver
+    anonymity_class: str = "anonymous"  # doxxed | partial | anonymous
+
+
+def _derive_anonymity_class(enr: "IdentityEnrichment", sig: "ScoreSignals") -> str:
+    """Three-tier anonymity classification:
+      - doxxed:    has an ENS reverse name or basename
+      - partial:   owns ENS domains but no primary reverse, OR is ERC-8004
+                   registered with declared services (named via 8004 metadata)
+      - anonymous: no identity surface populated
+    """
+    if enr.ens_reverse_name or enr.basename:
+        return "doxxed"
+    if enr.ens_owned_domains_count > 0:
+        return "partial"
+    if sig.erc8004_registered and sig.declared_services:
+        return "partial"
+    return "anonymous"
+
+
+async def _fetch_ens_reverse(client: httpx.AsyncClient, addr: str) -> Optional[str]:
+    """Look up the primary ENS reverse name for `addr` via Ethereum mainnet.
+
+    Two calls: ENS Registry.resolver(reverse_node) → resolver.name(reverse_node).
+    Returns None if no resolver set OR no name() result. Verified against
+    vitalik's address returning 'vitalik.eth' before shipping.
+    """
+    try:
+        import hashlib  # noqa
+        from eth_utils import keccak as _keccak
+
+        rev_name = f"{addr[2:].lower()}.addr.reverse"
+        node = b"\x00" * 32
+        for lab in reversed(rev_name.split(".")):
+            node = _keccak(node + _keccak(text=lab))
+        node_hex = "0x" + node.hex()
+
+        sel_resolver = "0x" + _keccak(text="resolver(bytes32)")[:4].hex()
+        r = await client.post(_ETH_RPC, json={
+            "jsonrpc": "2.0", "method": "eth_call",
+            "params": [{"to": _ENS_REGISTRY, "data": sel_resolver + node_hex[2:]}, "latest"],
+            "id": 1,
+        }, timeout=8.0)
+        res = r.json().get("result", "")
+        if not res or res == "0x":
+            return None
+        resolver = "0x" + res[-40:]
+        if resolver == "0x" + "0" * 40:
+            return None
+
+        sel_name = "0x" + _keccak(text="name(bytes32)")[:4].hex()
+        r = await client.post(_ETH_RPC, json={
+            "jsonrpc": "2.0", "method": "eth_call",
+            "params": [{"to": resolver, "data": sel_name + node_hex[2:]}, "latest"],
+            "id": 1,
+        }, timeout=8.0)
+        res = r.json().get("result", "")
+        if not res or res == "0x":
+            return None
+        offset = int(res[2:66], 16)
+        length = int(res[2 + offset * 2:2 + offset * 2 + 64], 16)
+        name = bytes.fromhex(res[2 + offset * 2 + 64:2 + offset * 2 + 64 + length * 2]).decode("utf-8")
+        return name or None
+    except Exception as exc:
+        log.debug(f"ENS reverse lookup failed for {addr}: {exc}")
+        return None
+
+
+async def _fetch_ens_owned_domains(client: httpx.AsyncClient, addr: str) -> tuple[int, list[str]]:
+    """Returns (count, up-to-5 sample names) of ENS domains owned by `addr`.
+
+    Uses ensdomains/ens subgraph on Ethereum mainnet — same one we validated
+    earlier (returns vitalik's domains correctly).
+    """
+    if not _GRAPH_API_KEY:
+        return 0, []
+    url = f"https://gateway.thegraph.com/api/{_GRAPH_API_KEY}/subgraphs/id/{_ENS_SUBGRAPH_ID}"
+    q = """
+    query($a: String!) {
+      account(id: $a) {
+        domains(first: 100) { name }
+      }
+    }
+    """
+    try:
+        r = await client.post(url, json={"query": q, "variables": {"a": addr.lower()}}, timeout=10.0)
+        body = r.json()
+        if body.get("errors"):
+            return 0, []
+        account = (body.get("data") or {}).get("account") or {}
+        domains = account.get("domains") or []
+        names = [d.get("name") for d in domains if d.get("name")]
+        return len(names), names[:5]
+    except Exception as exc:
+        log.debug(f"ENS owned domains lookup failed for {addr}: {exc}")
+        return 0, []
 
 
 # ============================================================================
@@ -563,6 +688,7 @@ async def score_agent(wallet: str, *, days: int = 90, use_cache: bool = True) ->
             return cached
 
     sig = ScoreSignals()
+    enrichment = IdentityEnrichment()  # populated below if the 8004 branch runs
 
     async with httpx.AsyncClient(headers=_HTTP_HEADERS, timeout=20.0) as client:
         # Signal 1 — 8004 registration (returns primary + all_agents + feedback + validations)
@@ -621,6 +747,20 @@ async def score_agent(wallet: str, *, days: int = 90, use_cache: bool = True) ->
         sig.last_received_age_sec = settle.get("last_received_age_sec")
         sig.sample_recent_payers = settle.get("sample_senders") or []
 
+        # Identity enrichment — informational, NOT weighted into the score.
+        # Two parallel fetches (ENS reverse + ENS owned domains) on Ethereum
+        # mainnet. Both are fast (~0.5-1.5s each); doing them in parallel keeps
+        # the total enrichment latency under 2s.
+        ens_reverse_task = asyncio.create_task(_fetch_ens_reverse(client, addr))
+        ens_owned_task = asyncio.create_task(_fetch_ens_owned_domains(client, addr))
+        enrichment = IdentityEnrichment()
+        try:
+            enrichment.ens_reverse_name = await ens_reverse_task
+            enrichment.ens_owned_domains_count, enrichment.ens_owned_domains_sample = await ens_owned_task
+        except Exception as exc:
+            log.debug(f"identity enrichment lookup failed for {addr}: {exc}")
+        enrichment.anonymity_class = _derive_anonymity_class(enrichment, sig)
+
     score, awarded = _compute_score(sig)
     # counterparty-ref-v1 compliance: include the canonical preimage so
     # verifiers can reconstruct the SHA-256 ref without needing to call us
@@ -640,6 +780,9 @@ async def score_agent(wallet: str, *, days: int = 90, use_cache: bool = True) ->
         "signals": asdict(sig),
         "awarded_points": awarded,
         "verdict": _verdict_text(score, sig),
+        # Identity enrichment — informational only, NOT weighted into the score.
+        # Buyer agents filter on anonymity_class if they care about doxxed-ness.
+        "identity_enrichment": asdict(enrichment),
         # counterparty-ref-v1 fields — see giskard09/argentum-core spec
         "provider_id":      PROVIDER_ID,
         "rubric_version":   RUBRIC_VERSION,
