@@ -7773,6 +7773,7 @@ def build_app():
                     "ghost_fill_risk": wallet_info["ghost_fill_risk"],
                     "reason": wallet_info["reason"],
                     "impl_address": wallet_info.get("impl_address"),
+                    "delegate_address": wallet_info.get("delegate_address"),
                     "methodology": {
                         "wallet_type": (
                             "Polygon eth_getCode + ERC-1967 implementation slot probe. "
