@@ -52,7 +52,7 @@ _DEPOSITORS_LIMIT = int(os.getenv("PINAX_HL_DEPOSITORS_LIMIT", "10"))
 def _pinax_base() -> str:
     return os.getenv(
         "PINAX_HL_BASE_URL",
-        "https://token-api.thegraph.com/v1/hyperliquid",
+        "https://api.pinax.network/v1/hyperliquid",
     )
 
 

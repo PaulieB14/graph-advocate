@@ -82,7 +82,7 @@ CRITICAL — Token API parameter names (use EXACTLY these, never alias):
   - "contract" (REQUIRED for holders/tokens): the token contract address
   - "address" (REQUIRED for balances): the wallet address
   - DO NOT use "chain", "token_address", "token", or "network_id" — these are WRONG
-  Full reference: https://token-api.thegraph.com/skills.md
+  Full reference: https://api.pinax.network/SKILL.md
   Common contracts:
     USDC: mainnet=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, base=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
     WETH: mainnet=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, base=0x4200000000000000000000000000000000000006
@@ -585,21 +585,21 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
     "token-api": {
         "curl_example": (
             "# Get USDC holders on Ethereum (replace TOKEN with your JWT)\n"
-            "curl 'https://token-api.thegraph.com/v1/evm/holders?contract=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&network=mainnet&limit=10' \\\n"
+            "curl 'https://api.pinax.network/v1/evm/holders?contract=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&network=mainnet&limit=10' \\\n"
             "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
             "# Polymarket — browse active markets\n"
-            "curl 'https://token-api.thegraph.com/v1/polymarket/markets?limit=10&sort=volume&order=desc' \\\n"
+            "curl 'https://api.pinax.network/v1/polymarket/markets?limit=10&sort=volume&order=desc' \\\n"
             "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
             "# Polymarket — user portfolio P&L\n"
-            "curl 'https://token-api.thegraph.com/v1/polymarket/users/positions?user=0xADDRESS' \\\n"
+            "curl 'https://api.pinax.network/v1/polymarket/users/positions?user=0xADDRESS' \\\n"
             "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
             "# Hyperliquid — top traders leaderboard (volume, PnL, fees, liquidations)\n"
-            "curl 'https://token-api.thegraph.com/v1/hyperliquid/users?limit=10&sort=total_volume&order=desc' \\\n"
+            "curl 'https://api.pinax.network/v1/hyperliquid/users?limit=10&sort=total_volume&order=desc' \\\n"
             "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
             "# Hyperliquid — discover markets (FREE, no auth needed)\n"
-            "curl 'https://token-api.thegraph.com/v1/hyperliquid/markets?limit=10'\n\n"
+            "curl 'https://api.pinax.network/v1/hyperliquid/markets?limit=10'\n\n"
             "# Hyperliquid — BTC perp open interest history\n"
-            "curl 'https://token-api.thegraph.com/v1/hyperliquid/markets/oi?coin=BTC&limit=24' \\\n"
+            "curl 'https://api.pinax.network/v1/hyperliquid/markets/oi?coin=BTC&limit=24' \\\n"
             "  -H 'Authorization: Bearer YOUR_JWT'"
         ),
         "get_started": "Free JWT: https://thegraph.market/auth/tokenapi-env",
@@ -1692,7 +1692,7 @@ def _fallback_route(request: str) -> dict:
             contract_note = "" if first_addr else f" (replace with {first}'s contract address)"
             curl = (
                 f"# Get holders for {first}{contract_note}\n"
-                f"curl 'https://token-api.thegraph.com/v1/evm/holders?"
+                f"curl 'https://api.pinax.network/v1/evm/holders?"
                 f"contract={contract_display}&network=mainnet&limit=50&orderBy=balance&orderDirection=desc' \\\n"
                 f"  -H 'Authorization: Bearer YOUR_JWT'\n\n"
                 f"# Get a free JWT at https://thegraph.market/auth/tokenapi-env"
@@ -2880,7 +2880,7 @@ def _execute_recommendation(rec: dict) -> dict | None:
 
         try:
             r = httpx.get(
-                f"https://token-api.thegraph.com{path}",
+                f"https://api.pinax.network{path}",
                 params=params,
                 headers={"Authorization": f"Bearer {jwt}"},
                 timeout=15,
@@ -3022,11 +3022,11 @@ You help humans find the right tool for their onchain data needs.
 
 You have access to these services:
 
-**Token API** (https://token-api.thegraph.com) — wallet balances, token transfers, DEX swaps, NFT data, holder rankings
+**Token API** (https://api.pinax.network) — wallet balances, token transfers, DEX swaps, NFT data, holder rankings
   Chains: EVM (Ethereum, Base, Polygon…), Solana, TON
   Auth: Get a free JWT token at https://thegraph.market/auth/tokenapi-env
   Use as: Authorization: Bearer <token> OR X-Api-Key: <key>
-  Full endpoint reference: https://token-api.thegraph.com/skills.md
+  Full endpoint reference: https://api.pinax.network/SKILL.md
   There is NO other sign-up page for Token API — only the auth link above
 
   **CRITICAL — Token API call shape (every endpoint, no exceptions):**
@@ -3035,7 +3035,7 @@ You have access to these services:
     - Parameter names are singular: `network=base` (NOT `chains=[base]`), `address=0x…`, `contract=0x…`.
     - `network` values look like `mainnet`, `base`, `arbitrum-one`, `polygon`, `optimism`, `bsc`, `avalanche`, `unichain` (EVM); `solana` (SVM); `ton` (TVM).
     - Correct curl for "USDC balance of vitalik.eth on Base":
-        curl 'https://token-api.thegraph.com/v1/evm/balances?network=base&address=0xd8da6bf26964af9d7eed9e03e53415d37aa96045&contract=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' \
+        curl 'https://api.pinax.network/v1/evm/balances?network=base&address=0xd8da6bf26964af9d7eed9e03e53415d37aa96045&contract=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' \
           -H "Authorization: Bearer $JWT"
     - The two exceptions to "all GET" are GA's own /polymarket/* and /hyperliquid/* x402-paid endpoints (which ARE POST) — those are GA endpoints on graphadvocate.com, NOT raw Token API endpoints. Don't confuse them.
 
@@ -3289,7 +3289,7 @@ CHAT_TOOLS = [
         "name": "lookup_token_api",
         "description": (
             "Look up available Token API endpoints for a specific data type. "
-            "Token API (https://token-api.thegraph.com) covers balances, transfers, swaps, "
+            "Token API (https://api.pinax.network) covers balances, transfers, swaps, "
             "pools, holders, and NFTs across EVM, Solana (SVM), and TON (TVM) chains. "
             "Use this when users ask about wallet balances, token transfers, DEX swaps, "
             "holder rankings, or NFT data."
@@ -4221,7 +4221,7 @@ def _scan_claw_tasks(force_refresh: bool = False) -> str:
 
 def _lookup_token_api(data_type: str) -> str:
     """Return relevant Token API endpoints for a data type."""
-    TOKEN_API_BASE = "https://token-api.thegraph.com"
+    TOKEN_API_BASE = "https://api.pinax.network"
     AUTH_URL = "https://thegraph.market/auth/tokenapi-env"
 
     ENDPOINTS = {

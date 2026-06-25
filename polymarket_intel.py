@@ -1,6 +1,6 @@
 """Polymarket trader intelligence — agent-priced derived metrics.
 
-Uses the Pinax-operated Token API at token-api.thegraph.com — Pinax already
+Uses the Pinax-operated Token API at api.pinax.network — Pinax already
 returns per-position aggregate PnL (buy_cost, sell_revenue, realized_pnl,
 unrealized_pnl, total_pnl), so we don't reconstruct lots from the activity
 feed. We layer skill scoring + classification + ghost-fill risk on top.
@@ -48,7 +48,7 @@ _MARKET_POSITIONS_LIMIT = int(os.getenv("PINAX_MARKET_POSITIONS_LIMIT", "10"))
 def _pinax_base() -> str:
     return os.getenv(
         "PINAX_BASE_URL",
-        "https://token-api.thegraph.com/v1/polymarket",
+        "https://api.pinax.network/v1/polymarket",
     )
 
 
