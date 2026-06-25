@@ -4254,7 +4254,7 @@ def _lookup_token_api(data_type: str) -> str:
         "base_url": TOKEN_API_BASE,
         "auth_url": AUTH_URL,
         "auth_note": "Get a free JWT token at the auth URL. Use as: Authorization: Bearer <token>",
-        "skills_reference": f"{TOKEN_API_BASE}/skills.md",
+        "skills_reference": f"{TOKEN_API_BASE}/SKILL.md",
         "matched_endpoints": matched,
     })
 
