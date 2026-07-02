@@ -153,6 +153,43 @@ async def send_paid_a2a(
         },
     }
 
+    # ── Enforce max_usdc BEFORE paying ─────────────────────────────────────
+    # `http` (wrapHttpxWithPayment) auto-pays whatever amount a 402 demands, so
+    # probe FIRST with a plain, non-paying client, read the requirement, and only
+    # let the paying client settle if it fits under max_usdc. Without this a
+    # malicious/compromised target_url can drain the hot wallet in one call.
+    import httpx as _httpx
+    _preflight_headers = {"User-Agent": "Mozilla/5.0 (compatible; x402-client/1.0)"}
+    try:
+        async with _httpx.AsyncClient(timeout=30.0, follow_redirects=False) as _probe:
+            pre = await _probe.post(target_url, json=payload, headers=_preflight_headers)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "stage": "preflight", "wallet": wallet}
+
+    if pre.status_code == 402:
+        try:
+            _req = pre.json()
+        except Exception:
+            _req = {"raw": pre.text[:500]}
+        if not (isinstance(_req, dict) and _max_usdc_policy(_req, max_usdc)):
+            return {
+                "ok": False,
+                "status": 402,
+                "wallet": wallet,
+                "error": f"requested payment exceeds max_usdc={max_usdc}",
+                "payment_required": _req,
+                "stage": "cap-exceeded",
+            }
+        # within cap → fall through and let the paying client settle it
+    else:
+        # No x402 challenge (served free, or a non-payment error). Do NOT pay.
+        out = {"ok": 200 <= pre.status_code < 300, "status": pre.status_code, "wallet": wallet, "paid": False}
+        try:
+            out["body"] = pre.json()
+        except Exception:
+            out["body"] = pre.text[:2000]
+        return out
+
     try:
         first = await http.post(
             target_url,

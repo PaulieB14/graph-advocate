@@ -386,10 +386,43 @@ async def _query_8004_for_owner(client: httpx.AsyncClient, owner: str) -> Option
 # Signal 2: IPFS metadata fetch
 # ============================================================================
 
+def _is_public_http_url(url: str) -> bool:
+    """SSRF guard: True only if url is http(s) and every resolved IP is a
+    global/public address. Blocks loopback/private/link-local/reserved targets
+    so an attacker-controlled agentURI cannot reach internal services."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https") or not p.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(
+            p.hostname, p.port or (443 if p.scheme == "https" else 80),
+            proto=socket.IPPROTO_TCP,
+        )
+    except Exception:
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if not addr.is_global or addr.is_multicast:
+            return False
+    return True
+
+
 async def _fetch_ipfs_metadata(client: httpx.AsyncClient, agent_uri: str) -> Optional[dict]:
     """Fetch ERC-8004 registration metadata from IPFS. Returns parsed JSON or None.
 
     Accepts `ipfs://<cid>` or `https://...` URIs. Uses ipfs.io gateway as primary.
+    Raw http(s) agentURIs are SSRF-filtered (see _is_public_http_url).
     """
     if not agent_uri:
         return None
@@ -397,6 +430,9 @@ async def _fetch_ipfs_metadata(client: httpx.AsyncClient, agent_uri: str) -> Opt
         cid = agent_uri.removeprefix("ipfs://").split("/")[0]
         url = f"https://ipfs.io/ipfs/{cid}"
     elif agent_uri.startswith("http"):
+        if not _is_public_http_url(agent_uri):
+            log.warning(f"agentURI rejected by SSRF guard: {agent_uri[:80]}")
+            return None
         url = agent_uri
     else:
         return None

@@ -126,15 +126,15 @@ def _get_x402_server():
             log.error(f"x402 init failed: {e}")
     return _x402_server
 
-async def _verify_x402_payment(payment_header: str, strict: bool = False) -> bool:
+async def _verify_x402_payment(payment_header: str, strict: bool = True) -> bool:
     """Verify an x402 payment from the X-PAYMENT header.
 
     Args:
         payment_header: the raw header value (typically a base64-encoded payload)
-        strict: if True, NEVER accept on graceful fallback — only accept if the
-            facilitator returns valid=True. Use strict=True for paid endpoints
-            like /route where free routing must not leak. Default False for
-            backwards-compatible legacy callers.
+        strict: if True (DEFAULT), NEVER accept on graceful fallback — only accept
+            if the facilitator returns valid=True. Fail CLOSED so a malformed
+            payment blob or a facilitator outage cannot serve paid output for free.
+            Pass strict=False only for a caller that has no revenue/data exposure.
     """
     server = _get_x402_server()
     if not server:
@@ -2072,7 +2072,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                     break
 
             if payment_header:
-                paid = await _verify_x402_payment(payment_header)
+                paid = await _verify_x402_payment(payment_header, strict=True)
                 if paid:
                     log.info(f"X402-PAID task={task_id} | payment verified, priority treatment")
                     _log_request(task_id, user_text, "x402-paid", "high", "verified")
@@ -2508,7 +2508,10 @@ _ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
 def _check_admin(request: Request) -> bool:
     if not _ADMIN_TOKEN:
-        return True
+        # Fail CLOSED: with no ADMIN_TOKEN configured, deny access to sensitive
+        # admin endpoints (outbound wallet spend, full-history exports) rather
+        # than leaving them publicly reachable.
+        return False
     auth = request.headers.get("authorization", "")
     token = request.query_params.get("token", "")
     return auth == f"Bearer {_ADMIN_TOKEN}" or token == _ADMIN_TOKEN
@@ -2538,7 +2541,8 @@ async def export_json_endpoint(request: Request):
             "activity": data,
         })
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        log.error(f"export_json failed: {e}")
+        return JSONResponse({"error": "export failed"}, status_code=500)
 
 
 async def export_csv_endpoint(request: Request):
@@ -2568,7 +2572,8 @@ async def export_csv_endpoint(request: Request):
             headers={"Content-Disposition": "attachment; filename=graph-advocate-activity.csv"},
         )
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        log.error(f"export_csv failed: {e}")
+        return JSONResponse({"error": "export failed"}, status_code=500)
 
 
 async def export_stats_endpoint(request: Request):
