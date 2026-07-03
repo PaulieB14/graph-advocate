@@ -7373,7 +7373,7 @@ def build_app():
         })
 
     # Hyperliquid Live — auto-refreshing perp markets board (free Token API,
-    # no key — the page fetches token-api.thegraph.com directly client-side).
+    # no key — the page fetches api.pinax.network directly client-side).
     _HL_LIVE_HTML = None
     try:
         _hll_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),

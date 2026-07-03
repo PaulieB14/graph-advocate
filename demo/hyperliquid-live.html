@@ -153,7 +153,7 @@
   </div>
 
   <div class="foot">
-    Data: <code>token-api.thegraph.com/v1/hyperliquid/markets</code> — The Graph's free,
+    Data: <code>api.pinax.network/v1/hyperliquid/markets</code> — The Graph's free,
     unauthenticated Hyperliquid endpoint, polled client-side every 10s. Sparklines build
     live while the page is open. Built by <a href="https://graphadvocate.com">Graph Advocate</a>.
     <span id="status"></span>
@@ -185,7 +185,7 @@ function drawBg(){
 drawBg()
 
 /* ── data ────────────────────────────────────────────────────────── */
-const API="https://token-api.thegraph.com/v1/hyperliquid/markets"
+const API="https://api.pinax.network/v1/hyperliquid/markets"
 const hist={},last={};let heroVol=0
 
 const fmtUsd=n=>n>=1e9?"$"+(n/1e9).toFixed(2)+"B":n>=1e6?"$"+(n/1e6).toFixed(1)+"M":n>=1e3?"$"+(n/1e3).toFixed(1)+"K":"$"+(n||0).toFixed(0)

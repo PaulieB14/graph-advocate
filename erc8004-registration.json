@@ -142,7 +142,7 @@
       "name": "polymarket-token-api",
       "endpoint": "https://graphadvocate.com/polymarket/pnl-quick",
       "version": "0.1.0",
-      "description": "Agent-priced Polymarket trader intelligence over x402. Four endpoints: /polymarket/pnl-quick ($0.01 skill score), /polymarket/pnl ($0.05 full per-position PnL), /polymarket/screen ($0.02 size-the-room with ghost-fill risk per top holder), /polymarket/risk ($0.02 ghost-fill counterparty classification via Polygon bytecode probe). Pure JSON for autonomous trading agents — built on top of the Pinax Polymarket REST API (token-api.thegraph.com). First settlements landed 2026-05-05."
+      "description": "Agent-priced Polymarket trader intelligence over x402. Four endpoints: /polymarket/pnl-quick ($0.01 skill score), /polymarket/pnl ($0.05 full per-position PnL), /polymarket/screen ($0.02 size-the-room with ghost-fill risk per top holder), /polymarket/risk ($0.02 ghost-fill counterparty classification via Polygon bytecode probe). Pure JSON for autonomous trading agents — built on top of the Pinax Polymarket REST API (api.pinax.network). First settlements landed 2026-05-05."
     },
     {
       "name": "polymarket-pnl-full",
@@ -160,7 +160,7 @@
       "name": "hyperliquid-token-api",
       "endpoint": "https://graphadvocate.com/hyperliquid/score",
       "version": "0.1.0",
-      "description": "Agent-priced Hyperliquid perps trader intelligence over x402. Five endpoints: /hyperliquid/score ($0.02 composite skill score with liquidation rate + funding burn), /hyperliquid/pnl ($0.05 per-coin PnL breakdown), /hyperliquid/screen ($0.05 top traders by coin ranked by skill), /hyperliquid/vault ($0.10 vault evaluator: leader skill + redemption pressure + commission), /hyperliquid/risk ($0.02 liquidation + funding risk profile). Pure JSON for autonomous trading agents — built on top of the Pinax Hyperliquid REST API (token-api.thegraph.com /v1/hyperliquid/*, prod since v3.17.0)."
+      "description": "Agent-priced Hyperliquid perps trader intelligence over x402. Five endpoints: /hyperliquid/score ($0.02 composite skill score with liquidation rate + funding burn), /hyperliquid/pnl ($0.05 per-coin PnL breakdown), /hyperliquid/screen ($0.05 top traders by coin ranked by skill), /hyperliquid/vault ($0.10 vault evaluator: leader skill + redemption pressure + commission), /hyperliquid/risk ($0.02 liquidation + funding risk profile). Pure JSON for autonomous trading agents — built on top of the Pinax Hyperliquid REST API (api.pinax.network /v1/hyperliquid/*, prod since v3.17.0)."
     },
     {
       "name": "hyperliquid-pnl",

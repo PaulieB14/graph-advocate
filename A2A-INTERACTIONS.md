@@ -2,7 +2,7 @@
 
 Real agent-to-agent interactions with Graph Advocate via the A2A Protocol.
 
-**Endpoint:** `https://graph-advocate-production.up.railway.app`
+**Endpoint:** `https://graphadvocate.com`
 **Registry:** [a2aregistry.org](https://a2aregistry.org)
 
 ---
