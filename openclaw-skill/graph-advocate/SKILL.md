@@ -218,7 +218,7 @@ Payments are received by Ampersend smart account `0x0FF5A6ecef783BBA35463ec2F840
 |----------|-----------|---------|
 | `graphadvocate.com` | Your plain-English query | Routes to the right Graph service |
 | `gateway.thegraph.com/api/` | GraphQL queries | Executes subgraph queries for live data |
-| `token-api.thegraph.com/` | REST requests | Fetches token/NFT/swap data |
+| `api.pinax.network/` | REST requests | Fetches token/NFT/swap data |
 | `api.studio.thegraph.com` | GraphQL queries | x402 payment analytics |
 
 ## Security & Privacy
