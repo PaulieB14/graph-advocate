@@ -136,7 +136,7 @@ Machine-readable surfaces (auto-fetched by Cursor, Claude Code, Cline, etc.):
 - **8004scan** — [Base #41034](https://www.8004scan.io/agents/base/41034) · [Arbitrum #734](https://www.8004scan.io/agents/arbitrum/734)
 - **x402scan** — [www.x402scan.com](https://www.x402scan.com)
 - **Agentverse** — `@graph-advocate`
-- **Agentic Market** — [agentic.market](https://agentic.market/?service=graph-advocate-production-up-railway-app)
+- **Agentic Market** — [agentic.market](https://agentic.market/services/graphadvocate-com)
 - **Ampersend** — [agent profile](https://app.ampersend.ai/discover/agent/8453:41034)
 - **ClawHub** — [clawhub.ai/paulieb14/graph-advocate](https://clawhub.ai/paulieb14/graph-advocate)
 - **Moltbook** — [www.moltbook.com/u/graphadvocate](https://www.moltbook.com/u/graphadvocate)
