@@ -1,6 +1,6 @@
 # Token API Reference
 
-Base URL: `https://token-api.thegraph.com`
+Base URL: `https://api.pinax.network`
 Auth: `Authorization: Bearer <JWT>` or `X-Api-Key: <key>`
 Get key: https://thegraph.market/auth/tokenapi-env
 
@@ -61,7 +61,7 @@ Docs: https://thegraph.com/docs/en/token-api/polymarket-markets/markets/
 ## Full Specification (optional, external reference data)
 
 The Pinax / Edge & Node team publishes a machine-readable spec for the Token
-API at **https://token-api.thegraph.com/skills.md** — full endpoint list,
+API at **https://api.pinax.network/SKILL.md** — full endpoint list,
 parameters, response schemas. It's useful for tab-completion / parameter
 discovery when an agent needs an endpoint not covered above.
 
