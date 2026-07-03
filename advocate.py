@@ -2898,7 +2898,8 @@ def _execute_recommendation(rec: dict) -> dict | None:
                     "error": "Rate limit or auth exceeded. Get your own free JWT at https://thegraph.market/auth/tokenapi-env",
                     "data": data,
                 }
-            return {"source": "token-api", "status": r.status_code, "data": data}
+            return {"source": "token-api", "status": r.status_code, "data": data,
+                    "executed_query": {"endpoint": f"https://api.pinax.network{path}", "params": params}}
         except Exception as e:
             log.error(f"Token API call failed: {e}")
             return {"source": "token-api", "error": str(e)}
@@ -2928,6 +2929,8 @@ def _execute_recommendation(rec: dict) -> dict | None:
             x402_url = "https://api.studio.thegraph.com/query/1745687/x-402-base/version/latest"
             default_gql = '{ stats: x402DailyStats_collection(first: 3, orderBy: date, orderDirection: desc) { date totalPayments totalVolumeDecimal eip3009Payments permit2Payments } facilitators(first: 10, orderBy: totalSettlements, orderDirection: desc) { name address totalSettlements totalVolumeDecimal isActive } }'
             try:
+                executed_gql = gql
+                fell_back = False
                 r = _httpx.post(x402_url, json={"query": gql}, timeout=15)
                 data = r.json()
                 # If Claude's query failed, retry with default
@@ -2935,6 +2938,8 @@ def _execute_recommendation(rec: dict) -> dict | None:
                     log.info(f"EXECUTE  x402 query failed, retrying with default")
                     r = _httpx.post(x402_url, json={"query": default_gql}, timeout=15)
                     data = r.json()
+                    executed_gql = default_gql
+                    fell_back = True
                 log.info(f"EXECUTE  x402-subgraph -> {r.status_code}")
                 if isinstance(data.get("data"), dict):
                     for k, val in data["data"].items():
@@ -2945,6 +2950,10 @@ def _execute_recommendation(rec: dict) -> dict | None:
                     "source": "x402-subgraph",
                     "status": r.status_code,
                     "data": data,
+                    # Echo the query that ACTUALLY ran so the payer can inspect it.
+                    # fell_back_to_default flags the silent-retry case where the
+                    # answer came from the default query, not the requested one.
+                    "executed_query": {"endpoint": x402_url, "gql": executed_gql, "fell_back_to_default": fell_back},
                     "note": "Live x402 payment data on Base, powered by The Graph.",
                 }
             except Exception as e:
@@ -2992,6 +3001,9 @@ def _execute_recommendation(rec: dict) -> dict | None:
                     "status": r.status_code,
                     "subgraph_id": subgraph_id,
                     "data": data,
+                    # Echo the exact query that ran so a wrong-but-successful answer
+                    # is inspectable by the payer (endpoint shown without the API key).
+                    "executed_query": {"endpoint": f"https://gateway.thegraph.com/api/subgraphs/id/{subgraph_id}", "gql": gql},
                     "note": "Live data from The Graph. Get your own free API key at thegraph.com/studio for unlimited access.",
                 }
             except Exception as e:
