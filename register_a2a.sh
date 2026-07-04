@@ -1,61 +1,27 @@
 #!/bin/bash
-# Starts the A2A server, tunnels it publicly via ngrok, and registers with a2aregistry.org
+# Register Graph Advocate with a2aregistry.org using its PERMANENT public URL.
+#
+# NOTE: This script used to start a local a2a_server.py and expose it via an
+# EPHEMERAL ngrok tunnel, then register the tunnel URL. That URL died the moment
+# the tunnel closed, so a2aregistry's health checks dropped GA as unreachable.
+# GA is now hosted permanently at graphadvocate.com, so we register that directly.
+# No local server, no ngrok — just (re)register the live public endpoint.
 set -e
-cd "$(dirname "$0")"
-set -a; source .env; set +a
-source venv/bin/activate
 
-echo "Starting A2A server on port 8765..."
-python a2a_server.py &
-A2A_PID=$!
-sleep 2
+PUBLIC_URL="${ADVOCATE_PUBLIC_URL:-https://graphadvocate.com}"
+CARD_URL="$PUBLIC_URL/.well-known/agent.json"
 
-echo "Starting ngrok tunnel..."
-ngrok http 8765 > /tmp/ngrok_advocate.log 2>&1 &
-NGROK_PID=$!
-
-# Wait for ngrok API to be ready
-echo "Waiting for ngrok..."
-for i in {1..15}; do
-    PUBLIC_URL=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    for t in data.get('tunnels', []):
-        if t.get('proto') == 'https':
-            print(t['public_url'])
-except: pass
-" 2>/dev/null)
-    [ -n "$PUBLIC_URL" ] && break
-    sleep 1
-done
-
-if [ -z "$PUBLIC_URL" ]; then
-    echo "ERROR: Could not get ngrok URL. Is ngrok authenticated?"
-    echo "Run: ngrok config add-authtoken <your-token> (free at ngrok.com)"
-    kill $A2A_PID $NGROK_PID 2>/dev/null
-    exit 1
+echo "Verifying agent card is live at $CARD_URL ..."
+CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$CARD_URL")
+if [ "$CODE" != "200" ]; then
+  echo "ERROR: agent card not reachable ($CODE). Is $PUBLIC_URL deployed?"
+  exit 1
 fi
 
-echo "Public URL: $PUBLIC_URL"
-echo "Agent card: $PUBLIC_URL/.well-known/agent.json"
-
-# Update a2a_server.py URL on the fly (env var override)
-export ADVOCATE_PUBLIC_URL="$PUBLIC_URL"
-
-# Register with a2aregistry.org
-echo ""
-echo "Registering with a2aregistry.org..."
-RESPONSE=$(curl -s -X POST https://a2aregistry.org/api/agents/register \
+echo "Registering $PUBLIC_URL with a2aregistry.org ..."
+RESPONSE=$(curl -s --max-time 30 -X POST https://a2aregistry.org/api/agents/register \
   -H "Content-Type: application/json" \
-  -d "{\"wellKnownURI\": \"$PUBLIC_URL/.well-known/agent.json\"}")
+  -d "{\"wellKnownURI\": \"$CARD_URL\"}")
 echo "Response: $RESPONSE"
-
-# Save the public URL for reference
-echo "$PUBLIC_URL" > /tmp/advocate_public_url.txt
 echo ""
-echo "Graph Advocate is live and registered."
-echo "Public URL: $PUBLIC_URL"
-echo ""
-echo "Press Ctrl+C to stop."
-wait $A2A_PID
+echo "Done. a2aregistry health-checks the permanent URL, so the listing will persist."
