@@ -2749,6 +2749,18 @@ def ask_graph_advocate(
             execution_result = _execute_recommendation(rec)
             if execution_result:
                 rec["execution_result"] = execution_result
+                # Echo the routing decision NEXT TO the executed query, so a
+                # wrong-but-successful answer is diagnosable end to end (which
+                # service/subgraph was picked and why), not just detectable.
+                _qr = rec.get("query_ready") if isinstance(rec.get("query_ready"), dict) else {}
+                _qr_args = _qr.get("args") if isinstance(_qr.get("args"), dict) else {}
+                rec["execution_result"]["routing"] = {
+                    "service": rec.get("recommendation"),
+                    "subgraph_id": _qr.get("subgraph_id") or _qr_args.get("subgraph_id"),
+                    "tool": _qr.get("tool"),
+                    "why": rec.get("reason"),
+                    "confidence": rec.get("confidence"),
+                }
                 if isinstance(query_ready, list) and len(query_ready) > 1:
                     rec["execution_result"]["note"] = (
                         f"Showing results for the first token only. "
