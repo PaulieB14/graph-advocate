@@ -416,6 +416,14 @@ def _any_word_match(keywords: list, text: str) -> bool:
     return any(_word_match(kw, text) for kw in keywords)
 
 
+def _any_word_match_plural(keywords: list, text: str) -> bool:
+    """Word-boundary match that also accepts a simple plural (trailing 's').
+    Catches 'holder'/'holders', 'swap'/'swaps', 'subgraph'/'subgraphs' while still
+    refusing substring hits like 'swap' inside 'uniswap' — a word boundary is still
+    required BEFORE the keyword."""
+    return any(re.search(r'\b' + re.escape(kw) + r's?\b', text) for kw in keywords)
+
+
 # Pre-compiled protocol name pattern for search term extraction
 _PROTOCOL_PATTERN = re.compile(
     r'\b(uniswap|aave|compound|curve|ens|balancer|sushi|maker|lido|yearn|'
@@ -1455,10 +1463,16 @@ def _fallback_route(request: str) -> dict:
         "outcome activity",
     ]):
         svc = "token-api"
-    elif any(w in req for w in ["balance", "holder", "transfer", "swap", "nft", "wallet", "price",
-                                  "volume", "whale", "top holder", "biggest", "solana", "ton"]):
+    elif _any_word_match_plural(["subgraph"], req):
+        # Discovery/registry questions ("what subgraphs are available for X") are
+        # unambiguous — route to the registry. MUST precede the token-api block:
+        # the old substring match let "swap" inside "uniswap" (sushiswap,
+        # pancakeswap…) hijack these to token-api.
+        svc = "subgraph-registry"
+    elif _any_word_match_plural(["balance", "holder", "transfer", "swap", "nft", "wallet", "price",
+                                 "volume", "whale", "top holder", "biggest", "solana", "ton"], req):
         svc = "token-api"
-    elif any(w in req for w in ["substream", "raw block", "event log", "trace", "streaming", "spkg"]):
+    elif _any_word_match_plural(["substream", "raw block", "event log", "trace", "streaming", "spkg"], req):
         svc = "substreams"
     else:
         svc = "subgraph-registry"

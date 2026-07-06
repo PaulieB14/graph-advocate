@@ -102,6 +102,20 @@ class TestFallbackRoute(unittest.TestCase):
     def test_holder_routes_to_token_api(self):
         self._check("top 20 USDC holders on Ethereum", "token-api")
 
+    # Regression: "swap" inside "uniswap" (sushiswap, pancakeswap…) used to hijack
+    # subgraph-discovery questions to token-api via a naive substring match.
+    def test_subgraph_discovery_uniswap_not_token_api(self):
+        self._check("What subgraphs are available for Uniswap?", "subgraph-registry")
+
+    def test_subgraph_discovery_sushiswap_not_token_api(self):
+        self._check("which subgraph indexes Sushiswap?", "subgraph-registry")
+
+    def test_standalone_swap_still_token_api(self):
+        self._check("swap volume on ethereum", "token-api")
+
+    def test_plural_holders_still_token_api(self):
+        self._check("USDC holders on Base", "token-api")
+
     # B20 — Base's enshrined token standard, shipping with the Beryl hardfork
     # on 2026-06-25. Drop-in ERC-20 selector parity, so balance/holder reads
     # belong on token-api; the rebase-multiplier and Asset-variant nuances
