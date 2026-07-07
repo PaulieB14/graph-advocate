@@ -9999,6 +9999,34 @@ def build_app():
 
         if scope["type"] == "http" and scope["path"] == "/.well-known/agent-card.json":
             DISCOVERY_COUNT += 1
+
+        if scope["type"] == "http" and scope["path"] == "/.well-known/agent.json":
+            # Deprecated discovery path (pre-A2A-0.3). Serve the real card so
+            # nothing breaks, but attach an explicit "moved" message + headers
+            # so callers migrate to /.well-known/agent-card.json. Handling it
+            # here bypasses the a2a-sdk legacy handler, which just logs a
+            # deprecation WARNING on every hit (noise from external pollers).
+            DISCOVERY_COUNT += 1
+            await receive()
+            successor = f"{PUBLIC_URL}/.well-known/agent-card.json"
+            try:
+                _card = agent_card.model_dump(mode="json", by_alias=True, exclude_none=True)
+            except Exception:
+                _card = {}
+            _card["_deprecation"] = {
+                "message": "This discovery path is deprecated. Use /.well-known/agent-card.json.",
+                "successor": successor,
+            }
+            _body = json.dumps(_card).encode()
+            await send({"type": "http.response.start", "status": 200, "headers": [
+                [b"content-type", b"application/json"],
+                [b"access-control-allow-origin", b"*"],
+                [b"deprecation", b"true"],
+                [b"link", f'<{successor}>; rel="successor-version"'.encode()],
+                [b"warning", b'299 - "Deprecated path; use /.well-known/agent-card.json"'],
+            ]})
+            await send({"type": "http.response.body", "body": _body})
+            return
         if scope["type"] == "http" and scope["path"] == "/mcp" and scope.get("method", "GET") == "GET":
             # Health check endpoint for MCP — returns JSON for 8004scan and other validators
             body = json.dumps({
