@@ -11,7 +11,7 @@ BASE = "http://localhost:8765"
 
 def discover():
     """Step 1 — any A2A client discovers the agent card first."""
-    r = httpx.get(f"{BASE}/.well-known/agent.json")
+    r = httpx.get(f"{BASE}/.well-known/agent-card.json")
     card = r.json()
     print("Agent:", card["name"])
     print("Skills:", [s["id"] for s in card["skills"]])

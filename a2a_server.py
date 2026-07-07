@@ -2157,7 +2157,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                 "recommendation": "registry-info",
                 "status": "registered",
                 "agent": "Graph Advocate",
-                "agent_card_url": "https://graphadvocate.com/.well-known/agent.json",
+                "agent_card_url": "https://graphadvocate.com/.well-known/agent-card.json",
                 "agent_card_exists": True,
                 "endpoint": "https://graphadvocate.com",
                 "a2a_registry_id": "afd9b3bb-413c-41cf-9874-6361ea309e32",
@@ -5077,7 +5077,7 @@ async def dashboard_endpoint(request: Request):
     </div>
     <div class="header-right">
       <a class="tab" href="/chat">💬 Chat</a>
-      <a class="tab" href="/.well-known/agent.json">📋 Agent Card</a>
+      <a class="tab" href="/.well-known/agent-card.json">📋 Agent Card</a>
       <a class="tab" href="/export/csv">⬇ CSV</a>
       <a class="tab" href="/dashboard/data">{ } JSON</a>
     </div>
