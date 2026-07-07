@@ -25,9 +25,13 @@ from collections import Counter, defaultdict
 
 log = logging.getLogger("x402_dash")
 
-# Public, free Graph Network deployment IDs
-SUB_OMNIGRAPH = "QmPtuuoU9nu9VJyodiVohf21y8RsR2fx8BpxuVBRHhP29D"  # Paul's x402-omnigraph
-SUB_AGENT0    = "QmcLwgyKn3RnyhkkSwLYscP9dL1Fc6omvfC9bFRgcK1e7u"  # Agent0 ERC-8004 Base
+# Public, free Graph Network refs.
+# SUB_OMNIGRAPH is a SUBGRAPH ID (not a deployment hash): the gateway resolves it
+# to the latest published version, so it never goes stale when Paul republishes.
+# (A pinned deployment hash silently loses indexer allocations on republish → the
+# gateway returns "no allocations" and the whole refresh dies — that was the bug.)
+SUB_OMNIGRAPH = "Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj"  # Paul's x402-omnigraph (subgraph id → latest)
+SUB_AGENT0    = "QmcLwgyKn3RnyhkkSwLYscP9dL1Fc6omvfC9bFRgcK1e7u"  # Agent0 ERC-8004 Base (deployment id)
 
 CACHE_PATH = os.getenv("X402_DASH_CACHE", "/tmp/x402_dashboard.json")
 REFRESH_INTERVAL_SECONDS = int(os.getenv("X402_DASH_INTERVAL", str(24 * 3600)))
@@ -66,12 +70,15 @@ def _graph_key() -> str | None:
     return os.environ.get("GRAPH_API_KEY") or os.environ.get("GATEWAY_API_KEY")
 
 
-async def _query_subgraph(deployment_id: str, query: str) -> dict:
+async def _query_subgraph(ref: str, query: str, by_subgraph_id: bool = False) -> dict:
     import httpx
     key = _graph_key()
     if not key:
         raise RuntimeError("GRAPH_API_KEY not set")
-    url = f"https://gateway.thegraph.com/api/deployments/id/{deployment_id}"
+    # subgraphs/id → latest published version (follows republishes);
+    # deployments/id → a specific pinned deployment hash.
+    path = "subgraphs/id" if by_subgraph_id else "deployments/id"
+    url = f"https://gateway.thegraph.com/api/{path}/{ref}"
     async with httpx.AsyncClient(timeout=30.0) as c:
         r = await c.post(url, json={"query": query},
                          headers={"Authorization": f"Bearer {key}"})
@@ -92,19 +99,23 @@ async def fetch_omnigraph_data() -> dict:
         no pagination needed for the merchants table
       - role enum is RECIPIENT (uppercase, unquoted)
     """
+    # NOTE: in the current schema the daily-stats entity is named X402DailyStats,
+    # so the LIST field is `x402DailyStats_collection` (plain `x402DailyStats` is the
+    # singular-by-id lookup → "required argument: id"). Alias it back so downstream
+    # code keeps reading the `x402DailyStats` key.
     data = await _query_subgraph(SUB_OMNIGRAPH, """
     {
       facilitators(first: 200, orderBy: totalSettlements, orderDirection: desc) {
         id address name totalSettlements isActive
       }
-      x402DailyStats(first: 90, orderBy: date, orderDirection: desc) {
+      x402DailyStats: x402DailyStats_collection(first: 90, orderBy: date, orderDirection: desc) {
         date totalPayments totalVolumeDecimal eip3009Payments permit2Payments
       }
       x402AddressSummaries(first: 200, where: {role: RECIPIENT}, orderBy: totalVolume, orderDirection: desc) {
         id address role totalPayments totalVolumeDecimal firstPaymentTimestamp lastPaymentTimestamp
       }
     }
-    """)
+    """, by_subgraph_id=True)
     return data
 
 
@@ -305,8 +316,19 @@ async def refresh_once() -> bool:
             fetch_omnigraph_data(),
             fetch_agent0_agents(),  # full pagination — ~53k agents
             fetch_agentic_market(),
-            return_exceptions=False,
+            return_exceptions=True,
         )
+        # Isolate sources: one failing feed must not blank the whole dashboard.
+        # build_dashboard_payload tolerates empty dict/list for any source.
+        if isinstance(omnigraph, BaseException):
+            log.warning(f"x402 dashboard: omnigraph fetch failed: {omnigraph!r}")
+            omnigraph = {}
+        if isinstance(agents, BaseException):
+            log.warning(f"x402 dashboard: agent0 fetch failed: {agents!r}")
+            agents = []
+        if isinstance(services, BaseException):
+            log.warning(f"x402 dashboard: agentic.market fetch failed: {services!r}")
+            services = []
         payload = build_dashboard_payload(omnigraph, agents, services)
         os.makedirs(os.path.dirname(CACHE_PATH) or ".", exist_ok=True)
         with open(CACHE_PATH, "w") as f:
