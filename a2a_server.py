@@ -1137,6 +1137,18 @@ _META_SERVICES_EXCLUDED_FROM_HEADLINE = {
 _AGENT_EXCHANGE_PREFIX = "agent-exchange-"
 _AGENT_EXCHANGE_TASK_PREFIXES = ("ae-replay:", "ae-self-echo:", "ae-commons:", "ae-newbot-intro:")
 
+# GA's own paid data endpoints return structured JSON (a data payload or a
+# "no match" status), NOT subgraph queries — so the subgraph rubric
+# (query_ready / subgraph_id / curl) doesn't apply. Score them like the other
+# REST surfaces (token-api, hyperliquid/polymarket-token-api) instead of the
+# 1.0 floor they hit today for lacking a GraphQL query they never need.
+# Handler failures (timeouts/exceptions) are recorded under `x402-failed`
+# (already excluded), so rows reaching the scorer under these names succeeded.
+_PAID_REST_SERVICES = {
+    "kalshi-consensus-trend", "kalshi-sports-live-edge", "kalshi-polymarket-spread",
+    "predmarket-spread", "x402-settlements-ask", "onchain-x402-address", "agent-score",
+}
+
 
 def _is_agent_exchange_service(service: str | None) -> bool:
     return bool(service and service.startswith(_AGENT_EXCHANGE_PREFIX))
@@ -3141,7 +3153,7 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
             "rate-limited", "x402-paid", "x402-failed", "x402-tip",
             "payment-required", "chat", "unknown",
         }
-        is_rest_only = service in REST_ONLY_SERVICES
+        is_rest_only = service in REST_ONLY_SERVICES or service in _PAID_REST_SERVICES
 
         has_query_ready = bool(rec.get("query_ready"))
         has_subgraph_id = bool(
@@ -3172,12 +3184,13 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
         # For REST-only services, the "subgraph_id" point is auto-credited since
         # it's not applicable, and "install" point is auto-credited if no install needed.
         if is_rest_only:
-            curl_credit = 1 if (has_curl or service in NO_CURL_NEEDED or service in MCP_SERVICES) else 0
+            curl_credit = 1 if (has_curl or service in NO_CURL_NEEDED or service in MCP_SERVICES or service in _PAID_REST_SERVICES) else 0
             install_credit = 1 if (
                 has_install
                 or service in {"token-api", "8004scan", "x402-analytics", "substreams",
                                "hyperliquid-token-api", "polymarket-token-api"}
                 or service in MCP_SERVICES
+                or service in _PAID_REST_SERVICES
             ) else 0
             score = sum([
                 1 if parse_ok else 0,
@@ -3470,7 +3483,7 @@ _BACKFILL_MCP_SERVICES = {
 _BACKFILL_NO_CURL_NEEDED = {
     "token-api", "8004scan", "x402-analytics", "substreams",
     "hyperliquid-token-api", "polymarket-token-api",
-}
+} | _PAID_REST_SERVICES
 _BACKFILL_REST_ONLY = _BACKFILL_MCP_SERVICES | _BACKFILL_NO_CURL_NEEDED
 
 
