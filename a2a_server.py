@@ -8535,16 +8535,100 @@ def build_app():
                                    "message": "Max 1000 characters"},
                                   status_code=400)
             try:
+                upstream = {}
+                answer = ""
+                attempts = 2
                 async with _httpx_ask.AsyncClient(timeout=60.0) as client:
-                    r = await client.post(
-                        "https://x402-watch.vercel.app/api/ask",
-                        json={"question": question},
-                    )
-                    r.raise_for_status()
-                    upstream = r.json()
+                    for attempt in range(1, attempts + 1):
+                        r = await client.post(
+                            "https://x402-watch.vercel.app/api/ask",
+                            json={"question": question},
+                        )
+                        r.raise_for_status()
+                        upstream = r.json()
+                        # x402-watch normally returns {answer, trace, model, total_ms}.
+                        # A blank answer on a 200 = transient backend miss (flaky
+                        # DuckDB/R2 read, model returned nothing) — retry once rather
+                        # than silently billing the customer "(no answer produced)".
+                        # Tolerate response-shape drift across answer/result/response.
+                        answer = str(
+                            upstream.get("answer")
+                            or upstream.get("result")
+                            or upstream.get("response")
+                            or ""
+                        ).strip()
+                        if answer:
+                            break
+                        if attempt < attempts:
+                            await asyncio.sleep(1.5)
+                if not answer:
+                    # x402-watch produced nothing across retries → fall back to the
+                    # x402-omnigraph SUBGRAPH (The Graph gateway), which reliably has
+                    # this data. Pattern-match the common intents and serve a real
+                    # answer from the subgraph instead of failing / faking one. Also
+                    # on-mission: the customer gets answered straight from The Graph.
+                    import os as _os, re as _re
+                    _key = _os.environ.get("GRAPH_API_KEY") or _os.environ.get("GATEWAY_API_KEY")
+                    _ql = question.lower()
+                    _mn = _re.search(r"top\s+(\d+)", _ql)
+                    _n = min(int(_mn.group(1)), 50) if _mn else 10
+                    _gql = _title = None
+                    if "facilitator" in _ql:
+                        _gql = (f'{{ facilitators(first:{_n}, orderBy:totalSettlements, '
+                                f'orderDirection:desc){{ address name totalSettlements isActive }} }}')
+                        _title = f"Top {_n} x402 facilitators by settlements"
+                    elif any(w in _ql for w in ("recipient", "merchant", "receiver", "address")):
+                        _order = "totalVolume" if "volume" in _ql else "totalPayments"
+                        _gql = (f'{{ x402AddressSummaries(first:{_n}, where:{{role:RECIPIENT}}, '
+                                f'orderBy:{_order}, orderDirection:desc)'
+                                f'{{ address totalPayments totalVolumeDecimal }} }}')
+                        _title = (f"Top {_n} x402 recipients by "
+                                  f"{'volume (USDC)' if _order == 'totalVolume' else 'payment count'}")
+                    elif any(w in _ql for w in ("daily", "per day", "over time", "trend", "volume", "stats")):
+                        _gql = ('{ x402DailyStats_collection(first:14, orderBy:date, '
+                                'orderDirection:desc){ date totalPayments totalVolumeDecimal } }')
+                        _title = "x402 daily payments & volume (recent 14 days)"
+                    _rows = None
+                    if _gql and _key:
+                        try:
+                            async with _httpx_ask.AsyncClient(timeout=30.0) as _c:
+                                _sr = await _c.post(
+                                    "https://gateway.thegraph.com/api/subgraphs/id/"
+                                    "Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj",
+                                    headers={"Authorization": f"Bearer {_key}"},
+                                    json={"query": _gql})
+                                _sr.raise_for_status()
+                                _sd = _sr.json()
+                            if not _sd.get("errors") and _sd.get("data"):
+                                _rows = next(iter(_sd["data"].values())) or None
+                        except Exception:
+                            _rows = None
+                    if _rows:
+                        payload = {
+                            "question": question,
+                            "answer": _title,
+                            "rows": _rows,
+                            "source": "x402-omnigraph subgraph (Cb56epg3…) via The Graph gateway",
+                            "note": "x402-watch upstream returned no answer; served from the subgraph.",
+                            "generated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        _log_request("x402-paid", f"ask {question[:80]}",
+                                     "x402-settlements-ask", "high", "x402-omnigraph-subgraph",
+                                     response=payload)
+                        return _RouteJSON(payload)
+                    # Upstream empty AND no subgraph match → real error, not a fake answer.
+                    _log_paid_failure(f"ask {question[:80]}",
+                                      Exception("upstream_no_answer"))
+                    return _RouteJSON({
+                        "error": "upstream_no_answer",
+                        "message": ("x402-watch produced no answer and the question didn't map "
+                                    "to a subgraph query. Please retry or rephrase."),
+                        "question": question,
+                        "retry_after_seconds": 15,
+                    }, status_code=502)
                 payload = {
                     "question": question,
-                    "answer": upstream.get("answer", "(no answer produced)"),
+                    "answer": answer,
                     "sql_trace": upstream.get("trace", []),
                     "model": upstream.get("model", "unknown"),
                     "upstream_ms": upstream.get("total_ms"),
