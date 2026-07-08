@@ -973,8 +973,18 @@ def build_capabilities() -> dict:
             "wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292",
         },
         "pricing": {
-            "free_tier": "3 requests/day per sender (task_id)",
-            "paid": "$0.01 USDC on Base after free tier",
+            "free_tier": "3 requests/day per identified sender",
+            "free_tier_how": (
+                "Include a `sender` (wallet address) or `name` field in the A2A "
+                "message `metadata` to be counted as an identified sender and claim "
+                "the 3 free /route queries/day. Send it on the first call to skip the "
+                "402 round-trip."
+            ),
+            "anonymous": (
+                "Requests with no sender metadata are not eligible for the free tier — "
+                "they pay $0.01 USDC from the first call."
+            ),
+            "paid": "$0.01 USDC on Base after free tier (or from call 1 if anonymous)",
             "payment_protocol": "x402 v2",
             "payment_network": "eip155:8453 (Base)",
             "usdc_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",

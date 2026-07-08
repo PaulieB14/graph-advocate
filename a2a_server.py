@@ -3307,6 +3307,11 @@ Repository: https://github.com/PaulieB14/graph-advocate
 
 ## Pricing
 
+Free tier: include a `sender` (wallet address) or `name` in the A2A message
+`metadata` to be counted as an identified sender and claim 3 free /route
+queries/day — send it on the FIRST call to skip the 402 round-trip. Anonymous
+requests (no sender metadata) are not eligible and pay $0.01 USDC from call 1.
+
 | Endpoint                       | Price        | Notes |
 |--------------------------------|--------------|-------|
 | POST /                         | free 3/day   | Then $0.01 USDC via x402 |
