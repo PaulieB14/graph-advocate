@@ -596,11 +596,13 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
     },
     "subgraph-registry": {
         "curl_example": (
-            "# Query any subgraph — get a free API key first (thegraph.com/studio)\n"
-            "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/SUBGRAPH_ID' \\\n"
+            "# Example: top Uniswap V3 pools by TVL on Ethereum — a REAL, runnable query.\n"
+            "# For YOUR protocol/chain, reply with its name and I'll return the exact subgraph ID.\n"
+            "# Get a free API key first: thegraph.com/studio\n"
+            "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV' \\\n"
             "  -H 'Authorization: Bearer YOUR_API_KEY' \\\n"
             "  -H 'Content-Type: application/json' \\\n"
-            "  -d '{\"query\": \"{ _meta { block { number } } }\"}'"
+            "  -d '{\"query\": \"{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id token0 { symbol } token1 { symbol } feeTier totalValueLockedUSD volumeUSD } }\"}'"
         ),
         "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
     },

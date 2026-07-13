@@ -2331,9 +2331,25 @@ class GraphAdvocateExecutor(AgentExecutor):
                     "POST /kalshi-polymarket/spread": "$0.05 — Kalshi↔Polymarket cross-source spread",
                     "POST /ask": "$0.05 — natural-language Q&A over 132M+ x402 settlements on Base",
                 },
-                "query_ready": None,
+                "query_ready": {
+                    "tool": "execute_query_by_subgraph_id",
+                    "args": {
+                        "subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
+                        "query": "{ pools(first: 5, orderBy: totalValueLockedUSD, orderDirection: desc) { id token0 { symbol } token1 { symbol } feeTier totalValueLockedUSD volumeUSD } }",
+                    },
+                },
+                "live_example": {
+                    "you_ask": "Top Uniswap V3 pools on Ethereum by TVL",
+                    "i_return": {
+                        "subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
+                        "endpoint": "https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
+                        "curl": "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV' -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"query\":\"{ pools(first:5, orderBy: totalValueLockedUSD, orderDirection: desc){ id token0{symbol} token1{symbol} totalValueLockedUSD } }\"}'",
+                    },
+                    "note": "That's the whole loop: plain-English request in, a real subgraph ID + a query you can run right now out. Send yours.",
+                },
+                "free_api_key": "https://thegraph.com/studio/ — 100K queries/month, ~2 min signup, no card",
                 "alternatives": [],
-                "hint": "Send a plain-English data request and I'll return the right service + a ready-to-run query. For paid endpoints, the 402 challenge body now includes an `output_example` field so you can preview the payload shape before paying.",
+                "hint": "Send a plain-English data request and I'll return the right service + a ready-to-run query. For paid endpoints, the 402 challenge body includes an `output_example` field so you can preview the payload shape before paying.",
             }
             _log_request(task_id, user_text, "introduction", "high", "greeting", response=_intro_payload)
             await event_queue.enqueue_event(new_agent_text_message(json.dumps(_intro_payload)))
