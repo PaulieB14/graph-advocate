@@ -2072,6 +2072,48 @@ class GraphAdvocateExecutor(AgentExecutor):
         # the handler (which still references is_health_check) keeps working.
         is_health_check = is_canned_path
         sender_is_anonymous = not sender_address and not sender_name
+
+        # ── Named-but-unreachable self-intro: prompt for a callback address ──
+        # A peer that introduces itself (e.g. "Product introduction from X")
+        # with a name but no address/endpoint leaves nothing to reply to — the
+        # intro just evaporates (observed 2026-07-13: CarryLens, name only,
+        # addr empty). Acknowledge it and say exactly what to include so a
+        # callback / collaboration is possible next time. Free, before the gate.
+        _is_self_intro = (
+            "introduction from" in _text_lower
+            or "product introduction" in _text_lower
+            or "introducing " in _text_lower
+            or _text_lower.startswith(("hi, i'm", "hello, i'm", "i'm ", "we're ", "we are "))
+        )
+        if sender_name and not sender_address and _is_self_intro:
+            log.info(f"INTRO-NUDGE task={task_id} | named sender '{sender_name}' left no address")
+            _nudge = {
+                "recommendation": "introduction",
+                "name": "Graph Advocate",
+                "message": (
+                    f"Thanks for the introduction, {sender_name}. You reached out "
+                    "with a name but no address, so there's nothing to reply to or "
+                    "follow up with. To enable a callback or collaboration, resend "
+                    "with your identity in the A2A message metadata."
+                ),
+                "callback_required": (
+                    "Include metadata.sender (or metadata.address) with your wallet, "
+                    "and/or metadata.url pointing to your agent card."
+                ),
+                "why": (
+                    "Graph Advocate routes onchain-data requests to the right Graph "
+                    "service and can complement trading-agent workflows — but only "
+                    "reachable agents can be contacted back."
+                ),
+                "confidence": "high",
+                "query_ready": None,
+                "alternatives": [],
+            }
+            _log_request(task_id, user_text, "introduction", "high",
+                         "named-unreachable-intro", response=_nudge)
+            await event_queue.enqueue_event(new_agent_text_message(json.dumps(_nudge)))
+            return
+
         _is_paid_request = False  # flipped to True when x402 payment is verified
         if not is_canned_path and (sender_is_anonymous or _check_daily_limit(sender_id)):
             # Check if payment was included in the request context
