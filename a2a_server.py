@@ -8228,11 +8228,12 @@ def build_app():
             burn addresses (0x0 received $494M in 30d but isn't an agent), USDC
             contract, and CEX hot wallets are correctly filtered out.
 
-            Cached 24h. First cold call on a 90d window takes ~3 min (130
-            chunks × ~1s RPC each); subsequent calls within 24h return
-            instantly. Set `days` to 30 in body for a faster cold path.
+            Cached 24h. The USDC-settlement scan runs its Base RPC chunks
+            concurrently, so a cold call is ~15-25s (was ~3 min when serial —
+            which stranded the x402 payment past client timeouts). Default
+            window is 30 days; pass `days` up to 365 for a deeper (slower) scan.
 
-            POST {wallet: "0x…", days: 90}
+            POST {wallet: "0x…", days: 30}
             """
             from agent_score import score_agent as _score_agent_fn
             try:
@@ -8245,7 +8246,7 @@ def build_app():
                                    "message": "POST {wallet: '0x…40hex'} required",
                                    "expected_body": {"wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292", "days": 90}},
                                   status_code=400)
-            days_raw = body.get("days", 90)
+            days_raw = body.get("days", 30)
             try:
                 days = int(days_raw)
             except (TypeError, ValueError):

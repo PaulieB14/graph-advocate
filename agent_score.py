@@ -477,25 +477,52 @@ async def _scan_usdc_inflows(
     chunks_needed = max(1, total_blocks // _CHUNK)
 
     topic_to = "0x000000000000000000000000" + receiver.lower()[2:]
+
+    # Build all chunk ranges up front (newest → oldest), then fetch them
+    # CONCURRENTLY with bounded parallelism. This scan used to run serially
+    # (~130 chunks × ~1.5s ≈ 3 min on a 90d window), which blew past the client
+    # timeout and stranded the x402 payment (customer paid, then read-timeout —
+    # the /agent/score charge-then-fail bug). Bounded gather brings a cold 90d
+    # scan to ~15-25s, safely inside a normal client timeout.
+    ranges = []
+    for i in range(chunks_needed):
+        to_b = head - i * _CHUNK
+        if to_b < 0:
+            break
+        fr_b = max(0, to_b - _CHUNK + 1)
+        ranges.append((fr_b, to_b))
+        if fr_b == 0:
+            break
+
+    sem = asyncio.Semaphore(8)  # cap concurrency for the public Base RPC's rate limit
+
+    async def _fetch_chunk(fr_b: int, to_b: int) -> list:
+        async with sem:
+            for attempt in range(3):  # tolerate the odd public-RPC 429 / transient error
+                try:
+                    r = await client.post(_BASE_RPC, json={
+                        "jsonrpc": "2.0", "method": "eth_getLogs",
+                        "params": [{
+                            "address": _BASE_USDC,
+                            "topics": [_TRANSFER_TOPIC, None, topic_to],
+                            "fromBlock": hex(fr_b), "toBlock": hex(to_b),
+                        }], "id": 1,
+                    })
+                    j = r.json()
+                    if isinstance(j, dict) and j.get("result") is not None:
+                        return j["result"]
+                except Exception:
+                    pass
+                await asyncio.sleep(0.4 * (attempt + 1))
+            return []
+
+    chunk_results = await asyncio.gather(*[_fetch_chunk(fr, to) for fr, to in ranges])
+
     distinct_senders: dict[str, int] = {}
     tx_count = 0
     total_atomic = 0
     last_block = 0
-    for i in range(chunks_needed):
-        to_b = head - i * _CHUNK
-        fr_b = max(0, to_b - _CHUNK + 1)
-        try:
-            r = await client.post(_BASE_RPC, json={
-                "jsonrpc": "2.0", "method": "eth_getLogs",
-                "params": [{
-                    "address": _BASE_USDC,
-                    "topics": [_TRANSFER_TOPIC, None, topic_to],
-                    "fromBlock": hex(fr_b), "toBlock": hex(to_b),
-                }], "id": 1,
-            })
-            logs = (r.json().get("result") or [])
-        except Exception:
-            continue
+    for logs in chunk_results:
         for lg in logs:
             sender = "0x" + lg["topics"][1][-40:]
             amount_atomic = int(lg["data"], 16)
@@ -505,8 +532,6 @@ async def _scan_usdc_inflows(
             block_n = int(lg["blockNumber"], 16)
             if block_n > last_block:
                 last_block = block_n
-        if fr_b == 0:
-            break
 
     # Resolve timestamp for last block (if any)
     last_ts = None
