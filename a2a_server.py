@@ -28,7 +28,7 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
-from a2a.types import AgentCard, AgentCapabilities, AgentSkill
+from a2a.types import AgentCard, AgentCapabilities, AgentExtension, AgentSkill
 from a2a.utils import new_agent_text_message
 import json
 from datetime import timedelta
@@ -324,6 +324,26 @@ _A2A_OUTPUT_EXAMPLES = {
 }
 
 
+# label → the dedicated, AUTO-PAYABLE HTTP endpoint that computes this exact
+# result. This is what lets the A2A 402 (which is NOT a standard HTTP 402 an SDK
+# can auto-pay) signpost the caller onto the standard x402 rail at the RIGHT
+# price. `amount` = price in USDC 6-decimal base units. Prices MUST stay in sync
+# with the RouteConfig prices in the PaymentMiddlewareASGI block below.
+_USDC_BASE_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC on Base (eip155:8453)
+_A2A_SERVICE_META = {
+    "polymarket/pnl-quick": {"path": "/polymarket/pnl-quick", "price": "$0.01", "amount": "10000",  "body": {"wallet": "0x..."}},
+    "polymarket/pnl":       {"path": "/polymarket/pnl",       "price": "$0.05", "amount": "50000",  "body": {"wallet": "0x...", "method": "hifo"}},
+    "polymarket/risk":      {"path": "/polymarket/risk",      "price": "$0.02", "amount": "20000",  "body": {"wallet": "0x..."}},
+    "hyperliquid/score":    {"path": "/hyperliquid/score",    "price": "$0.02", "amount": "20000",  "body": {"user": "0x..."}},
+    "hyperliquid/pnl":      {"path": "/hyperliquid/pnl",       "price": "$0.05", "amount": "50000",  "body": {"user": "0x..."}},
+    "hyperliquid/risk":     {"path": "/hyperliquid/risk",      "price": "$0.02", "amount": "20000",  "body": {"user": "0x..."}},
+    "hyperliquid/screen":   {"path": "/hyperliquid/screen",    "price": "$0.05", "amount": "50000",  "body": {"coin": "SOL", "n": 20}},
+    "hyperliquid/vault":    {"path": "/hyperliquid/vault",     "price": "$0.10", "amount": "100000", "body": {"vault": "0x..."}},
+    "hyperliquid/fills":    {"path": "/hyperliquid/fills",     "price": "$0.02", "amount": "20000",  "body": {"coin": "SOL", "n": 10}},
+    "onchain-x402/address": {"path": "/onchain-x402/address",  "price": "$0.01", "amount": "10000",  "body": {"address": "0x..."}},
+}
+
+
 def _pick_output_example(user_text: str | None) -> tuple[str, dict]:
     """Match a paywalled question to a representative sample payload so the 402
     shows the caller what they'd get. Falls back to the generic routing sample."""
@@ -383,13 +403,17 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
             "/day. Additional queries require x402 payment."
         )
     _ex_label, _ex = _pick_output_example(user_text)
-    return {
+    _base = "https://graphadvocate.com"
+    resp = {
         "recommendation": "payment-required",
         "reason": reason,
         "confidence": "high",
         "x402Version": 2,
+        # `resource` + `accepts` describe the A2A/routing pay-path: $0.01 for a
+        # routing recommendation (what the A2A `x402:` text channel actually
+        # settles + delivers). The specialized compute lives in `direct_service`.
         "resource": {
-            "url": "https://graphadvocate.com",
+            "url": f"{_base}/route",
             "method": "POST",
             "description": "Graph Advocate onchain data routing — 15,500+ subgraphs, Token API, Substreams",
             "mimeType": "application/json",
@@ -398,7 +422,7 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
             "scheme": "exact",
             "network": "eip155:8453",
             "amount": str(X402_PRICE_CENTS * 10000),  # $0.01 = 10000 in USDC 6 decimals
-            "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "asset": _USDC_BASE_ASSET,
             "payTo": X402_WALLET,
             "maxTimeoutSeconds": 300,
             "extra": {
@@ -410,17 +434,71 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
         }],
         "query_ready": None,
         "alternatives": [],
-        "output_example": _ex,
-        "output_example_for": _ex_label,
-        "hint": (
-            "`output_example` is a SAMPLE of the payload shape you'll get — not "
-            "live data. To get the real result, resend this exact request with "
-            "payment: prefix the A2A message text with `x402:<signed-payment>` (or "
-            "send an `X-PAYMENT` header to the HTTP /route endpoint). Most x402 SDKs "
-            "sign + retry automatically. Identified senders (add a `sender` wallet "
-            f"or `name` to A2A metadata) get {DAILY_FREE_QUERIES} free queries/day."
-        ),
+        # BRIDGE onto the standard x402 rail. The A2A reply above is HTTP 200 (not
+        # a 402), so a client's autopay middleware never fires here — it only fires
+        # on a real HTTP 402 + `X-PAYMENT`. `pay_via_http` hands the caller the
+        # exact auto-payable endpoint so any x402 SDK can sign + retry.
+        "pay_via_http": {
+            "url": f"{_base}/route",
+            "method": "POST",
+            "payment_header": "X-PAYMENT",
+            "price": "$0.01",
+            "network": "eip155:8453",
+            "asset": _USDC_BASE_ASSET,
+            "payTo": X402_WALLET,
+            "body": {"request": (user_text or "<your onchain data question>")[:400]},
+            "note": (
+                "Recommended: POST here with an x402 `X-PAYMENT` header. Standard "
+                "HTTP 402 challenge — any x402 SDK auto-signs + retries. Returns a "
+                "routing recommendation (see output_example)."
+            ),
+        },
+        # Honest: $0.01 over the routing path returns a ROUTING recommendation.
+        "output_example": _A2A_ROUTING_EXAMPLE,
+        "output_example_for": "routing",
     }
+
+    # If the question maps to a specialized paid endpoint, signpost THAT endpoint
+    # at its REAL price with the exact request body + output shape. This is the
+    # auto-payable rail that computes precisely what the caller asked for — and it
+    # fixes the old over-promise (quoting $0.01 while showing a $0.02+ payload).
+    _svc = _A2A_SERVICE_META.get(_ex_label)
+    if _svc:
+        resp["direct_service"] = {
+            "url": f"{_base}{_svc['path']}",
+            "method": "POST",
+            "payment_header": "X-PAYMENT",
+            "price": _svc["price"],
+            "scheme": "exact",
+            "network": "eip155:8453",
+            "asset": _USDC_BASE_ASSET,
+            "amount": _svc["amount"],
+            "payTo": X402_WALLET,
+            "maxTimeoutSeconds": 300,
+            "body": _svc["body"],
+            "output_example": _ex,
+            "output_example_for": _ex_label,
+            "note": (
+                f"You asked for `{_ex_label}` — POST this endpoint with an x402 "
+                f"`X-PAYMENT` header ({_svc['price']}) to get the computed result "
+                "shown in output_example. Standard HTTP 402, auto-payable by any "
+                "x402 SDK. This is the exact data you want (the $0.01 routing path "
+                "only tells you where to look)."
+            ),
+        }
+
+    resp["hint"] = (
+        "Two standard x402 ways to pay — both USDC on Base (eip155:8453): "
+        "(1) HTTP rail (recommended; any x402 SDK auto-signs + retries on the 402): "
+        "POST `pay_via_http.url` with an `X-PAYMENT` header for the routing answer"
+        + (", or `direct_service.url` for the exact computed result you asked for. "
+           if _svc else ". ")
+        + "(2) Over A2A: prefix this message's text with `x402:<signed-payment>` to "
+        "pay $0.01 for the routing recommendation. Identified senders (add a "
+        f"`sender` wallet or `name` to A2A metadata) get {DAILY_FREE_QUERIES} free "
+        "routing queries/day."
+    )
+    return resp
 
 
 def _is_rate_limited(task_id: str) -> bool:
@@ -2562,6 +2640,41 @@ agent_card = AgentCard(
         streaming=False,
         push_notifications=False,
         state_transition_history=False,
+        # Declare the x402 payment convention at the card level so A2A clients
+        # can discover HOW to pay before they ever hit a paywall. The A2A reply
+        # to a paid call is HTTP 200 (not a 402 an SDK auto-pays), so we point
+        # clients at the standard HTTP rail (`pay_via_http`/`direct_service` +
+        # `X-PAYMENT`) carried in every payment-required response.
+        extensions=[
+            AgentExtension(
+                uri="https://x402.org/ext/a2a-payments/v1",
+                description=(
+                    "Paid calls settle with x402 (USDC on Base, eip155:8453). A "
+                    "payment-required reply is a JSON object with recommendation="
+                    "'payment-required' carrying: `accepts` (x402 PaymentRequirements), "
+                    "`pay_via_http` (POST an `X-PAYMENT` header to this URL — a real "
+                    "HTTP 402 any x402 SDK auto-pays), and, when the question maps to "
+                    "a specialized endpoint, `direct_service` (the endpoint that "
+                    "computes the exact result, with its own price/body/output_example). "
+                    "You may also pay over A2A by prefixing the message text with "
+                    "`x402:<signed-payment>`. Identified senders (include a `sender` "
+                    f"wallet or `name` in A2A metadata) get {DAILY_FREE_QUERIES} free "
+                    "/route queries/day; anonymous senders pay $0.01 from call 1."
+                ),
+                required=False,
+                params={
+                    "network": "eip155:8453",
+                    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "assetSymbol": "USDC",
+                    "payTo": X402_WALLET,
+                    "paymentHeader": "X-PAYMENT",
+                    "httpEndpoint": f"{PUBLIC_URL}/route",
+                    "bazaarDiscovery": f"{PUBLIC_URL}/.well-known/x402",
+                    "freeTierPerDay": DAILY_FREE_QUERIES,
+                    "priceRangeUsd": "0.01-0.10",
+                },
+            ),
+        ],
     ),
     skills=SKILLS,
     documentation_url="https://docs.graphadvocate.com/",
