@@ -4293,8 +4293,110 @@ def _get_onchain_stats() -> dict:
     # accurate "pending" count is 0 unless we add real per-payment tracking.
     out["pending_settlements"] = 0
 
+    # Authoritative payer truth from the on-chain x402 Base subgraph (same
+    # ground truth Ampersend reads). The DB-derived usdc_paid_lifetime above
+    # OVERcounts (price-CASE × logged rows, incl. retries) and repeat_payers
+    # UNDERcounts (only rows where the payer signer was captured). These fields
+    # are settlement-verifiable and are what reputation agents should read.
+    _op = _get_onchain_payers()
+    out["paying_customers"] = _op.get("paying_customers")     # distinct non-self wallets
+    out["real_revenue_usdc"] = _op.get("real_revenue_usdc")   # settled USDC, excl GA self-tests
+    out["settled_gross_usdc"] = _op.get("gross_settled_usdc")  # settled USDC incl self-tests
+    out["payers_indexed_block"] = _op.get("indexed_block")
+    out["payers_source"] = f"x402-base-subgraph:{_X402_BASE_SUBGRAPH}"
+    if _op.get("error"):
+        out["payers_error"] = _op["error"]
+
     _ONCHAIN_CACHE["data"] = out
     _ONCHAIN_CACHE["ts"] = now
+    return out
+
+
+# ── Authoritative on-chain payer list (x402 Base subgraph) ──────────────────
+_PAYERS_CACHE: dict = {"data": None, "ts": 0.0}
+_PAYERS_CACHE_TTL_SEC = 600
+# "x402 Base" on The Graph Network — same subgraph the /onchain-x402/address
+# endpoint reads. Every USDC settlement to GA's x402 wallet is an x402Payment.
+_X402_BASE_SUBGRAPH = "Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj"
+# GA's OWN wallets — self-test / outreach traffic, NOT customers. Kept in sync
+# with ga-monitor's GA_SELF_WALLETS. Lowercased for matching.
+_GA_SELF_WALLETS = {
+    "0xe121e3a8611e1f44f7cc52892ee1117fddc8f734",  # outbound hot wallet (self-test)
+    _OUTBOUND_WALLET.lower(),                        # 0x575267… graphadvocate.eth
+    X402_WALLET.lower(),                             # the receiving wallet itself
+}
+
+
+def _get_onchain_payers() -> dict:
+    """Every wallet that has settled USDC to GA's x402 wallet, grouped, straight
+    from the on-chain x402 Base subgraph. This is the authoritative payer set
+    (matches Ampersend); the internal activity DB both under- and over-counts.
+    Cached 10min — each gateway query costs query fees + latency."""
+    import time as _t, datetime as _dt
+    now = _t.time()
+    c = _PAYERS_CACHE["data"]
+    if c and now - _PAYERS_CACHE["ts"] < _PAYERS_CACHE_TTL_SEC:
+        return c
+
+    out = {"payers": [], "paying_customers": 0, "real_revenue_usdc": 0.0,
+           "gross_settled_usdc": 0.0, "indexed_block": None, "error": None}
+    try:
+        import httpx as _hx
+        key = os.environ.get("GRAPH_API_KEY")
+        if not key:
+            out["error"] = "GRAPH_API_KEY not set"
+            return out
+        url = f"https://gateway.thegraph.com/api/{key}/subgraphs/id/{_X402_BASE_SUBGRAPH}"
+        wallet = X402_WALLET.lower()
+        q = ('{ _meta{block{number}} x402Payments(where:{to:"%s"}, first:1000, '
+             'orderBy:blockNumber, orderDirection:desc){ from amountDecimal blockTimestamp } }' % wallet)
+        r = _hx.post(url, json={"query": q}, timeout=25)
+        d = r.json()
+        if d.get("errors"):
+            out["error"] = json.dumps(d["errors"])[:160]
+            return out
+        data = d.get("data") or {}
+        out["indexed_block"] = ((data.get("_meta") or {}).get("block") or {}).get("number")
+        agg: dict = {}
+        for p in data.get("x402Payments") or []:
+            f = (p.get("from") or "").lower()
+            if not f:
+                continue
+            e = agg.setdefault(f, {"n": 0, "usdc": 0.0, "first": None, "last": None})
+            e["n"] += 1
+            e["usdc"] += float(p.get("amountDecimal") or 0)
+            ts = int(p.get("blockTimestamp") or 0)
+            e["last"] = ts if e["last"] is None else max(e["last"], ts)
+            e["first"] = ts if e["first"] is None else min(e["first"], ts)
+
+        def _full(ts):
+            return _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:%M:%S") if ts else ""
+
+        def _hms(ts):
+            return _dt.datetime.utcfromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
+
+        payers, real_rev, gross = [], 0.0, 0.0
+        for f, e in agg.items():
+            is_self = f in _GA_SELF_WALLETS
+            gross += e["usdc"]
+            if not is_self:
+                real_rev += e["usdc"]
+            payers.append({
+                "wallet": f, "short": f[:6] + "…" + f[-4:],
+                "call_count": e["n"], "usdc_total": round(e["usdc"], 4),
+                "first_seen": _full(e["first"]), "last_seen": _hms(e["last"]),
+                "is_repeat": e["n"] > 1, "is_self": is_self,
+            })
+        payers.sort(key=lambda x: (-x["usdc_total"], -x["call_count"]))
+        out["payers"] = payers
+        out["paying_customers"] = sum(1 for p in payers if not p["is_self"])
+        out["real_revenue_usdc"] = round(real_rev, 4)
+        out["gross_settled_usdc"] = round(gross, 4)
+    except Exception as e:
+        out["error"] = str(e)[:120]
+
+    _PAYERS_CACHE["data"] = out
+    _PAYERS_CACHE["ts"] = now
     return out
 
 
@@ -4747,6 +4849,24 @@ def _build_dashboard_data() -> dict:
                 "is_repeat": cnt > 1,
             })
         conn.close()
+    except Exception:
+        pass
+
+    # Prefer the authoritative on-chain payer list (matches Ampersend). The
+    # DB-derived list above only sees rows where the payer's signer was
+    # captured, so it undercounts real customers; the on-chain x402 subgraph
+    # sees every settlement. Self-test wallets are excluded — repeat_payers is
+    # customers only. Falls back to the DB list if the subgraph query fails.
+    try:
+        _op = _get_onchain_payers()
+        if _op.get("payers") and not _op.get("error"):
+            repeat_payers = [
+                {"wallet": p["wallet"], "short": p["short"],
+                 "call_count": p["call_count"], "usdc_total": p["usdc_total"],
+                 "first_seen": p["first_seen"], "last_seen": p["last_seen"],
+                 "is_repeat": p["is_repeat"]}
+                for p in _op["payers"] if not p["is_self"]
+            ][:12]
     except Exception:
         pass
 
