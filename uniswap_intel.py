@@ -337,6 +337,90 @@ async def uniswap_pretrade(token: str, chain: str = "ethereum", version: str | N
     }
 
 
+async def top_traders_for_token(token: str, chain: str = "ethereum",
+                                version: str | None = None, limit: int = 10) -> dict:
+    """Who is actually trading this token right now, and which way.
+
+    Aggregates a recent swap sample on the token's deepest venue by trader
+    wallet (`origin`, the EOA — not the router), so an agent can separate
+    ACCUMULATORS from DISTRIBUTORS instead of staring at anonymous volume.
+    The returned wallets are profiling input: feed them to /agent/score or a
+    wallet-risk pass to find out *who* is on the other side.
+    """
+    limit = max(1, min(int(limit or 10), 25))
+    v, c, sid = _resolve_market(chain, version)
+
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        tok = await _resolve_token(client, sid, token)
+        if not tok:
+            raise UniswapIntelError(f"token '{token}' not found on Uniswap {v.upper()} {c}")
+        pools = await _pools_for_token(client, sid, tok["id"])
+        if not pools:
+            raise UniswapIntelError(f"no Uniswap pool for '{token}' on {v.upper()} {c}")
+        best = pools[0]
+        token_is_0 = (best.get("token0") or {}).get("id", "").lower() == tok["id"].lower()
+        d = await _gql(
+            client, sid,
+            "query($p:String!){ swaps(first:200, where:{pool:$p}, orderBy:timestamp, orderDirection:desc)"
+            "{ timestamp amountUSD amount0 amount1 origin } }",
+            {"p": best["id"]},
+        )
+
+    swaps = d.get("swaps") or []
+    agg: dict[str, dict] = {}
+    for s in swaps:
+        who = (s.get("origin") or "").lower()
+        if not who:
+            continue
+        try:
+            amt = float(s.get("amount0") if token_is_0 else s.get("amount1") or 0)
+            usd = abs(float(s.get("amountUSD") or 0))
+        except (TypeError, ValueError):
+            continue
+        e = agg.setdefault(who, {"wallet": who, "buys": 0, "sells": 0,
+                                 "volume_usd": 0.0, "net_token": 0.0, "last_seen": None})
+        # Positive amount = token flowed INTO the pool = wallet SOLD it.
+        if amt > 0:
+            e["sells"] += 1
+        elif amt < 0:
+            e["buys"] += 1
+        e["volume_usd"] += usd
+        e["net_token"] -= amt          # net accumulation from the wallet's side
+        ts = s.get("timestamp")
+        if ts and (e["last_seen"] is None or int(ts) > int(e["last_seen"])):
+            e["last_seen"] = int(ts)
+
+    traders = sorted(agg.values(), key=lambda x: x["volume_usd"], reverse=True)[:limit]
+    for t in traders:
+        b, sl = t["buys"], t["sells"]
+        if b and not sl:
+            t["stance"] = "accumulator"
+        elif sl and not b:
+            t["stance"] = "distributor"
+        elif b or sl:
+            t["stance"] = "accumulating" if t["net_token"] > 0 else "distributing" if t["net_token"] < 0 else "two_way"
+        else:
+            t["stance"] = "unknown"
+        t["volume_usd"] = round(t["volume_usd"], 2)
+        t["net_token"] = round(t["net_token"], 6)
+
+    return {
+        "token": {"symbol": tok.get("symbol"), "address": tok["id"]},
+        "market": {"chain": c, "version": v, "subgraph_id": sid},
+        "venue": {"pool": best["id"],
+                  "pair": f"{(best.get('token0') or {}).get('symbol')}/{(best.get('token1') or {}).get('symbol')}",
+                  "fee_tier": int(best.get("feeTier") or 0) or None},
+        "sample": {"swaps_scanned": len(swaps), "unique_wallets": len(agg)},
+        "traders": traders,
+        "note": (
+            "Wallets are `origin` (the EOA that initiated the swap), not the router contract. "
+            "Stance is derived from a recent swap sample on the deepest venue only — it is a "
+            "directional read on this pool, not the wallet's whole book. Feed these wallets into "
+            "/agent/score or a wallet-risk pass to profile who is on the other side."
+        ),
+    }
+
+
 # Hyperliquid perp coin -> the Uniswap spot token that tracks it.
 _PERP_TO_SPOT = {"ETH": "WETH", "BTC": "WBTC", "MATIC": "POL"}
 

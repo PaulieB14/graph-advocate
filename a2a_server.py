@@ -2450,6 +2450,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                     "POST /hyperliquid/score": "$0.02 — Hyperliquid perps trader skill score",
                     "POST /uniswap/pretrade": "$0.02 — Uniswap pre-trade check (real liquidity, deepest venue, honeypot flow, volume trend)",
                     "POST /uniswap/basis": "$0.05 — Uniswap spot vs Hyperliquid perp basis (cross-venue JOIN)",
+                    "POST /uniswap/traders": "$0.02 — Uniswap per-wallet flow (accumulators vs distributors)",
                     "POST /kalshi-polymarket/spread": "$0.05 — Kalshi↔Polymarket cross-source spread",
                     "POST /ask": "$0.05 — natural-language Q&A over 132M+ x402 settlements on Base",
                 },
@@ -2931,6 +2932,7 @@ _PAID_ENDPOINT_TESTS = [
     ("predmarket/spread",           {"topic": "trump", "limit": 5},                         100, "0.05"),
     ("uniswap/pretrade",            {"token": "WETH", "chain": "ethereum"},                 100, "0.02"),
     ("uniswap/basis",               {"coin": "ETH", "chain": "ethereum"},                   100, "0.05"),
+    ("uniswap/traders",             {"token": "WETH", "chain": "ethereum"},                 100, "0.02"),
     ("kalshi/sports-live-edge",     {"milestone": "93ce8b69-d3db-412d-b41e-a245a271adcc"}, 100, "0.05"),
 ]
 
@@ -3509,6 +3511,7 @@ requests (no sender metadata) are not eligible and pay $0.01 USDC from call 1.
 | POST /predmarket/spread        | $0.05        | Cross-venue Polymarket↔Limitless spread (JOIN) |
 | POST /uniswap/pretrade         | $0.02        | Uniswap pre-trade check: real liquidity, deepest venue, honeypot flow, volume trend |
 | POST /uniswap/basis            | $0.05        | Uniswap spot vs Hyperliquid perp basis (cross-venue JOIN) |
+| POST /uniswap/traders          | $0.02        | Uniswap per-wallet flow: accumulators vs distributors |
 | POST /agent/score              | $0.02        | 0-100 reputation score: ERC-8004 + USDC settlement + on-chain feedback |
 
 All paid endpoints settle in USDC on Base via x402. Paid endpoints have no
@@ -8298,6 +8301,38 @@ def build_app():
                     "retry_after_seconds": 30,
                 }, status_code=502)
 
+        async def _uniswap_traders_handler(request):
+            """$0.02 — Who is trading this token right now, and which way.
+
+            Aggregates a recent swap sample on the deepest venue by trader EOA
+            so an agent can separate accumulators from distributors. The
+            returned wallets are profiling input for /agent/score.
+            """
+            from uniswap_intel import top_traders_for_token, UniswapIntelError
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            token = str(body.get("token") or body.get("symbol") or body.get("address") or "").strip()
+            if not token:
+                return _RouteJSON({"error": "token_required",
+                                   "expected_body": {"token": "WETH", "chain": "ethereum", "limit": 10}},
+                                  status_code=400)
+            chain = str(body.get("chain") or "ethereum").strip()
+            try:
+                result = await top_traders_for_token(token, chain, body.get("version"), body.get("limit") or 10)
+                _log_request("x402-paid", f"uniswap-traders {token[:20]}@{chain[:12]}",
+                             "uniswap-traders", "high", "uniswap-subgraphs", response=result)
+                return _RouteJSON(result)
+            except UniswapIntelError as exc:
+                return _RouteJSON({"error": "unanswerable", "message": str(exc)[:200]}, status_code=400)
+            except Exception as exc:
+                log.exception(f"uniswap-traders crashed: {token}@{chain}")
+                _log_paid_failure(f"uniswap-traders {token[:20]}@{chain[:12]}", exc)
+                return _RouteJSON({"error": "upstream_unavailable",
+                                   "message": "The Graph gateway was unreachable; retry shortly.",
+                                   "retry_after_seconds": 30}, status_code=502)
+
         async def _agent_score_handler(request):
             """$0.02 — Composite 0-100 reputation score for any Base wallet.
 
@@ -9061,6 +9096,7 @@ def build_app():
             _RouteRoute("/predmarket/spread", _predmarket_spread_handler, methods=["POST"]),
             _RouteRoute("/uniswap/pretrade", _uniswap_pretrade_handler, methods=["POST"]),
             _RouteRoute("/uniswap/basis", _uniswap_basis_handler, methods=["POST"]),
+            _RouteRoute("/uniswap/traders", _uniswap_traders_handler, methods=["POST"]),
             _RouteRoute("/agent/score", _agent_score_handler, methods=["POST"]),
         ])
 
@@ -9595,6 +9631,25 @@ def build_app():
                             input_schema={"type":"object","properties":{"coin":{"type":"string"},"chain":{"type":"string"}},"required":["coin"]},
                             body_type="json",
                             output=OutputConfig(example={"coin":"BTC","spot":{"venue":"uniswap-v3","price_usd":64588.86},"perp":{"venue":"hyperliquid","price_usd":64826.0},"basis_pct":0.3672,"signal":"perp_premium"},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /uniswap/traders": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.02",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Who is trading a token on Uniswap, and which way. POST {token, chain?, limit?}. "
+                            "Aggregates a recent swap sample on the deepest venue by trader EOA and returns "
+                            "per-wallet buys/sells/volume_usd/net_token plus a stance "
+                            "(accumulator / distributor / accumulating / distributing). Wallets are profiling "
+                            "input \u2014 feed them to /agent/score to find out who is on the other side."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"token": "WETH", "chain": "ethereum", "limit": 10},
+                            input_schema={"type":"object","properties":{"token":{"type":"string"},"chain":{"type":"string"},"limit":{"type":"integer"}},"required":["token"]},
+                            body_type="json",
+                            output=OutputConfig(example={"token":{"symbol":"WETH"},"venue":{"pair":"USDC/WETH","fee_tier":500},"sample":{"swaps_scanned":200,"unique_wallets":131},"traders":[{"wallet":"0x5b43453f…","buys":3,"sells":10,"volume_usd":222360,"stance":"distributing"}]},schema={"type":"object"}),
                         )},
                     ),
                     "POST /agent/score": RouteConfig(
