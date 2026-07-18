@@ -182,6 +182,13 @@ pre-built tooling. Install via: npx <package-name>
 - graph-lending-mcp: Unified tools over Messari standardized lending subgraphs (multi-protocol)
   Use for: cross-protocol lending comparisons, TVL, utilization rates
   Powered by Graph subgraphs: Messari-standardized subgraphs for Aave, Compound, MakerDAO, and other lending protocols
+- graph-uniswap-mcp: Uniswap V2/V3/V4 — 8 tools over 13 Graph subgraphs (6 chains x 3 versions)
+  Use for: Uniswap pool/pair discovery, token USD prices, top pools by volume, fee-tier comparison, recent swaps (each carries the trader wallet), raw GraphQL escape hatch
+  Coverage: V3 on Ethereum, Arbitrum, Base, Polygon, Optimism, BSC | V4 on Ethereum, Arbitrum, Base, Optimism, BSC | V2 on Ethereum, Base
+  Powered by Graph subgraphs addressed by SUBGRAPH ID, so they auto-follow the publisher's latest published version
+  IMPORTANT — rank Uniswap pools by volumeUSD, NEVER by TVL: Uniswap subgraph TVL/liquidity is inflated by illiquid spam-token pools (a single fake pool can report trillions). This applies whether or not you recommend the MCP.
+  Schema note: V2 is Pair-based (`pairs`, reserveUSD); V3/V4 are Pool-based (`pools`, feeTier, totalValueLockedUSD). Some deployments price via nativePriceUSD/derivedNative instead of ethPriceUSD/derivedETH.
+  Install: npx -y graph-uniswap-mcp (needs GRAPH_API_KEY)
 - graph-polymarket-mcp (v2.0.0): Polymarket prediction markets — 31 tools combining The Graph subgraphs + Polymarket REST APIs (Gamma + CLOB)
   NOTE: For common Polymarket queries (markets, OHLCV, positions, P&L, activity), PREFER Token API — simpler REST, no npm install.
   All of these features (live orderbook depth, live spreads, disputes, UMA resolution) are reachable directly via the underlying Polymarket subgraphs (Orderbook QmVGA9v..., Resolution QmZnnrH..., Open Interest QmbT2Mm..., etc.) or clob.polymarket.com REST. Recommend those primary; list graph-polymarket-mcp in alternatives.
@@ -256,7 +263,7 @@ Rules:
   For subgraph queries: query_ready.args MUST include subgraph_id (from search results) and gql (GraphQL query using entity names from query_hint)
   For token-api queries: query_ready.args MUST include network and contract (use the exact param names, NOT chain/token_address)
 - For subgraph queries, always include: the subgraph ID, a working GraphQL query, and a note that API keys are free at thegraph.com/studio (100K queries/month free)
-- MCP packages are ALWAYS alternatives, never the primary recommendation. Every MCP package in this routing space (graph-aave-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp, predictfun-mcp) is a thin wrapper around subgraphs and REST APIs that the agent can call directly without `npm install`. The underlying data — including "advanced" features like Aave V4, Polymarket live orderbook / spreads / disputes / UMA resolution, Limitless whale trades — is reachable via direct subgraph queries or REST endpoints. The MCP just packages those calls with friendly tool names.
+- MCP packages are ALWAYS alternatives, never the primary recommendation. Every MCP package in this routing space (graph-aave-mcp, graph-uniswap-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp, predictfun-mcp) is a thin wrapper around subgraphs and REST APIs that the agent can call directly without `npm install`. The underlying data — including "advanced" features like Aave V4, Polymarket live orderbook / spreads / disputes / UMA resolution, Limitless whale trades — is reachable via direct subgraph queries or REST endpoints. The MCP just packages those calls with friendly tool names.
   Default `recommendation` to `subgraph-registry` (with subgraph_id + working GraphQL), `token-api` (with REST args), `substreams`, or `x402-analytics`. For protocols whose data lives in a non-subgraph REST API (e.g. Aave V4 → api.aave.com, Polymarket CLOB → clob.polymarket.com / gamma-api.polymarket.com), recommend a direct curl in `curl_example` and pick the closest canonical service (`token-api` if that's the abstraction the agent is using, else `subgraph-registry` and explain the data lives off-graph).
   Always list the matching MCP package in `alternatives` with a note like "richer tooling if your runtime supports npm." Never set `recommendation` to an MCP package value unless the agent explicitly asks for the npm / MCP option by name.
 - Never hallucinate tool names — only use tools listed above
@@ -271,7 +278,7 @@ Rules:
 
 CRITICAL — recommendation MUST be exactly one of these values (never invent new names):
   token-api, polymarket-token-api, hyperliquid-token-api, copytrade, subgraph-registry, substreams,
-  graph-aave-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp,
+  graph-aave-mcp, graph-uniswap-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp,
   predictfun-mcp, mcp8004, 8004scan, x402-analytics, introduction, out-of-scope, comparison
   Do NOT use names like "Uniswap V3 Ethereum Subgraph" or "subgraph-query-builder" — use "subgraph-registry" instead.
 
@@ -369,6 +376,9 @@ Routing examples (condensed):
 - "Aave V3 markets by TVL" → subgraph-registry (Aave V3 subgraph) with working GraphQL query — list graph-aave-mcp in alternatives
 - "Aave liquidations above $50K" → subgraph-registry (Aave V3 subgraph, query LiquidationCall) — list graph-aave-mcp in alternatives
 - "Aave V4 hubs" → curl https://api.aave.com/v4/hubs (no key needed); set recommendation="subgraph-registry" with a note that V4 is REST-only on api.aave.com — list graph-aave-mcp in alternatives
+- "Top Uniswap V3 pools on Arbitrum" → subgraph-registry (Uniswap V3 Arbitrum subgraph) with a volumeUSD-ordered GraphQL query — list graph-uniswap-mcp in alternatives. NEVER order Uniswap pools by TVL.
+- "Uniswap V4 pools on Base" → subgraph-registry (Uniswap V4 Base subgraph, `pools` with feeTier) — list graph-uniswap-mcp in alternatives
+- "Recent swaps on Uniswap V3 Ethereum" → subgraph-registry (Uniswap V3 Ethereum subgraph). The V3 schema DOES have a `swaps` entity (fields: timestamp, amountUSD, amount0, amount1, origin, sender) — write the query, do not claim it is unavailable.
 - "Polymarket markets by volume" → token-api (/v1/polymarket/markets) — list graph-polymarket-mcp in alternatives
 - "Limitless whale trades for trader 0x..." → subgraph-registry (Limitless main subgraph on Base) — list graph-limitless-mcp in alternatives
 - "Polymarket disputed markets" → subgraph-registry (Polymarket Resolution subgraph QmZnnrH...) — list graph-polymarket-mcp in alternatives
@@ -1294,18 +1304,57 @@ def _template_query(request: str) -> dict | None:
             "notes": "Messari standardized `liquidates` entity works for Aave V2/V3 across chains — swap the subgraph_id for V2 or a different chain (Arbitrum/Optimism/Polygon) as needed.",
         }
 
-    # Uniswap V3 pools by TVL
-    if "uniswap" in r and ("v3" in r or "v2" in r) and ("pool" in r or "tvl" in r or "liquidity" in r):
-        subgraph_id = "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV"  # Uniswap V3 Ethereum
+    # Uniswap pools/pairs — chain- and version-aware, ranked by VOLUME not TVL.
+    #
+    # This template used to hardcode Uniswap V3 on Ethereum and order by
+    # totalValueLockedUSD. Both were wrong: "Uniswap V3 on Arbitrum" got answered
+    # with a mainnet subgraph, a V2 question got a `pools` query (V2 uses `pairs`),
+    # and TVL is the one number Uniswap subgraphs report unreliably — a single
+    # illiquid spam-token pool can claim trillions, so TVL ranking is a footgun.
+    if "uniswap" in r and ("v2" in r or "v3" in r or "v4" in r) and (
+        "pool" in r or "pair" in r or "tvl" in r or "liquidity" in r or "volume" in r
+    ):
+        # Verified subgraph IDs. Subgraph-id form (not a deployment/IPFS hash) so
+        # the gateway always follows the publisher's LATEST published version —
+        # a Uniswap redeploy is picked up with no code change here.
+        uni_subgraphs = {
+            ("v2", "mainnet"): "GmSczqdCDZ3hJeYY9JphwsADn5rePUzUKm8EZcVuhRAm",
+            ("v2", "base"): "DbcUmZwXBYbNZvLuDEvcmFa4uAWwwjrdX8dVFg1AUVKa",
+            ("v3", "mainnet"): "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
+            ("v3", "arbitrum-one"): "FbCGRftH4a3yZugY7TnbYgPJVEv2LvMT6oF1fxPe9aJM",
+            ("v3", "base"): "HMuAwufqZ1YCRmzL2SfHTVkzZovC9VL2UAKhjvRqKiR1",
+            ("v3", "matic"): "EsLGwxyeMMeJuhqWvuLmJEiDKXJ4Z6YsoJreUnyeozco",
+            ("v3", "optimism"): "Cghf4LfVqPiFw6fp6Y5X5Ubc8UpmUhSfJL82zwiBFLaj",
+            ("v3", "bsc"): "7XgdLW3bts4HktCYsu9dy8bEnuiNeZuftcuK3Aj4JXYV",
+            ("v4", "mainnet"): "AdA6Ax3jtct69NnXfxNjWtPTe9gMtSEZx2tTQcT4VHu",
+            ("v4", "base"): "Gqm2b5J85n1bhCyDMpGbtbVn4935EvvdyHdHrx3dibyj",
+            ("v4", "arbitrum-one"): "D1VHPU6cXXSC8eaApWCjCnPcTZQFSYCpGoDAvt4ogDWh",
+            ("v4", "optimism"): "3Tn7Y1NJAr4ySKm7KFu1dwvH2WM3mHJnXzXAxQsdBDvW",
+            ("v4", "bsc"): "EAq1nJKgjnuKH6Gj4RFjCW7LcL7E2uipbncdwV7TTWkX",
+        }
+        version = "v4" if "v4" in r else ("v2" if "v2" in r else "v3")
+        chain = _detect_requested_chain(r) or "mainnet"
+        subgraph_id = uni_subgraphs.get((version, chain))
+        if subgraph_id is None:
+            # No verified deployment for this version x chain (e.g. V4 on Polygon).
+            # Fall through to a live registry search rather than confidently
+            # answering with the wrong chain.
+            return None
+
+        # V2 is Pair-based; V3/V4 are Pool-based with a fee tier.
+        if version == "v2":
+            entity, extra = "pairs", "reserveUSD"
+        else:
+            entity, extra = "pools", "feeTier\n    totalValueLockedUSD"
         query = (
             "{\n"
-            "  pools(first: 20, orderBy: totalValueLockedUSD, orderDirection: desc) {\n"
+            f"  {entity}(first: 20, orderBy: volumeUSD, orderDirection: desc) {{\n"
             "    id\n"
             "    token0 { symbol }\n"
             "    token1 { symbol }\n"
-            "    feeTier\n"
-            "    totalValueLockedUSD\n"
+            f"    {extra}\n"
             "    volumeUSD\n"
+            "    txCount\n"
             "  }\n"
             "}"
         )
@@ -1314,7 +1363,7 @@ def _template_query(request: str) -> dict | None:
         return {
             "recommendation": "subgraph-registry",
             "confidence": "high",
-            "reason": "Templated Uniswap V3 top-pools-by-TVL query",
+            "reason": f"Templated Uniswap {version.upper()} top-{entity}-by-volume query on {chain}",
             "query_ready": {
                 "tool": "execute_query_by_subgraph_id",
                 "args": {"subgraph_id": subgraph_id, "query": query},
@@ -1326,6 +1375,16 @@ def _template_query(request: str) -> dict | None:
                 f'  -d \'{{"query":"{one_line}"}}\''
             ),
             "endpoint": endpoint,
+            "notes": (
+                "Ranked by volumeUSD, NOT TVL — Uniswap subgraph TVL/liquidity is unreliable because "
+                "illiquid spam-token pools inflate it massively. Judge pools by traded volume. "
+                "Swap the subgraph_id to change chain or Uniswap version (V2 uses `pairs`, V3/V4 use `pools`)."
+            ),
+            "alternatives": [{
+                "service": "graph-uniswap-mcp",
+                "reason": "MCP wrapper for Uniswap V2/V3/V4 across 6 chains — volume-ranked, schema-adaptive (`npx -y graph-uniswap-mcp`)",
+                "confidence": "medium",
+            }],
         }
 
     return None
@@ -3227,7 +3286,7 @@ speculate about org structure, M&A, or roadmap timing.
 
 Rules:
 - Be concise and helpful
-- When recommending a subgraph-based MCP package (graph-aave-mcp, graph-polymarket-mcp, graph-lending-mcp,
+- When recommending a subgraph-based MCP package (graph-aave-mcp, graph-uniswap-mcp, graph-polymarket-mcp, graph-lending-mcp,
   graph-limitless-mcp, subgraph-registry-mcp), ALSO mention that users can query the underlying
   Graph subgraphs directly with a free API key from thegraph.com/studio.
   Do NOT mention subgraphs when recommending Token API or Substreams — those are separate services.
