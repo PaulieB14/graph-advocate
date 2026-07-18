@@ -19,3 +19,6 @@ dashboard.html
 
 # 24MB subgraph registry, downloaded by advocate.py on demand
 data/
+
+# runtime state — never version SQLite DBs
+*.db
