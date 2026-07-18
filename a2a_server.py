@@ -2448,6 +2448,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                     "POST /predmarket/spread": "$0.05 — Polymarket↔Limitless cross-venue spread on a topic",
                     "POST /polymarket/pnl-quick": "$0.02 — derived skill metrics for a Polymarket wallet",
                     "POST /hyperliquid/score": "$0.02 — Hyperliquid perps trader skill score",
+                    "POST /uniswap/pretrade": "$0.02 — Uniswap pre-trade check (real liquidity, deepest venue, honeypot flow, volume trend)",
                     "POST /kalshi-polymarket/spread": "$0.05 — Kalshi↔Polymarket cross-source spread",
                     "POST /ask": "$0.05 — natural-language Q&A over 132M+ x402 settlements on Base",
                 },
@@ -2927,6 +2928,7 @@ _PAID_ENDPOINT_TESTS = [
     ("kalshi/consensus-trend",      {"event": "KXELONMARS-99"},                            100, "0.05"),
     ("kalshi-polymarket/spread",    {"topic": "fed rate", "limit": 3},                     100, "0.05"),
     ("predmarket/spread",           {"topic": "trump", "limit": 5},                         100, "0.05"),
+    ("uniswap/pretrade",            {"token": "WETH", "chain": "ethereum"},                 100, "0.02"),
     ("kalshi/sports-live-edge",     {"milestone": "93ce8b69-d3db-412d-b41e-a245a271adcc"}, 100, "0.05"),
 ]
 
@@ -3503,6 +3505,7 @@ requests (no sender metadata) are not eligible and pay $0.01 USDC from call 1.
 | POST /kalshi-polymarket/spread | $0.05        | Cross-source spread Kalshi↔Polymarket (JOIN) |
 | POST /kalshi/sports-live-edge  | $0.05        | Live sports mispricing (play-by-play vs candles) |
 | POST /predmarket/spread        | $0.05        | Cross-venue Polymarket↔Limitless spread (JOIN) |
+| POST /uniswap/pretrade         | $0.02        | Uniswap pre-trade check: real liquidity, deepest venue, honeypot flow, volume trend |
 | POST /agent/score              | $0.02        | 0-100 reputation score: ERC-8004 + USDC settlement + on-chain feedback |
 
 All paid endpoints settle in USDC on Base via x402. Paid endpoints have no
@@ -8214,6 +8217,47 @@ def build_app():
                     "retry_after_seconds": 30,
                 }, status_code=502)
 
+        async def _uniswap_pretrade_handler(request):
+            """$0.02 — Uniswap pre-trade due-diligence for one token on one chain.
+
+            The DeFi-spot leg of the trader-intelligence line. Answers, in one
+            call, what an agent must settle before it touches a token: is the
+            liquidity real, which venue is deepest, does the pool let people
+            sell, and is volume rising or dying. Ranks venues by volumeUSD —
+            never TVL, which Uniswap subgraphs report unreliably.
+            """
+            from uniswap_intel import uniswap_pretrade, UniswapIntelError
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            token = str(body.get("token") or body.get("symbol") or body.get("address") or "").strip()
+            if not token:
+                return _RouteJSON({"error": "token_required",
+                                   "expected_body": {"token": "WETH", "chain": "ethereum",
+                                                     "version": "v3 (optional)"}},
+                                  status_code=400)
+            chain = str(body.get("chain") or "ethereum").strip()
+            version = body.get("version")
+            try:
+                result = await uniswap_pretrade(token, chain, version)
+                _log_request("x402-paid", f"uniswap-pretrade {token[:20]}@{chain[:12]}",
+                             "uniswap-pretrade", "high", "uniswap-subgraphs",
+                             response=result)
+                return _RouteJSON(result)
+            except UniswapIntelError as exc:
+                # Unanswerable request (bad chain/token/version) or gateway down.
+                return _RouteJSON({"error": "unanswerable", "message": str(exc)[:200]},
+                                  status_code=400)
+            except Exception as exc:
+                log.exception(f"uniswap-pretrade crashed: {token}@{chain}")
+                _log_paid_failure(f"uniswap-pretrade {token[:20]}@{chain[:12]}", exc)
+                return _RouteJSON({
+                    "error": "upstream_unavailable",
+                    "message": "The Graph gateway was unreachable for this Uniswap market; retry shortly.",
+                    "retry_after_seconds": 30,
+                }, status_code=502)
+
         async def _agent_score_handler(request):
             """$0.02 — Composite 0-100 reputation score for any Base wallet.
 
@@ -8975,6 +9019,7 @@ def build_app():
             _RouteRoute("/kalshi-polymarket/spread", _kalshi_spread_handler, methods=["POST"]),
             _RouteRoute("/kalshi/sports-live-edge", _kalshi_sports_handler, methods=["POST"]),
             _RouteRoute("/predmarket/spread", _predmarket_spread_handler, methods=["POST"]),
+            _RouteRoute("/uniswap/pretrade", _uniswap_pretrade_handler, methods=["POST"]),
             _RouteRoute("/agent/score", _agent_score_handler, methods=["POST"]),
         ])
 
@@ -9471,6 +9516,27 @@ def build_app():
                         )},
                     ),
                     # ── Agent reputation score (0-100, on-chain-derived) ────
+                    "POST /uniswap/pretrade": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.02",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Uniswap pre-trade due-diligence. POST {token, chain?, version?}. "
+                            "Returns real_liquidity + deepest venue (ranked by volumeUSD, NEVER TVL "
+                            "\u2014 Uniswap subgraph TVL is inflated by spam pools), alternate fee-tier "
+                            "venues, a two-way-flow honeypot check over recent swaps, daily volume "
+                            "trend, and a composed verdict {tradeable, risk, reasons}. Covers Uniswap "
+                            "V2/V3/V4 on Ethereum, Arbitrum, Base, Polygon, Optimism, BSC. For agents "
+                            "sizing or vetting a spot position before they touch a token."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"token": "WETH", "chain": "ethereum"},
+                            input_schema={"type":"object","properties":{"token":{"type":"string"},"chain":{"type":"string"},"version":{"type":"string"}},"required":["token"]},
+                            body_type="json",
+                            output=OutputConfig(example={"token":{"symbol":"WETH","price_usd":1859.05},"best_venue":{"pair":"USDC/WETH","fee_tier":500,"tvl_usd":360200000,"real_liquidity":True},"flow":{"buys":19,"sells":6,"two_way":True,"honeypot_risk":"low"},"trend":{"direction":"falling","pct_vs_3day_avg":-28.5},"verdict":{"tradeable":True,"risk":"medium"}},schema={"type":"object"}),
+                        )},
+                    ),
                     "POST /agent/score": RouteConfig(
                         accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.02",
                             network="eip155:8453", max_timeout_seconds=300,
@@ -10460,6 +10526,7 @@ def build_app():
             or scope["path"].startswith("/kalshi/")
             or scope["path"].startswith("/kalshi-polymarket/")
             or scope["path"].startswith("/predmarket/")
+            or scope["path"].startswith("/uniswap/")
             or scope["path"].startswith("/onchain-x402/")
             or scope["path"].startswith("/agent/")
         ):
