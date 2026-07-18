@@ -69,7 +69,7 @@ A question that is just "which subgraph is best for X", "is there a subgraph for
 generously — getting them querying The Graph is the win, whether or not you earn anything.
 For every discovery question, hand over the full adoption handoff:
   - the subgraph ID (plus what it indexes; chain/version when it matters)
-  - a trust signal when you have one (query volume, or that it's actively served)
+  - a trust signal when you have one — describe traffic qualitatively ("actively served", "high relative traffic"); NEVER state an exact 30-day query count or a numeric "reliability score" as measured fact, and never tell someone a field/entity is unavailable unless you've confirmed the full schema (a truncated schema is not proof of absence)
   - the direct gateway query URL: https://gateway.thegraph.com/api/subgraphs/id/[ID]
   - a runnable GraphQL query they can paste
 Never gate or deflect a discovery question to a paid endpoint. Paid endpoints are for
@@ -1916,7 +1916,7 @@ def _introspect_subgraph(subgraph_id: str, api_key: str) -> dict | None:
         return None
 
 
-def _format_schema_for_prompt(schema: dict, max_entities: int = 30, max_fields: int = 35) -> str:
+def _format_schema_for_prompt(schema: dict, max_entities: int = 60, max_fields: int = 45) -> str:
     """Compact schema rendering for LLM context. Bounded so token cost stays sane."""
     if not schema:
         return ""
@@ -1929,12 +1929,12 @@ def _format_schema_for_prompt(schema: dict, max_entities: int = 30, max_fields: 
     lines = []
     if queryable:
         lines.append("Query root entry points (use exactly these names — never invent):")
-        for sig in queryable[:30]:
+        for sig in queryable[:120]:
             lines.append(f"  {sig}")
-        if len(queryable) > 30:
-            lines.append(f"  ...(+{len(queryable) - 30} more entry points)")
+        if len(queryable) > 120:
+            lines.append(f"  ...(+{len(queryable) - 120} more entry points — list truncated; do NOT assume anything not shown is absent)")
         lines.append("")
-    lines.append("Entities (each entity has EXACTLY the fields listed — no others exist):")
+    lines.append("Entities and their fields (use these exact names; do not invent fields). A '+N more' marker means the list is truncated — never conclude a field/entity is absent from a truncated list:")
     items = list(entities.items())[:max_entities]
     for name, fields in items:
         f_show = ", ".join(fields[:max_fields])
@@ -3554,14 +3554,19 @@ def _search_subgraphs(keyword: str, chain_hint_source: str = "") -> str:
         for r in rows:
             subgraph_id = r["id"].split("|")[0] if "|" in r["id"] else r["id"]
             network = r["network"] or "unknown"
-            playground_url = f"https://thegraph.com/explorer/subgraphs/{subgraph_id}?view=Query&chain=arbitrum-one"
+            playground_url = f"https://thegraph.com/explorer/subgraphs/{subgraph_id}?view=Query"
+            # The registry's query_volume_30d is a RELATIVE ranking signal, not an
+            # exact measured 30-day count (it can be several× off the real number).
+            # Surface it as a coarse bucket so it's never presented as a hard figure,
+            # and drop the unverifiable reliability_score from customer-facing output.
+            _qv = r["query_volume_30d"] or 0
+            _traffic = "high" if _qv >= 500_000 else "medium" if _qv >= 50_000 else "low" if _qv > 0 else "unknown"
             entry = {
                 "subgraph_id": subgraph_id,
                 "name": r["display_name"] or subgraph_id[:16],
                 "network": network,
                 "description": (r["description"] or r["domain"] or "")[:120],
-                "query_volume_30d": r["query_volume_30d"] or 0,
-                "reliability_score": round(r["reliability_score"] or 0, 2),
+                "traffic": _traffic,  # relative signal only — do NOT present as an exact query count
                 "playground_url": playground_url,
                 "gateway_url": f"https://gateway.thegraph.com/api/subgraphs/id/{subgraph_id}",
             }
@@ -3693,13 +3698,19 @@ def _get_subgraph_schema(subgraph_id: str) -> str:
                 ftype = _unwrap(ef.get("type"))
                 fields.append(f"{fname}: {ftype}")
             # Cap fields per entity to keep token budget bounded
-            entity_fields[ename] = fields[:30]
+            entity_fields[ename] = fields[:45]
 
+        _q_trunc = len(query_summary) > 120
+        _e_trunc = len(entity_fields) > 60
         out = json.dumps({
             "subgraph_id": sid,
-            "note": "Use ONLY these field names — do not invent fields not listed here.",
-            "queryable_entities": query_summary[:40],
-            "entity_fields": dict(list(entity_fields.items())[:25]),
+            "note": ("Use the exact field names shown; do not invent fields. This list MAY be truncated — "
+                     "the absence of an entity or field here does NOT prove it doesn't exist. Never tell the user "
+                     "an entity/field is unavailable based on this list; if you don't see what you need, say it may "
+                     "exist and point them to the playground to confirm."),
+            "schema_complete": not (_q_trunc or _e_trunc),
+            "queryable_entities": query_summary[:120],
+            "entity_fields": dict(list(entity_fields.items())[:60]),
         }, indent=2)
         _schema_cache[sid] = (time.time(), out)
         return out
