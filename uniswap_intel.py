@@ -337,6 +337,90 @@ async def uniswap_pretrade(token: str, chain: str = "ethereum", version: str | N
     }
 
 
+# Hyperliquid perp coin -> the Uniswap spot token that tracks it.
+_PERP_TO_SPOT = {"ETH": "WETH", "BTC": "WBTC", "MATIC": "POL"}
+
+
+async def spot_perp_basis(coin: str, chain: str = "ethereum", version: str | None = None) -> dict:
+    """Cross-venue basis: Uniswap SPOT vs Hyperliquid PERP for the same asset.
+
+    This is a JOIN a single-venue passthrough structurally cannot return — one
+    side is an AMM subgraph, the other a perps venue.
+
+    Positive basis => the perp trades ABOVE spot (longs crowded, longs pay funding).
+    Negative basis => the perp trades BELOW spot (shorts crowded / spot bid).
+    """
+    from hyperliquid_intel import fetch_market_activity
+
+    c_up = (coin or "").strip().upper()
+    if not c_up:
+        raise UniswapIntelError("coin is required (e.g. ETH, BTC)")
+    spot_symbol = _PERP_TO_SPOT.get(c_up, c_up)
+    v, c, sid = _resolve_market(chain, version)
+
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        tok, native, fills = await asyncio.gather(
+            _resolve_token(client, sid, spot_symbol),
+            _native_price(client, sid),
+            # Pinax caps /markets/activity at 10 items — asking for more 403s.
+            fetch_market_activity(c_up, limit=10),
+            return_exceptions=True,
+        )
+
+    if isinstance(tok, Exception) or not tok:
+        raise UniswapIntelError(f"spot token '{spot_symbol}' not found on Uniswap {v.upper()} {c}")
+    if isinstance(native, Exception):
+        native = None
+    derived = float(tok.get("derivedETH") or 0)
+    spot = round(derived * native, 8) if (native and derived > 0) else None
+
+    perp = None
+    perp_ts = None
+    if not isinstance(fills, Exception) and fills:
+        try:
+            rows = [f for f in fills if f.get("price") is not None]
+            # Pinax returns timestamp as a "YYYY-MM-DD HH:MM:SS" string, which
+            # sorts correctly lexicographically — do NOT int() it.
+            rows.sort(key=lambda f: str(f.get("timestamp") or ""), reverse=True)
+            if rows:
+                perp = float(rows[0]["price"])
+                perp_ts = rows[0].get("timestamp") or None
+        except (TypeError, ValueError):
+            perp = None
+
+    basis_pct = None
+    signal = "unknown"
+    if spot and perp:
+        basis_pct = round(((perp - spot) / spot) * 100, 4)
+        if basis_pct > 0.25:
+            signal = "perp_premium"      # longs crowded, funding likely positive
+        elif basis_pct < -0.25:
+            signal = "perp_discount"     # shorts crowded / spot bid
+        else:
+            signal = "aligned"
+
+    return {
+        "coin": c_up,
+        "spot": {"venue": f"uniswap-{v}", "chain": c, "symbol": tok.get("symbol"),
+                 "address": tok["id"], "price_usd": spot, "subgraph_id": sid},
+        "perp": {"venue": "hyperliquid", "coin": c_up, "price_usd": perp,
+                 "last_fill_time": perp_ts},
+        "basis_pct": basis_pct,
+        "signal": signal,
+        "interpretation": {
+            "perp_premium": "Perp trades above spot — longs crowded; longs typically pay funding.",
+            "perp_discount": "Perp trades below spot — shorts crowded or spot is bid.",
+            "aligned": "Perp and spot within 0.25% — no meaningful basis.",
+            "unknown": "One leg unavailable; basis not computable.",
+        }[signal],
+        "note": (
+            "Spot is derived on-chain from Uniswap subgraph reserves; perp is the most recent "
+            "Hyperliquid fill price, not an oracle mark. Treat basis as a directional signal, "
+            "not a settlement price. Legs are independent — if one is unavailable the other still returns."
+        ),
+    }
+
+
 TVL_NOTE = (
     "Venues are ranked by volumeUSD, never TVL: Uniswap subgraph TVL is inflated by illiquid "
     "spam-token pools, so treat tvl_usd as a weak signal and volume as the strong one. "

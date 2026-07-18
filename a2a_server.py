@@ -2449,6 +2449,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                     "POST /polymarket/pnl-quick": "$0.02 — derived skill metrics for a Polymarket wallet",
                     "POST /hyperliquid/score": "$0.02 — Hyperliquid perps trader skill score",
                     "POST /uniswap/pretrade": "$0.02 — Uniswap pre-trade check (real liquidity, deepest venue, honeypot flow, volume trend)",
+                    "POST /uniswap/basis": "$0.05 — Uniswap spot vs Hyperliquid perp basis (cross-venue JOIN)",
                     "POST /kalshi-polymarket/spread": "$0.05 — Kalshi↔Polymarket cross-source spread",
                     "POST /ask": "$0.05 — natural-language Q&A over 132M+ x402 settlements on Base",
                 },
@@ -2929,6 +2930,7 @@ _PAID_ENDPOINT_TESTS = [
     ("kalshi-polymarket/spread",    {"topic": "fed rate", "limit": 3},                     100, "0.05"),
     ("predmarket/spread",           {"topic": "trump", "limit": 5},                         100, "0.05"),
     ("uniswap/pretrade",            {"token": "WETH", "chain": "ethereum"},                 100, "0.02"),
+    ("uniswap/basis",               {"coin": "ETH", "chain": "ethereum"},                   100, "0.05"),
     ("kalshi/sports-live-edge",     {"milestone": "93ce8b69-d3db-412d-b41e-a245a271adcc"}, 100, "0.05"),
 ]
 
@@ -3506,6 +3508,7 @@ requests (no sender metadata) are not eligible and pay $0.01 USDC from call 1.
 | POST /kalshi/sports-live-edge  | $0.05        | Live sports mispricing (play-by-play vs candles) |
 | POST /predmarket/spread        | $0.05        | Cross-venue Polymarket↔Limitless spread (JOIN) |
 | POST /uniswap/pretrade         | $0.02        | Uniswap pre-trade check: real liquidity, deepest venue, honeypot flow, volume trend |
+| POST /uniswap/basis            | $0.05        | Uniswap spot vs Hyperliquid perp basis (cross-venue JOIN) |
 | POST /agent/score              | $0.02        | 0-100 reputation score: ERC-8004 + USDC settlement + on-chain feedback |
 
 All paid endpoints settle in USDC on Base via x402. Paid endpoints have no
@@ -8258,6 +8261,43 @@ def build_app():
                     "retry_after_seconds": 30,
                 }, status_code=502)
 
+        async def _uniswap_basis_handler(request):
+            """$0.05 — Uniswap SPOT vs Hyperliquid PERP basis for one asset.
+
+            A cross-venue JOIN a single-venue passthrough structurally cannot
+            return: one leg is an AMM subgraph, the other a perps venue.
+            Positive basis => perp above spot (longs crowded, longs pay funding).
+            """
+            from uniswap_intel import spot_perp_basis, UniswapIntelError
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            coin = str(body.get("coin") or body.get("symbol") or body.get("token") or "").strip()
+            if not coin:
+                return _RouteJSON({"error": "coin_required",
+                                   "expected_body": {"coin": "ETH", "chain": "ethereum"}},
+                                  status_code=400)
+            chain = str(body.get("chain") or "ethereum").strip()
+            version = body.get("version")
+            try:
+                result = await spot_perp_basis(coin, chain, version)
+                _log_request("x402-paid", f"uniswap-basis {coin[:12]}@{chain[:12]}",
+                             "uniswap-basis", "high", "uniswap-subgraphs+hyperliquid",
+                             response=result)
+                return _RouteJSON(result)
+            except UniswapIntelError as exc:
+                return _RouteJSON({"error": "unanswerable", "message": str(exc)[:200]},
+                                  status_code=400)
+            except Exception as exc:
+                log.exception(f"uniswap-basis crashed: {coin}@{chain}")
+                _log_paid_failure(f"uniswap-basis {coin[:12]}@{chain[:12]}", exc)
+                return _RouteJSON({
+                    "error": "upstream_unavailable",
+                    "message": "Uniswap gateway or Hyperliquid upstream unreachable; retry shortly.",
+                    "retry_after_seconds": 30,
+                }, status_code=502)
+
         async def _agent_score_handler(request):
             """$0.02 — Composite 0-100 reputation score for any Base wallet.
 
@@ -9020,6 +9060,7 @@ def build_app():
             _RouteRoute("/kalshi/sports-live-edge", _kalshi_sports_handler, methods=["POST"]),
             _RouteRoute("/predmarket/spread", _predmarket_spread_handler, methods=["POST"]),
             _RouteRoute("/uniswap/pretrade", _uniswap_pretrade_handler, methods=["POST"]),
+            _RouteRoute("/uniswap/basis", _uniswap_basis_handler, methods=["POST"]),
             _RouteRoute("/agent/score", _agent_score_handler, methods=["POST"]),
         ])
 
@@ -9535,6 +9576,25 @@ def build_app():
                             input_schema={"type":"object","properties":{"token":{"type":"string"},"chain":{"type":"string"},"version":{"type":"string"}},"required":["token"]},
                             body_type="json",
                             output=OutputConfig(example={"token":{"symbol":"WETH","price_usd":1859.05},"best_venue":{"pair":"USDC/WETH","fee_tier":500,"tvl_usd":360200000,"real_liquidity":True},"flow":{"buys":19,"sells":6,"two_way":True,"honeypot_risk":"low"},"trend":{"direction":"falling","pct_vs_3day_avg":-28.5},"verdict":{"tradeable":True,"risk":"medium"}},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /uniswap/basis": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Cross-venue SPOT vs PERP basis. POST {coin, chain?}. Joins Uniswap spot "
+                            "(on-chain, from the subgraph) against the Hyperliquid perp last-fill price "
+                            "and returns basis_pct + a signal (perp_premium / perp_discount / aligned). "
+                            "A JOIN a single-venue passthrough structurally cannot return. Positive basis "
+                            "means longs are crowded and typically paying funding."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"coin": "BTC", "chain": "ethereum"},
+                            input_schema={"type":"object","properties":{"coin":{"type":"string"},"chain":{"type":"string"}},"required":["coin"]},
+                            body_type="json",
+                            output=OutputConfig(example={"coin":"BTC","spot":{"venue":"uniswap-v3","price_usd":64588.86},"perp":{"venue":"hyperliquid","price_usd":64826.0},"basis_pct":0.3672,"signal":"perp_premium"},schema={"type":"object"}),
                         )},
                     ),
                     "POST /agent/score": RouteConfig(
