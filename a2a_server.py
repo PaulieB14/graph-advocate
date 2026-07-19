@@ -313,6 +313,25 @@ _A2A_OUTPUT_EXAMPLES = {
         "summary": {"buy_count": 4, "sell_count": 4, "notional_usdc": 2342.15, "whale_fill_count": 0, "unique_users": 8},
         "fills": [{"side": "ASK", "price": 73430, "size": 0.00084, "notional": 61.68, "user": "0x1738e6cb…", "direction": "OPEN_SHORT", "fee": 0.048, "timestamp": "2026-05-28 17:22:28"}],
     },
+    "uniswap/pretrade": {
+        "token": {"symbol": "WETH", "price_usd": 1859.05},
+        "best_venue": {"pair": "USDC/WETH", "fee_tier": 500, "tvl_usd": 360200000, "real_liquidity": True},
+        "flow": {"buys": 19, "sells": 6, "two_way": True, "honeypot_risk": "low"},
+        "trend": {"direction": "falling", "pct_vs_3day_avg": -28.5},
+        "verdict": {"tradeable": True, "risk": "medium"},
+    },
+    "uniswap/basis": {
+        "coin": "BTC",
+        "spot": {"venue": "uniswap-v3", "price_usd": 64588.86},
+        "perp": {"venue": "hyperliquid", "price_usd": 64826.0},
+        "basis_pct": 0.3672, "signal": "perp_premium",
+    },
+    "uniswap/traders": {
+        "token": {"symbol": "WETH"},
+        "venue": {"pair": "USDC/WETH", "fee_tier": 500},
+        "sample": {"swaps_scanned": 200, "unique_wallets": 131},
+        "traders": [{"wallet": "0x5b43453f…", "buys": 3, "sells": 10, "volume_usd": 222360, "stance": "distributing"}],
+    },
     "onchain-x402/address": {
         "address": "0x0ff5a6ecef783bba35463ec2f8403b9b5e9e7c86",
         "as_recipient": {"totalPayments": "47", "totalVolumeDecimal": "0.47", "lastPaymentTimestamp": "1780500000"},
@@ -330,18 +349,121 @@ _A2A_OUTPUT_EXAMPLES = {
 # price. `amount` = price in USDC 6-decimal base units. Prices MUST stay in sync
 # with the RouteConfig prices in the PaymentMiddlewareASGI block below.
 _USDC_BASE_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC on Base (eip155:8453)
-_A2A_SERVICE_META = {
-    "polymarket/pnl-quick": {"path": "/polymarket/pnl-quick", "price": "$0.01", "amount": "10000",  "body": {"wallet": "0x..."}},
-    "polymarket/pnl":       {"path": "/polymarket/pnl",       "price": "$0.05", "amount": "50000",  "body": {"wallet": "0x...", "method": "hifo"}},
-    "polymarket/risk":      {"path": "/polymarket/risk",      "price": "$0.02", "amount": "20000",  "body": {"wallet": "0x..."}},
-    "hyperliquid/score":    {"path": "/hyperliquid/score",    "price": "$0.02", "amount": "20000",  "body": {"user": "0x..."}},
-    "hyperliquid/pnl":      {"path": "/hyperliquid/pnl",       "price": "$0.05", "amount": "50000",  "body": {"user": "0x..."}},
-    "hyperliquid/risk":     {"path": "/hyperliquid/risk",      "price": "$0.02", "amount": "20000",  "body": {"user": "0x..."}},
-    "hyperliquid/screen":   {"path": "/hyperliquid/screen",    "price": "$0.05", "amount": "50000",  "body": {"coin": "SOL", "n": 20}},
-    "hyperliquid/vault":    {"path": "/hyperliquid/vault",     "price": "$0.10", "amount": "100000", "body": {"vault": "0x..."}},
-    "hyperliquid/fills":    {"path": "/hyperliquid/fills",     "price": "$0.02", "amount": "20000",  "body": {"coin": "SOL", "n": 10}},
-    "onchain-x402/address": {"path": "/onchain-x402/address",  "price": "$0.01", "amount": "10000",  "body": {"address": "0x..."}},
+# CANONICAL paid-endpoint catalog — the SINGLE source of truth.
+#
+# /openapi.json, /.well-known/x402 and the A2A 402 signpost are all DERIVED
+# from this dict (see below and the discovery handlers). Adding a paid
+# endpoint = add ONE entry here + its route/RouteConfig/dispatcher wiring.
+# Before this was centralised the three surfaces had drifted to 10/13/16
+# entries listing different endpoints.
+#   a2a       -> offered as an auto-payable signpost from the A2A 402
+#   openapi   -> documented in /openapi.json for x402scan & OpenAPI crawlers
+#   wellknown -> advertised in /.well-known/x402
+_PAID_CATALOG = {
+    'agent/score': {
+        "path": "/agent/score", "price": '', "amount": '', "body": {},
+        "a2a": False, "openapi": False, "wellknown": True,
+    },
+    'hyperliquid/fills': {
+        "path": "/hyperliquid/fills", "price": '$0.02', "amount": '20000', "body": {'coin': 'SOL', 'n': 10},
+        "a2a": True, "openapi": False, "wellknown": False,
+    },
+    'hyperliquid/pnl': {
+        "path": "/hyperliquid/pnl", "price": '$0.05', "amount": '50000', "body": {'user': '0x...'},
+        "op_id": 'hyperliquidPnl', "desc": 'Full Hyperliquid trader dossier: skill metrics plus open positions and recent fills.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'hyperliquid/risk': {
+        "path": "/hyperliquid/risk", "price": '$0.02', "amount": '20000', "body": {'user': '0x...'},
+        "op_id": 'hyperliquidRisk', "desc": 'Hyperliquid counterparty risk: liquidation rate, funding burn, recent-outflow flag.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'hyperliquid/score': {
+        "path": "/hyperliquid/score", "price": '$0.02', "amount": '20000', "body": {'user': '0x...'},
+        "op_id": 'hyperliquidScore', "desc": 'Composite skill_score 0-100 for a Hyperliquid perps trader: classification, liquidation rate, funding burn, profit factor.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'hyperliquid/screen': {
+        "path": "/hyperliquid/screen", "price": '$0.05', "amount": '50000', "body": {'coin': 'SOL', 'n': 20},
+        "op_id": 'hyperliquidScreen', "desc": 'Top N traders of a Hyperliquid coin, each scored sharp/neutral/retail.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'hyperliquid/vault': {
+        "path": "/hyperliquid/vault", "price": '$0.10', "amount": '100000', "body": {'vault': '0x...'},
+        "op_id": 'hyperliquidVault', "desc": 'Hyperliquid vault evaluator: leader skill, depositor concentration, redemption pressure.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'kalshi-polymarket/spread': {
+        "path": "/kalshi-polymarket/spread", "price": '$0.05', "amount": '50000', "body": {},
+        "op_id": 'kalshiPolymarketSpread', "desc": 'Kalshi vs Polymarket cross-source spread on a topic — JOIN that single-source APIs cannot return; arbitrage direction included.',
+        "a2a": False, "openapi": True, "wellknown": True,
+    },
+    'kalshi/consensus-trend': {
+        "path": "/kalshi/consensus-trend", "price": '$0.05', "amount": '50000', "body": {},
+        "op_id": 'kalshiConsensusTrend', "desc": 'Kalshi consensus-probability trajectory: slope, acceleration, volatility band derived from Kalshi-unique forecast_history.',
+        "a2a": False, "openapi": True, "wellknown": True,
+    },
+    'kalshi/sports-live-edge': {
+        "path": "/kalshi/sports-live-edge", "price": '$0.05', "amount": '50000', "body": {},
+        "op_id": 'kalshiSportsLiveEdge', "desc": 'Live sports mispricing detector: play-by-play momentum vs market candlestick reaction; flags latency-arb windows.',
+        "a2a": False, "openapi": True, "wellknown": True,
+    },
+    'onchain-x402/address': {
+        "path": "/onchain-x402/address", "price": '$0.01', "amount": '10000', "body": {'address': '0x...'},
+        "a2a": True, "openapi": False, "wellknown": False,
+    },
+    'polymarket/pnl': {
+        "path": "/polymarket/pnl", "price": '$0.05', "amount": '50000', "body": {'wallet': '0x...', 'method': 'hifo'},
+        "op_id": 'polymarketPnl', "desc": 'Full Polymarket trader dossier: scores plus per-market PnL records and open positions.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'polymarket/pnl-quick': {
+        "path": "/polymarket/pnl-quick", "price": '$0.01', "amount": '10000', "body": {'wallet': '0x...'},
+        "op_id": 'polymarketPnlQuick', "desc": 'Fast derived skill metrics for a Polymarket wallet: skill score, classification, realized PnL, win rate.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'polymarket/risk': {
+        "path": "/polymarket/risk", "price": '$0.02', "amount": '20000', "body": {'wallet': '0x...'},
+        "op_id": 'polymarketRisk', "desc": 'Polymarket ghost-fill risk: wallet-type detection plus risk score for counterparty assessment.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'polymarket/screen': {
+        "path": "/polymarket/screen", "price": '$0.02', "amount": '20000', "body": {},
+        "op_id": 'polymarketScreen', "desc": 'Top holders of a Polymarket market, each with skill score and ghost-fill risk.',
+        "a2a": False, "openapi": True, "wellknown": True,
+    },
+    'predmarket/spread': {
+        "path": "/predmarket/spread", "price": '$0.05', "amount": '50000', "body": {},
+        "op_id": 'predmarketSpread', "desc": 'Polymarket vs Limitless cross-venue spread on a topic — JOIN that single-venue APIs cannot return; arbitrage direction included.',
+        "a2a": False, "openapi": True, "wellknown": True,
+    },
+    'route': {
+        "path": "/route", "price": '', "amount": '', "body": {},
+        "a2a": False, "openapi": False, "wellknown": True,
+    },
+    'tip': {
+        "path": "/tip", "price": '', "amount": '', "body": {},
+        "a2a": False, "openapi": False, "wellknown": True,
+    },
+    'uniswap/basis': {
+        "path": "/uniswap/basis", "price": '$0.05', "amount": '50000', "body": {'coin': 'ETH', 'chain': 'ethereum'},
+        "op_id": 'uniswapBasis', "desc": 'Uniswap spot vs Hyperliquid perp basis for one asset — a cross-venue JOIN returning basis_pct and a perp_premium/perp_discount/aligned signal.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'uniswap/pretrade': {
+        "path": "/uniswap/pretrade", "price": '$0.02', "amount": '20000', "body": {'token': 'WETH', 'chain': 'ethereum'},
+        "op_id": 'uniswapPretrade', "desc": 'Uniswap pre-trade due-diligence for a token: real liquidity, deepest venue ranked by volume (not TVL), honeypot two-way-flow check, daily volume trend, and a tradeable/risk verdict.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
+    'uniswap/traders': {
+        "path": "/uniswap/traders", "price": '$0.02', "amount": '20000', "body": {'token': 'WETH', 'chain': 'ethereum'},
+        "op_id": 'uniswapTraders', "desc": "Per-wallet Uniswap flow on a token's deepest venue: accumulators vs distributors with trader EOAs, buys/sells and volume_usd.",
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
 }
+
+# Derived view kept for the A2A 402 signpost lookup (single consumer).
+_A2A_SERVICE_META = {k: v for k, v in _PAID_CATALOG.items() if v.get("a2a")}
 
 
 def _pick_output_example(user_text: str | None) -> tuple[str, dict]:
@@ -6767,23 +6889,9 @@ def build_app():
         """
         return JSONResponse({
             "version": 1,
+            # Derived from _PAID_CATALOG — do not hand-maintain.
             "resources": [
-                BASE_URL + "/route",
-                BASE_URL + "/tip",
-                BASE_URL + "/hyperliquid/score",
-                BASE_URL + "/hyperliquid/pnl",
-                BASE_URL + "/hyperliquid/screen",
-                BASE_URL + "/hyperliquid/vault",
-                BASE_URL + "/hyperliquid/risk",
-                BASE_URL + "/polymarket/pnl-quick",
-                BASE_URL + "/polymarket/pnl",
-                BASE_URL + "/polymarket/screen",
-                BASE_URL + "/polymarket/risk",
-                BASE_URL + "/kalshi/consensus-trend",
-                BASE_URL + "/kalshi-polymarket/spread",
-                BASE_URL + "/kalshi/sports-live-edge",
-                BASE_URL + "/predmarket/spread",
-                BASE_URL + "/agent/score",
+                BASE_URL + c["path"] for c in _PAID_CATALOG.values() if c.get("wellknown")
             ],
             "instructions": (
                 "POST a plain-English onchain data request and receive a "
@@ -6947,33 +7055,10 @@ def build_app():
         # Trader-intelligence endpoints — paid x402 services. Documented here
         # so x402scan and other OpenAPI crawlers discover the full surface,
         # not just /route. Prices mirror /.well-known/x402 and the catalogs.
+        # Derived from _PAID_CATALOG — do not hand-maintain.
         _paid_endpoints = [
-            ("/hyperliquid/score", "hyperliquidScore", "0.02",
-             "Composite skill_score 0-100 for a Hyperliquid perps trader: classification, liquidation rate, funding burn, profit factor."),
-            ("/hyperliquid/pnl", "hyperliquidPnl", "0.05",
-             "Full Hyperliquid trader dossier: skill metrics plus open positions and recent fills."),
-            ("/hyperliquid/screen", "hyperliquidScreen", "0.05",
-             "Top N traders of a Hyperliquid coin, each scored sharp/neutral/retail."),
-            ("/hyperliquid/vault", "hyperliquidVault", "0.10",
-             "Hyperliquid vault evaluator: leader skill, depositor concentration, redemption pressure."),
-            ("/hyperliquid/risk", "hyperliquidRisk", "0.02",
-             "Hyperliquid counterparty risk: liquidation rate, funding burn, recent-outflow flag."),
-            ("/polymarket/pnl-quick", "polymarketPnlQuick", "0.01",
-             "Fast derived skill metrics for a Polymarket wallet: skill score, classification, realized PnL, win rate."),
-            ("/polymarket/pnl", "polymarketPnl", "0.05",
-             "Full Polymarket trader dossier: scores plus per-market PnL records and open positions."),
-            ("/polymarket/screen", "polymarketScreen", "0.02",
-             "Top holders of a Polymarket market, each with skill score and ghost-fill risk."),
-            ("/polymarket/risk", "polymarketRisk", "0.02",
-             "Polymarket ghost-fill risk: wallet-type detection plus risk score for counterparty assessment."),
-            ("/kalshi/consensus-trend", "kalshiConsensusTrend", "0.05",
-             "Kalshi consensus-probability trajectory: slope, acceleration, volatility band derived from Kalshi-unique forecast_history."),
-            ("/kalshi-polymarket/spread", "kalshiPolymarketSpread", "0.05",
-             "Kalshi vs Polymarket cross-source spread on a topic — JOIN that single-source APIs cannot return; arbitrage direction included."),
-            ("/kalshi/sports-live-edge", "kalshiSportsLiveEdge", "0.05",
-             "Live sports mispricing detector: play-by-play momentum vs market candlestick reaction; flags latency-arb windows."),
-            ("/predmarket/spread", "predmarketSpread", "0.05",
-             "Polymarket vs Limitless cross-venue spread on a topic — JOIN that single-venue APIs cannot return; arbitrage direction included."),
+            (c["path"], c["op_id"], c["price"].lstrip("$"), c["desc"])
+            for c in _PAID_CATALOG.values() if c.get("openapi")
         ]
         for _path, _opid, _price, _desc in _paid_endpoints:
             spec["paths"][_path] = {
