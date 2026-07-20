@@ -4434,7 +4434,7 @@ def _get_onchain_stats() -> dict:
     out["real_revenue_usdc"] = _op.get("real_revenue_usdc")   # settled USDC, excl GA self-tests
     out["settled_gross_usdc"] = _op.get("gross_settled_usdc")  # settled USDC incl self-tests
     out["payers_indexed_block"] = _op.get("indexed_block")
-    out["payers_source"] = f"x402-base-subgraph:{_X402_BASE_SUBGRAPH}"
+    out["payers_source"] = "base-usdc-transfer-logs"
     if _op.get("error"):
         out["payers_error"] = _op["error"]
 
@@ -4443,12 +4443,9 @@ def _get_onchain_stats() -> dict:
     return out
 
 
-# ── Authoritative on-chain payer list (x402 Base subgraph) ──────────────────
+# Cache for the payer scan (see below).
 _PAYERS_CACHE: dict = {"data": None, "ts": 0.0}
 _PAYERS_CACHE_TTL_SEC = 600
-# "x402 Base" on The Graph Network — same subgraph the /onchain-x402/address
-# endpoint reads. Every USDC settlement to GA's x402 wallet is an x402Payment.
-_X402_BASE_SUBGRAPH = "Cb56epg3EvQ6JRpPfknbkM54QxpzTvLa7mwKNQQfUyoj"
 # GA's OWN wallets — self-test / outreach traffic, NOT customers. Kept in sync
 # with ga-monitor's GA_SELF_WALLETS. Lowercased for matching.
 _GA_SELF_WALLETS = {
@@ -4457,12 +4454,73 @@ _GA_SELF_WALLETS = {
     X402_WALLET.lower(),                             # the receiving wallet itself
 }
 
+# ── Authoritative on-chain payer list (USDC Transfer logs on Base) ─────────
+# NOT the x402 Base subgraph. That subgraph UNDERCOUNTS badly: on 2026-07-20 it
+# reported 12 payments / $0.41 over 30d where the chain showed 59 payments /
+# $1.43 — ~3.5x low. It only indexes settlements that travel the x402 facilitator
+# path; payments landing as plain USDC transfers to the pay-to wallet are
+# invisible to it. (Ampersend's figures matched the chain; the subgraph's did not,
+# and ga-monitor inherited the error because it reads this function.)
+#
+# Chain truth = every USDC Transfer log whose `to` is our pay-to wallet. That
+# catches every payment method by construction.
+#
+# Scanning is INCREMENTAL and BOUNDED: cumulative per-wallet totals persist in
+# SQLite, each call scans only new blocks, and a cold start walks at most
+# _SCAN_MAX_CHUNKS chunks per invocation so a dashboard request never blocks on a
+# multi-minute backfill. It converges over a few refreshes, then costs ~1 call.
+_USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+_X402_SCAN_FLOOR_BLOCK = int(os.environ.get("X402_SCAN_FLOOR_BLOCK", "45000000"))
+_SCAN_CHUNK = 9999          # Base public RPC caps eth_getLogs at 10k blocks
+_SCAN_MAX_CHUNKS = 40       # per invocation, so no request stalls on backfill
+_PAYER_MEM: dict = {"last_block": 0, "agg": {}}   # fallback if /data is read-only
+
+
+def _payer_state_load():
+    """(last_scanned_block, {wallet: {n, usdc, fb, lb}}) from SQLite, or memory."""
+    import sqlite3 as _sq
+    try:
+        conn = _sq.connect(str(DB_PATH), timeout=5)
+        conn.execute("CREATE TABLE IF NOT EXISTS x402_payer_scan ("
+                     "wallet TEXT PRIMARY KEY, payments INTEGER, usdc REAL, "
+                     "first_block INTEGER, last_block INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS x402_scan_meta (k TEXT PRIMARY KEY, v TEXT)")
+        row = conn.execute("SELECT v FROM x402_scan_meta WHERE k='last_block'").fetchone()
+        last = int(row[0]) if row else 0
+        agg = {w: {"n": n, "usdc": u, "fb": fb, "lb": lb} for w, n, u, fb, lb in
+               conn.execute("SELECT wallet,payments,usdc,first_block,last_block FROM x402_payer_scan")}
+        conn.close()
+        return last, agg
+    except Exception:
+        return _PAYER_MEM["last_block"], dict(_PAYER_MEM["agg"])
+
+
+def _payer_state_save(last_block: int, agg: dict) -> None:
+    _PAYER_MEM["last_block"] = last_block
+    _PAYER_MEM["agg"] = dict(agg)
+    import sqlite3 as _sq
+    try:
+        conn = _sq.connect(str(DB_PATH), timeout=5)
+        conn.execute("CREATE TABLE IF NOT EXISTS x402_payer_scan ("
+                     "wallet TEXT PRIMARY KEY, payments INTEGER, usdc REAL, "
+                     "first_block INTEGER, last_block INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS x402_scan_meta (k TEXT PRIMARY KEY, v TEXT)")
+        conn.executemany(
+            "INSERT INTO x402_payer_scan(wallet,payments,usdc,first_block,last_block) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(wallet) DO UPDATE SET payments=excluded.payments, usdc=excluded.usdc, "
+            "first_block=excluded.first_block, last_block=excluded.last_block",
+            [(w, e["n"], e["usdc"], e["fb"], e["lb"]) for w, e in agg.items()])
+        conn.execute("INSERT INTO x402_scan_meta(k,v) VALUES('last_block',?) "
+                     "ON CONFLICT(k) DO UPDATE SET v=excluded.v", (str(last_block),))
+        conn.commit(); conn.close()
+    except Exception:
+        pass
+
 
 def _get_onchain_payers() -> dict:
-    """Every wallet that has settled USDC to GA's x402 wallet, grouped, straight
-    from the on-chain x402 Base subgraph. This is the authoritative payer set
-    (matches Ampersend); the internal activity DB both under- and over-counts.
-    Cached 10min — each gateway query costs query fees + latency."""
+    """Every wallet that has settled USDC to GA's pay-to wallet, from Base
+    Transfer logs (see note above on why not the x402 subgraph). Cached 10 min."""
     import time as _t, datetime as _dt
     now = _t.time()
     c = _PAYERS_CACHE["data"]
@@ -4470,41 +4528,40 @@ def _get_onchain_payers() -> dict:
         return c
 
     out = {"payers": [], "paying_customers": 0, "real_revenue_usdc": 0.0,
-           "gross_settled_usdc": 0.0, "indexed_block": None, "error": None}
+           "gross_settled_usdc": 0.0, "indexed_block": None, "error": None,
+           "source": "base-usdc-transfer-logs"}
+    last_block, agg = _payer_state_load()
     try:
-        import httpx as _hx
-        key = os.environ.get("GRAPH_API_KEY")
-        if not key:
-            out["error"] = "GRAPH_API_KEY not set"
-            return out
-        url = f"https://gateway.thegraph.com/api/{key}/subgraphs/id/{_X402_BASE_SUBGRAPH}"
-        wallet = X402_WALLET.lower()
-        q = ('{ _meta{block{number}} x402Payments(where:{to:"%s"}, first:1000, '
-             'orderBy:blockNumber, orderDirection:desc){ from amountDecimal blockTimestamp } }' % wallet)
-        r = _hx.post(url, json={"query": q}, timeout=25)
-        d = r.json()
-        if d.get("errors"):
-            out["error"] = json.dumps(d["errors"])[:160]
-            return out
-        data = d.get("data") or {}
-        out["indexed_block"] = ((data.get("_meta") or {}).get("block") or {}).get("number")
-        agg: dict = {}
-        for p in data.get("x402Payments") or []:
-            f = (p.get("from") or "").lower()
-            if not f:
-                continue
-            e = agg.setdefault(f, {"n": 0, "usdc": 0.0, "first": None, "last": None})
-            e["n"] += 1
-            e["usdc"] += float(p.get("amountDecimal") or 0)
-            ts = int(p.get("blockTimestamp") or 0)
-            e["last"] = ts if e["last"] is None else max(e["last"], ts)
-            e["first"] = ts if e["first"] is None else min(e["first"], ts)
+        head = int(_rpc_call(_BASE_RPC_URL, "eth_blockNumber", [], timeout=8), 16)
+        blk = _rpc_call(_BASE_RPC_URL, "eth_getBlockByNumber", [hex(head), False], timeout=8)
+        head_ts = int(blk["timestamp"], 16)
+        start = max(last_block + 1, _X402_SCAN_FLOOR_BLOCK)
+        topic_to = "0x" + "0" * 24 + X402_WALLET.lower()[2:]
+        scanned = 0
+        while start <= head and scanned < _SCAN_MAX_CHUNKS:
+            end = min(start + _SCAN_CHUNK - 1, head)
+            logs = _rpc_call(_BASE_RPC_URL, "eth_getLogs", [{
+                "address": _USDC_BASE, "topics": [_TRANSFER_TOPIC, None, topic_to],
+                "fromBlock": hex(start), "toBlock": hex(end)}], timeout=20)
+            for lg in logs or []:
+                frm = ("0x" + lg["topics"][1][-40:]).lower()
+                b = int(lg["blockNumber"], 16)
+                e = agg.setdefault(frm, {"n": 0, "usdc": 0.0, "fb": b, "lb": b})
+                e["n"] += 1
+                e["usdc"] += int(lg["data"], 16) / 1e6
+                e["fb"] = min(e["fb"], b); e["lb"] = max(e["lb"], b)
+            last_block = end
+            start = end + 1
+            scanned += 1
+        _payer_state_save(last_block, agg)
+        out["indexed_block"] = last_block
+        out["backfill_complete"] = last_block >= head - _SCAN_CHUNK
 
-        def _full(ts):
-            return _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:%M:%S") if ts else ""
-
-        def _hms(ts):
-            return _dt.datetime.utcfromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
+        # Base is a ~2s chain — derive display times from block distance rather
+        # than paying for an eth_getBlockByNumber per payment.
+        def _ts(b): return head_ts - (head - b) * 2
+        def _full(b): return _dt.datetime.utcfromtimestamp(_ts(b)).strftime("%Y-%m-%dT%H:%M:%S")
+        def _hms(b): return _dt.datetime.utcfromtimestamp(_ts(b)).strftime("%H:%M:%S")
 
         payers, real_rev, gross = [], 0.0, 0.0
         for f, e in agg.items():
@@ -4513,9 +4570,9 @@ def _get_onchain_payers() -> dict:
             if not is_self:
                 real_rev += e["usdc"]
             payers.append({
-                "wallet": f, "short": f[:6] + "…" + f[-4:],
+                "wallet": f, "short": f[:6] + "\u2026" + f[-4:],
                 "call_count": e["n"], "usdc_total": round(e["usdc"], 4),
-                "first_seen": _full(e["first"]), "last_seen": _hms(e["last"]),
+                "first_seen": _full(e["fb"]), "last_seen": _hms(e["lb"]),
                 "is_repeat": e["n"] > 1, "is_self": is_self,
             })
         payers.sort(key=lambda x: (-x["usdc_total"], -x["call_count"]))
@@ -4525,6 +4582,12 @@ def _get_onchain_payers() -> dict:
         out["gross_settled_usdc"] = round(gross, 4)
     except Exception as e:
         out["error"] = str(e)[:120]
+        # An RPC blip must not report $0 revenue — hold the last good numbers.
+        if c:
+            for k in ("payers", "paying_customers", "real_revenue_usdc",
+                      "gross_settled_usdc", "indexed_block"):
+                if c.get(k) is not None:
+                    out[k] = c[k]
 
     _PAYERS_CACHE["data"] = out
     _PAYERS_CACHE["ts"] = now
@@ -4983,11 +5046,18 @@ def _build_dashboard_data() -> dict:
     except Exception:
         pass
 
-    # Prefer the authoritative on-chain payer list (matches Ampersend). The
-    # DB-derived list above only sees rows where the payer's signer was
-    # captured, so it undercounts real customers; the on-chain x402 subgraph
-    # sees every settlement. Self-test wallets are excluded — repeat_payers is
-    # customers only. Falls back to the DB list if the subgraph query fails.
+    # Prefer the authoritative on-chain payer list. Both fallbacks below it are
+    # known to undercount:
+    #   - the DB-derived list above only sees rows where the payer's signer was
+    #     captured (paid_by_wallet), and capture is currently failing, so recent
+    #     payments are missing entirely;
+    #   - the x402 Base subgraph (which this used to read) only indexes
+    #     settlements that travel the x402 facilitator path — on 2026-07-20 it
+    #     showed $0.41/30d where the chain showed $1.43.
+    # _get_onchain_payers() now reads USDC Transfer logs on Base, which catches
+    # every payment method by construction and matches Ampersend. Self-test
+    # wallets are excluded — repeat_payers is customers only. Falls back to the
+    # DB list only if the chain scan fails outright.
     try:
         _op = _get_onchain_payers()
         if _op.get("payers") and not _op.get("error"):
