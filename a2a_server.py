@@ -8026,6 +8026,7 @@ def build_app():
             detect_wallet_type,
             score_wallet,
             fetch_user_positions,
+            fetch_user_aggregate,
             fetch_market_meta,
             fetch_market_holders,
             normalize_wallet,
@@ -8078,7 +8079,8 @@ def build_app():
                 return _RouteJSON({"error": "invalid_wallet"}, status_code=400)
             try:
                 positions = await fetch_user_positions(wallet)
-                scores = compute_scores(positions)
+                aggregate = await fetch_user_aggregate(wallet)
+                scores = compute_scores(positions, aggregate)
                 payload = {
                     "wallet": wallet,
                     "scores": scores,
