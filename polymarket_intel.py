@@ -206,10 +206,22 @@ def compute_scores(positions: list[dict]) -> dict:
     std_ret = _stdev(returns, mean_ret)
     sharpe_like = mean_ret / std_ret if std_ret > 0 else 0.0
 
-    # Confidence: log10 of total trade count. Hits 1.0 around 300 trades.
-    confidence = _clamp(
-        math.log10(max(1, transactions_total)) / 2.5, 0.0, 1.0
-    )
+    # Confidence in a SKILL estimate is bounded by how many INDEPENDENT TRIALS we
+    # observed — i.e. the number of POSITIONS scored — not the raw transaction
+    # count. Pinax's free-tier JWT caps /users/positions at _USER_POSITIONS_LIMIT
+    # (10) records, so for a whale with thousands of trades we still only see ~10
+    # positions = ~10 trials. Taking the MIN of the position- and trade-based
+    # signals means the tiny position cap correctly dominates.
+    #
+    # (Bug this fixes: the old code used transactions_total alone, which stamped
+    # confidence 1.0 on a 10-position sample. Those 10 positions are also
+    # survivor-biased — /users/positions skews to CURRENT holdings, and a
+    # trader's still-open positions are disproportionately the winning ones — so
+    # win_rate read 1.0 and skill_score pinned at 100 for a trader whose realized
+    # PnL was actually -$51k. See the 2026-07-21 paid-call quality review.)
+    pos_conf = math.log10(max(1, sample_size)) / 2.5
+    trade_conf = math.log10(max(1, transactions_total)) / 2.5
+    confidence = _clamp(min(pos_conf, trade_conf), 0.0, 1.0)
 
     # Worst single-position loss as a drawdown proxy (snapshot data — true
     # cumulative drawdown would need a time series of past valuations).
@@ -229,6 +241,26 @@ def compute_scores(positions: list[dict]) -> dict:
     else:
         classification = "neutral"
 
+    # Self-documenting caveats so a paying agent never mistakes a thin,
+    # survivor-biased snapshot for a full-history verdict.
+    sample_capped = sample_size >= _USER_POSITIONS_LIMIT
+    caveats: list[str] = []
+    if sample_capped:
+        caveats.append(
+            f"Scored from {sample_size} positions (the Pinax record cap); this wallet "
+            "likely has more markets that were not sampled. Treat as a partial read."
+        )
+    if win_rate >= 0.99 and sample_size < 30:
+        caveats.append(
+            "win_rate covers only the sampled (mostly open) positions, which survivor-"
+            "bias toward winners — a ~100% rate here is a sampling artifact, not a record."
+        )
+    if realized_pnl < 0 <= total_pnl:
+        caveats.append(
+            f"Realized PnL is negative (${realized_pnl:,.0f}); the positive total is "
+            "unrealized mark-to-market on open positions and can evaporate."
+        )
+
     return {
         "skill_score": round(skill_score, 1),
         "classification": classification,
@@ -236,12 +268,15 @@ def compute_scores(positions: list[dict]) -> dict:
         "win_rate": round(win_rate, 3),
         "sample_size_markets": sample_size,
         "sample_size_trades": transactions_total,
+        "positions_scored": sample_size,
+        "sample_capped": sample_capped,
         "confidence": round(confidence, 2),
         "worst_position_pnl_usdc": round(worst_position_pnl, 2),
         "realized_pnl_usdc": round(realized_pnl, 2),
         "unrealized_pnl_usdc": round(unrealized_pnl, 2),
         "total_pnl_usdc": round(total_pnl, 2),
         "open_positions_count": sum(1 for p in positions if p.get("active")),
+        "caveats": caveats,
     }
 
 
