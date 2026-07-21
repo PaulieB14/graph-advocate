@@ -4412,6 +4412,77 @@ def _content_to_dicts(content) -> list:
     return result
 
 
+# ── Anti-false-absence guard for /chat ───────────────────────────────────────
+# Real users get told "no subgraph exists" when one does — and Haiku flip-flops
+# across turns (the 2026-07-21 Sky-governance session: "no subgraph" → "great
+# news there IS one (Spells)" → "no subgraph" again, while MakerDAO Governance
+# is indexed the whole time). This guard makes an absence claim impossible unless
+# a live registry search actually comes back empty.
+_ABSENCE_RE = re.compile(
+    r"(?:\bno\b|\bnot\b|aren['’]?t|isn['’]?t|no active|no indexed|"
+    r"could(?:n['’]?t| not) find|unable to find|do(?:n['’]?t| not) have)"
+    r"[^.!?\n]{0,60}\bsubgraphs?\b"
+    r"|\bsubgraphs?\b[^.!?\n]{0,45}(?:do(?:es)?n['’]?t|do(?:es)? not)\s+exist",
+    re.I,
+)
+_GUARD_STOP = {
+    "the", "a", "an", "of", "for", "on", "in", "to", "and", "or", "is", "are", "do",
+    "does", "you", "get", "how", "what", "which", "track", "current", "active", "new",
+    "want", "just", "see", "show", "find", "proposal", "proposals", "subgraph",
+    "subgraphs", "graph", "data", "query", "abt", "about", "latest", "still", "from",
+    "there", "sure", "with", "that", "this", "any", "have", "has",
+}
+
+
+def _guard_topic_tokens(request: str, history: list) -> list[str]:
+    """Salient protocol/topic tokens from the current turn + recent user turns."""
+    text = request + " " + " ".join(
+        (m.get("content") or "") for m in (history or [])[-4:]
+        if m.get("role") == "user" and isinstance(m.get("content"), str)
+    )
+    text = re.sub(r"https?://\S+", " ", text)
+    for dom in re.findall(r"\b([a-z0-9-]+(?:\.[a-z0-9-]+)+)\b", request.lower()):
+        text += " " + " ".join(
+            p for p in dom.split(".")
+            if p not in ("com", "org", "io", "money", "xyz", "eth", "www", "app", "finance")
+        )
+    seen: list[str] = []
+    for t in re.findall(r"[a-zA-Z][a-zA-Z0-9]{2,}", text.lower()):
+        if t not in _GUARD_STOP and t not in seen:
+            seen.append(t)
+    return seen[:6]
+
+
+def _guard_grounded_hits(tokens: list[str]) -> list[dict]:
+    """Search the local registry for the topic; return only NAME-relevant hits."""
+    if not tokens:
+        return []
+    cands = [" ".join(tokens[:3])] + [" ".join(tokens[i:i + 2]) for i in range(len(tokens) - 1)] + tokens
+    seen_q: set = set()
+    hits: dict = {}
+    for q in cands:
+        q = q.strip()
+        if not q or q in seen_q:
+            continue
+        seen_q.add(q)
+        try:
+            res = json.loads(_search_subgraphs(q)).get("results", [])
+        except Exception:
+            res = []
+        for r in res:
+            name = (r.get("name") or r.get("display_name") or "").lower()
+            score = sum(1 for t in tokens if t in name)   # # of topic tokens in the name
+            if score:
+                sid = r.get("subgraph_id") or r.get("id") or name
+                if sid not in hits or score > hits[sid][0]:
+                    hits[sid] = (score, r)
+        if len(hits) >= 6 and len(seen_q) >= 4:
+            break
+    # Best matches first (most topic tokens in the name), then trim.
+    ranked = sorted(hits.values(), key=lambda x: -x[0])
+    return [r for _, r in ranked][:4]
+
+
 def ask_graph_advocate_chat(
     request: str,
     history: list = None,
@@ -4502,6 +4573,52 @@ def ask_graph_advocate_chat(
             (b.text for b in response.content if b.type == "text"),
             "",
         )
+
+        # ── Anti-false-absence guard ─────────────────────────────────────────
+        # If the draft claims no subgraph exists, verify with a live registry
+        # search. If a relevant subgraph is actually indexed, rewrite the answer
+        # grounded in it — so GA can never tell a user "none exists" when one does.
+        if reply and _ABSENCE_RE.search(reply):
+            try:
+                hits = _guard_grounded_hits(_guard_topic_tokens(request, clean_history))
+            except Exception as ge:
+                hits = []
+                log.error(f"CHAT absence-guard search failed: {ge}")
+            if hits:
+                slim = [{
+                    "name": h.get("name") or h.get("display_name"),
+                    "subgraph_id": h.get("subgraph_id") or h.get("id"),
+                    "network": h.get("network"),
+                    "playground_url": h.get("playground_url"),
+                } for h in hits]
+                correction = (
+                    "HALT — do not send that reply. A live registry search just returned these "
+                    "REAL subgraphs for the user's topic:\n" + json.dumps(slim, indent=1) +
+                    "\n\nYour draft told the user no subgraph exists — that is FALSE. Rewrite the "
+                    "reply: lead with the best-matching subgraph (name + subgraph_id + playground "
+                    "link). If the closest match is under a former brand (e.g. the user asked about "
+                    "'Sky' but the match is 'Maker/MakerDAO Governance' — Sky is the MakerDAO "
+                    "rebrand), say so, and warn that a legacy-contract subgraph can lag on the very "
+                    "newest proposals. Never claim no subgraph exists when one is listed above."
+                )
+                try:
+                    fix = client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        system=CHAT_SYSTEM,
+                        messages=[
+                            {"role": "user", "content": request},
+                            {"role": "assistant", "content": reply},
+                            {"role": "user", "content": correction},
+                        ],
+                        max_tokens=1500,
+                    )
+                    fixed = next((b.text for b in fix.content if b.type == "text"), "")
+                    if fixed:
+                        reply = fixed
+                        log.info(f"CHAT absence-guard corrected a false 'no subgraph' reply "
+                                 f"({len(hits)} indexed subgraph(s) found)")
+                except Exception as fe:
+                    log.error(f"CHAT absence-guard rewrite failed: {fe}")
 
     except Exception as e:
         log.error(f"CHAT error: {e}")
