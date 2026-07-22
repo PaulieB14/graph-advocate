@@ -78,6 +78,39 @@ npx agentcash try https://graphadvocate.com
 
 Routes to: **Token API** (balances, swaps, NFTs), **Subgraph Registry** (15,500+ protocols), **Substreams** (raw blocks), **graph-aave-mcp** (40 tools), **graph-polymarket-mcp** (31 tools), **graph-lending-mcp**, **graph-limitless-mcp**, **predictfun-mcp**, **8004scan** (agent discovery).
 
+## Project structure
+
+Flat module layout, grouped here by role. Web entrypoint is [`a2a_server.py`](a2a_server.py) (`python a2a_server.py`).
+
+**Server & routing**
+- [`a2a_server.py`](a2a_server.py) — A2A/x402 HTTP server: JSON-RPC 2.0, payments, dashboard, paid-endpoint wiring
+- [`advocate.py`](advocate.py) — Core routing: keyword auto-search, Claude call, response parsing, SQLite logging
+- [`mcp_server.py`](mcp_server.py) — MCP server (SSE transport)
+
+**Paid intelligence endpoints** — derived signals, the x402 revenue surface
+- [`hyperliquid_intel.py`](hyperliquid_intel.py) — Hyperliquid trader skill / risk / vault metrics
+- [`polymarket_intel.py`](polymarket_intel.py) — Polymarket trader skill + ghost-fill risk
+- [`kalshi.py`](kalshi.py) — Kalshi consensus-trend, sports-live-edge, Kalshi↔Polymarket spread
+- [`limitless_intel.py`](limitless_intel.py) — Polymarket↔Limitless cross-venue spread
+- [`uniswap_intel.py`](uniswap_intel.py) — Uniswap pre-trade / DeFi-spot intelligence
+- [`agent_score.py`](agent_score.py) — 0–100 agent reputation score (ERC-8004 + on-chain + feedback)
+- [`b20.py`](b20.py) — B20 native token-standard helpers (Base)
+
+**Outreach** — outbound agent-to-agent
+- [`outreach.py`](outreach.py) — Daily outbound outreach run
+- [`x402_outreach.py`](x402_outreach.py) — Outbound x402 client (GA pays other agents)
+
+**Dashboards & monitoring**
+- [`dashboard.py`](dashboard.py) — Terminal dashboard (recommendation-log stats)
+- [`generate_dashboard.py`](generate_dashboard.py) — Renders `dashboard.html` from the SQLite log
+- [`x402_dashboard.py`](x402_dashboard.py) — x402 ecosystem dashboard data pipeline
+
+**Examples & tests**
+- [`a2a_client_example.py`](a2a_client_example.py) · [`example_usage.py`](example_usage.py) — Sample agents calling GA over A2A
+- [`test_advocate_routing.py`](test_advocate_routing.py) — Routing test suite (`python3 test_advocate_routing.py`, 90 tests)
+
+**Directories** — [`docs/`](docs/) Mintlify docs site · [`static/`](static/) assets · [`dune/`](dune/) Dune analysis exports & queries
+
 ## Quick start
 
 ```bash
