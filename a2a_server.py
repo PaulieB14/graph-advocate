@@ -2166,6 +2166,65 @@ SKILLS = [
         input_modes=["text"],
         output_modes=["text"],
     ),
+    AgentSkill(
+        id="uniswap_pretrade",
+        name="Uniswap pre-trade due-diligence (V2/V3/V4, 6 chains)",
+        description=(
+            "POST /uniswap/pretrade {token, chain?=ethereum}. Pre-trade check for a token "
+            "on Uniswap: real liquidity, the deepest venue ranked by volumeUSD (NOT TVL — "
+            "TVL is gamed by spam-token pricing), a honeypot two-way-flow check, daily "
+            "volume trend, and a tradeable/risk verdict. Powered by The Graph across "
+            "Uniswap V2/V3/V4 on Ethereum, Arbitrum, Base, Polygon, Optimism and BSC. "
+            "$0.02 USDC per call on Base."
+        ),
+        tags=["uniswap", "defi", "dex", "pre-trade", "liquidity", "honeypot",
+              "thegraph", "subgraph", "x402", "base"],
+        examples=[
+            "Pre-trade due-diligence for WETH on Base Uniswap",
+            "Is this token safe to trade — real liquidity or a honeypot?",
+            "Deepest Uniswap venue and volume trend for PEPE on Ethereum",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="uniswap_basis",
+        name="Uniswap spot ↔ Hyperliquid perp basis (JOIN)",
+        description=(
+            "POST /uniswap/basis {coin, chain?=ethereum}. Cross-venue JOIN: Uniswap spot "
+            "price vs the Hyperliquid perp for one asset, returning basis_pct and a "
+            "perp_premium / perp_discount / aligned signal. A spot-vs-perp comparison "
+            "single-venue passthroughs structurally can't return. $0.05 USDC per call on Base."
+        ),
+        tags=["uniswap", "hyperliquid", "basis", "spot-perp", "cross-venue", "join",
+              "defi", "thegraph", "x402", "base"],
+        examples=[
+            "ETH Uniswap spot vs Hyperliquid perp basis",
+            "Is the perp trading at a premium or discount to spot for SOL?",
+            "Basis percentage between Uniswap and Hyperliquid for BTC",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="uniswap_traders",
+        name="Uniswap per-wallet flow: accumulators vs distributors",
+        description=(
+            "POST /uniswap/traders {token, chain?=ethereum}. Per-wallet flow on a token's "
+            "deepest Uniswap venue: accumulators vs distributors with trader EOAs, "
+            "buys/sells and volume_usd — see who is actually building or unloading a "
+            "position. Powered by The Graph. $0.02 USDC per call on Base."
+        ),
+        tags=["uniswap", "defi", "dex", "wallet-flow", "accumulation", "smart-money",
+              "thegraph", "subgraph", "x402", "base"],
+        examples=[
+            "Who's accumulating vs distributing WETH on Uniswap?",
+            "Top Uniswap traders by volume for this token",
+            "Show buy/sell flow per wallet on the deepest Uniswap venue",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
 ]
 
 
