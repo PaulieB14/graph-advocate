@@ -17,12 +17,18 @@ Exposed via one x402-paid endpoint on graphadvocate.com:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 from typing import Any, Optional
 
 import httpx
+
+# Reuse the tested tokenized matcher from the Kalshi endpoint so multi-word
+# topics ('fed rate') and aliases (btc→bitcoin) work here too — a plain
+# substring test misses 'federal funds rate' just like it did on Kalshi.
+from kalshi import _tokenize_topic, _topic_match_score
 
 log = logging.getLogger(__name__)
 
@@ -78,37 +84,58 @@ async def search_limitless(keyword: str, limit: int = 5) -> list[dict]:
 
 
 async def search_polymarket(keyword: str, limit: int = 5) -> list[dict]:
-    """Search Polymarket markets via public Gamma API.
+    """Search active Polymarket markets via the public Gamma API.
 
-    Match on title/question/slug ONLY — NOT description. Descriptions
-    contain resolution rules that frequently reference unrelated topics
-    (e.g. a SHEIN IPO market mentions "Fed" in its resolution criteria),
-    so matching on description produces semantically-irrelevant candidates
-    that wreck downstream pair quality.
+    Match on title/question/slug ONLY — NOT description. Descriptions contain
+    resolution rules that frequently reference unrelated topics (e.g. a SHEIN
+    IPO market mentions "Fed" in its resolution criteria), so matching on
+    description produces semantically-irrelevant candidates that wreck
+    downstream pair quality.
+
+    Uses tokenized matching (so 'fed rate' matches 'federal funds rate') and
+    paginates by volume — the old single 200-row page sorted by an invalid
+    'order=volume' field missed high-volume matches entirely (bitcoin, fed
+    rate and recession all returned 0 Polymarket candidates).
     """
-    kw = (keyword or "").strip().lower()
-    if not kw:
+    tokens = _tokenize_topic(keyword)
+    if not tokens:
         return []
-    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as c:
-        r = await c.get(
-            f"{POLYMARKET_GAMMA_BASE}/markets",
-            params={"closed": "false", "active": "true", "limit": 200, "order": "volume", "ascending": "false"},
-            headers=_UA,
-        )
-    if r.status_code != 200:
+    need = len(tokens)
+
+    async def _page(offset: int) -> list[dict]:
+        try:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as c:
+                r = await c.get(
+                    f"{POLYMARKET_GAMMA_BASE}/markets",
+                    params={"closed": "false", "active": "true",
+                            "archived": "false", "order": "volumeNum",
+                            "ascending": "false", "limit": 100, "offset": offset},
+                    headers=_UA,
+                )
+            if r.status_code == 200:
+                j = r.json()
+                return j if isinstance(j, list) else (j.get("data") or [])
+        except Exception:
+            pass
         return []
-    rows = r.json() or []
-    out = []
+
+    pages = await asyncio.gather(*[_page(o) for o in range(0, 500, 100)])
+    rows: list[dict] = []
+    for p in pages:
+        rows.extend(p)
+
+    scored = []
     for m in rows:
-        hay = " ".join(
-            str(m.get(k) or "")
-            for k in ("slug", "question", "groupItemTitle")
-        ).lower()
-        if kw in hay:
-            out.append(m)
-        if len(out) >= limit:
-            break
-    return out
+        hay = " ".join(str(m.get(k) or "") for k in ("question", "slug", "groupItemTitle"))
+        sc = _topic_match_score(hay, tokens)
+        if sc >= need:
+            try:
+                vol = float(m.get("volumeNum") or m.get("volume") or 0)
+            except (TypeError, ValueError):
+                vol = 0.0
+            scored.append((sc, vol, m))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [m for _, _, m in scored[:limit]]
 
 
 def _limitless_yes_mid(m: dict) -> Optional[float]:
@@ -171,7 +198,12 @@ def _polymarket_yes_mid(m: dict) -> Optional[float]:
     return None
 
 
-def _arb_direction(spread: float) -> str:
+def _arb_direction(spread: float, sem: float = 1.0) -> str:
+    # Only assert a concrete tradeable direction on a strong same-condition
+    # match; a weak overlap (different strike/date sharing generic words) must
+    # not read as a real arbitrage.
+    if sem < 0.5:
+        return "verify-same-condition-first"
     if spread < -0.02:
         return "long-limitless-short-polymarket"
     if spread > 0.02:
@@ -250,15 +282,22 @@ async def polymarket_limitless_spread(topic_keyword: str, limit: int = 5) -> dic
             "expected": "Use a 3+ character topic (e.g. 'trump', 'fed rate', 'btc', 'super bowl').",
         }
 
-    limit = max(1, min(int(limit), 10))
-
     try:
-        poly_hits = await search_polymarket(keyword, limit=limit)
+        limit = max(1, min(int(limit), 10))
+    except (TypeError, ValueError):
+        limit = 5
+
+    # Fetch a wider candidate pool than the number of pairs we return, so the
+    # semantic pairing has real choice (the old code capped candidates at
+    # `limit`, starving the pairing step).
+    pool = max(limit, 12)
+    try:
+        poly_hits = await search_polymarket(keyword, limit=pool)
     except Exception as exc:
         return {"error": "polymarket_unreachable", "detail": str(exc)[:200]}
 
     try:
-        lim_hits = await search_limitless(keyword, limit=limit)
+        lim_hits = await search_limitless(keyword, limit=pool)
     except Exception as exc:
         return {"error": "limitless_unreachable", "detail": str(exc)[:200]}
 
@@ -319,7 +358,7 @@ async def polymarket_limitless_spread(topic_keyword: str, limit: int = 5) -> dic
                 "semantic_match_score": round(sem_score, 3),
                 "spread_yes_polymarket_minus_limitless": spread,
                 "spread_bps": int(spread * 10000),
-                "arbitrage_direction": _arb_direction(spread),
+                "arbitrage_direction": _arb_direction(spread, sem_score),
             }
         )
 
@@ -328,6 +367,7 @@ async def polymarket_limitless_spread(topic_keyword: str, limit: int = 5) -> dic
         key=lambda p: abs(p["spread_yes_polymarket_minus_limitless"]),
         reverse=True,
     )
+    pairs = pairs[:limit]
 
     if pairs:
         status = "ok"
