@@ -40,6 +40,274 @@ PINAX_BASE = "https://api.pinax.network/v1"
 PINAX_JWT = os.environ.get("TOKEN_API_JWT") or os.environ.get("TOKEN_API_ACCESS_TOKEN") or ""
 
 _UA = {"User-Agent": "graph-advocate/1.0", "accept": "application/json"}
+GAMMA_BASE = "https://gamma-api.polymarket.com"
+
+
+# ===========================================================================
+# Shared topic matching (tokenized) + cached Kalshi series catalog.
+# Added 2026-07-21. The old cross-source matcher used a whole-phrase substring
+# test (`"fed rate" in title`) against only the first 100 default-sorted
+# Kalshi markets (MVE sports parlays). So "fed rate" matched 0 markets (real
+# titles read "federal funds rate") and suggested nonsensical parlays. We now
+# match per-token (with a small alias map), seed Kalshi from the /series
+# catalog, and price Polymarket via Gamma's public API.
+# ===========================================================================
+
+_STOPWORDS = {
+    "the", "a", "an", "of", "on", "in", "to", "for", "and", "or", "will",
+    "be", "by", "is", "are", "at", "vs", "with", "this", "that", "what",
+    "which", "who", "how", "market", "markets", "odds",
+}
+# token -> extra surface forms to also try (recall for tickers/abbreviations
+# that markets spell out in full)
+_TOKEN_ALIASES = {
+    "btc": ("bitcoin",), "eth": ("ethereum",), "sol": ("solana",),
+    "fed": ("federal", "fomc"), "fomc": ("fed", "federal"),
+    "potus": ("president",), "prez": ("president",),
+    "gop": ("republican",), "dem": ("democrat", "democratic"),
+    "cpi": ("inflation",),
+}
+
+
+def _tokenize_topic(s: str) -> list[str]:
+    toks = [t for t in re.split(r"[^a-z0-9]+", (s or "").lower()) if t]
+    return [t for t in toks if len(t) >= 2 and t not in _STOPWORDS]
+
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+_STEM_SUFFIXES = ("s", "es", "ed", "ing", "d", "n")
+
+
+def _word_matches(word: str, form: str) -> bool:
+    """True if `word` is `form` or a simple plural/tense inflection of it (in
+    either direction). Deliberately NOT a general prefix match: 'champions'
+    must not match 'championship', 'eth' must not match 'ethiopia', and 'fed'
+    must not match 'federal' here (that is handled by the alias map)."""
+    if word == form:
+        return True
+    for suf in _STEM_SUFFIXES:
+        if word == form + suf or form == word + suf:
+            return True
+    return False
+
+
+def _topic_match_score(text: str, tokens: list[str]) -> int:
+    """How many query tokens (or their aliases) match a whole word in text.
+    Exact-word with light plural/tense stemming, so 'rate' matches 'rates' and
+    'fed' (via its 'federal' alias) matches 'federal', but 'nfl' does not match
+    'inflation' and 'eth' does not match 'ethiopia'."""
+    if not tokens:
+        return 0
+    words = _WORD_RE.findall((text or "").lower())
+    if not words:
+        return 0
+    hits = 0
+    for t in tokens:
+        forms = (t,) + _TOKEN_ALIASES.get(t, ())
+        if any(_word_matches(w, f) for w in words for f in forms):
+            hits += 1
+    return hits
+
+
+def _content_overlap(a_text: str, b_text: str) -> float:
+    """Jaccard overlap of significant content tokens — used to pair a Kalshi
+    market with the Polymarket market on the *same* condition (not merely a
+    similar price)."""
+    a = set(_tokenize_topic(a_text))
+    b = set(_tokenize_topic(b_text))
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+_SERIES_CACHE: list[dict] = []
+_SERIES_CACHE_TS = 0.0
+_SERIES_CACHE_TTL = 6 * 3600  # series catalog changes slowly
+_SERIES_LOCK = asyncio.Lock()
+
+
+async def _kalshi_series_catalog(c: httpx.AsyncClient) -> list[dict]:
+    """Full Kalshi series catalog (~12k), trimmed to {ticker,title,category},
+    cached in-process for 6h. Returns stale/empty on failure so callers can
+    fall back to a paginated market scan."""
+    global _SERIES_CACHE, _SERIES_CACHE_TS
+    if _SERIES_CACHE and (time.time() - _SERIES_CACHE_TS) < _SERIES_CACHE_TTL:
+        return _SERIES_CACHE
+    async with _SERIES_LOCK:
+        if _SERIES_CACHE and (time.time() - _SERIES_CACHE_TS) < _SERIES_CACHE_TTL:
+            return _SERIES_CACHE
+        try:
+            r = await c.get(f"{KALSHI_BASE}/series", headers=_UA, timeout=20.0)
+            if r.status_code == 200:
+                raw = r.json().get("series") or []
+                trimmed = [
+                    {"ticker": s.get("ticker"),
+                     "title": s.get("title") or "",
+                     "category": s.get("category") or ""}
+                    for s in raw if s.get("ticker")
+                ]
+                if trimmed:
+                    _SERIES_CACHE = trimmed
+                    _SERIES_CACHE_TS = time.time()
+        except Exception:
+            pass
+        return _SERIES_CACHE
+
+
+def _series_coverage(series_title: str, tokens: list[str]) -> float:
+    """Fraction of the series title's content words that the query explains —
+    favours on-topic series ('Bitcoin price' for 'btc') over long unrelated
+    titles that merely contain one query token."""
+    title_toks = _tokenize_topic(series_title)
+    if not title_toks:
+        return 0.0
+    return _topic_match_score(series_title, tokens) / len(title_toks)
+
+
+async def _kalshi_markets_for_topic(c: httpx.AsyncClient, tokens: list[str],
+                                    max_series: int = 10, cap: int = 60) -> list[dict]:
+    """Series-seeded market fetch: match the topic against the /series catalog,
+    then pull open markets for the best-matching series. Falls back to a
+    bounded paginated market scan if the catalog is unavailable."""
+    need = len(tokens)
+    series = await _kalshi_series_catalog(c)
+    if series:
+        scored = []
+        for s in series:
+            # Score on the title only. A ticker-match bonus would boost Kalshi's
+            # deprecated legacy short-code series (ticker 'BTC'/'CPI' == token)
+            # above the current KX-prefixed series that actually carry markets.
+            sc = _topic_match_score(s["title"], tokens)
+            if sc >= need:
+                scored.append((sc, s))
+        if not scored and need > 1:  # relax to majority of tokens
+            for s in series:
+                if _topic_match_score(s["title"], tokens) >= need - 1:
+                    scored.append((need - 1, s))
+        # Rank: raw score, then current (KX-prefixed) series over legacy ones,
+        # then title coverage. Kalshi's legacy non-KX series (e.g. 'BTC', 'CPI')
+        # are deprecated and carry 0 open markets — the live markets live under
+        # the KX-prefixed series ('KXBTC', 'KXCPI'), so KX must win.
+        scored.sort(key=lambda x: (x[0],
+                                   1 if str(x[1]["ticker"] or "").startswith("KX") else 0,
+                                   _series_coverage(x[1]["title"], tokens)),
+                    reverse=True)
+        top = [s for _, s in scored[:max_series]]
+        if top:
+            # Fetch series' markets sequentially with light pacing + retry on
+            # 429. Kalshi rate-limits bursts, so firing every series at once
+            # silently empties the result. Series are coverage-ranked (most
+            # on-topic first), so stop early once we have enough markets.
+            async def _fetch(ticker: str) -> list[dict]:
+                for attempt in range(3):
+                    try:
+                        r = await c.get(f"{KALSHI_BASE}/markets",
+                                        params={"series_ticker": ticker,
+                                                "status": "open", "limit": 100},
+                                        headers=_UA)
+                        if r.status_code == 200:
+                            return r.json().get("markets") or []
+                        if r.status_code == 429 and attempt < 2:
+                            await asyncio.sleep(0.4 * (attempt + 1))
+                            continue
+                    except Exception:
+                        if attempt < 2:
+                            await asyncio.sleep(0.3)
+                            continue
+                    return []
+                return []
+
+            markets: list[dict] = []
+            for i, s in enumerate(top):
+                if i:
+                    await asyncio.sleep(0.12)  # gentle stagger between series
+                markets.extend(await _fetch(s["ticker"]))
+                if len(markets) >= cap:
+                    break
+            if markets:
+                return markets[:cap * 2]
+    return await _kalshi_market_scan(c, tokens, cap=cap)
+
+
+async def _kalshi_market_scan(c: httpx.AsyncClient, tokens: list[str],
+                              max_pages: int = 14, cap: int = 60) -> list[dict]:
+    """Bounded paginated fallback: page open markets and keep token matches."""
+    need = len(tokens)
+    out: list[dict] = []
+    cursor = ""
+    for _ in range(max_pages):
+        params = {"limit": 200, "status": "open"}
+        if cursor:
+            params["cursor"] = cursor
+        try:
+            r = await c.get(f"{KALSHI_BASE}/markets", params=params, headers=_UA)
+            if r.status_code != 200:
+                break
+            j = r.json()
+        except Exception:
+            break
+        for m in (j.get("markets") or []):
+            txt = " ".join(str(m.get(k) or "") for k in
+                           ("title", "subtitle", "yes_sub_title", "event_ticker"))
+            if _topic_match_score(txt, tokens) >= need:
+                out.append(m)
+        cursor = j.get("cursor") or ""
+        if not cursor or len(out) >= cap:
+            break
+    return out
+
+
+async def _gamma_active_markets(c: httpx.AsyncClient, pages: int = 5,
+                                per: int = 100) -> list[dict]:
+    """Active Polymarket markets (with inline outcomePrices) via Gamma's public
+    API, ranked by volume. Paginated concurrently. Public — no auth."""
+    async def _one(off: int) -> list[dict]:
+        try:
+            r = await c.get(f"{GAMMA_BASE}/markets", headers=_UA,
+                            params={"active": "true", "closed": "false",
+                                    "archived": "false", "order": "volumeNum",
+                                    "ascending": "false", "limit": per, "offset": off})
+            if r.status_code == 200:
+                j = r.json()
+                return j if isinstance(j, list) else (j.get("data") or [])
+        except Exception:
+            pass
+        return []
+    res = await asyncio.gather(*[_one(o) for o in range(0, pages * per, per)])
+    out: list[dict] = []
+    for r in res:
+        out.extend(r)
+    return out
+
+
+def _gamma_yes_mid(m: dict) -> Optional[float]:
+    """Current YES price (0-1) for a Gamma market. outcomes/outcomePrices are
+    JSON-encoded arrays; map by the 'Yes' label, fall back to last trade."""
+    prices = m.get("outcomePrices")
+    outs = m.get("outcomes")
+    try:
+        if isinstance(prices, str):
+            prices = json.loads(prices)
+        if isinstance(outs, str):
+            outs = json.loads(outs)
+    except Exception:
+        prices, outs = None, None
+    idx = 0
+    if isinstance(outs, list):
+        for i, o in enumerate(outs):
+            if str(o).strip().lower() == "yes":
+                idx = i
+                break
+    if isinstance(prices, list) and len(prices) > idx:
+        try:
+            return round(float(prices[idx]), 4)
+        except Exception:
+            pass
+    v = m.get("lastTradePrice")
+    try:
+        return round(float(v), 4) if v is not None else None
+    except Exception:
+        return None
 
 
 # ===========================================================================
@@ -259,44 +527,64 @@ async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
                 "world cup", "pope", "oscars", "inflation"
             ],
         }
-    limit = max(1, min(int(limit), 10))
+    try:
+        limit = max(1, min(int(limit), 10))
+    except (TypeError, ValueError):
+        limit = 5
 
-    headers_pinax = dict(_UA)
-    if PINAX_JWT:
-        headers_pinax["Authorization"] = f"Bearer {PINAX_JWT}"
+    tokens = _tokenize_topic(keyword)
+    if not tokens:
+        return {
+            "error": "topic_keyword_unusable",
+            "topic_tried": keyword,
+            "expected": "Include a distinctive word, e.g. 'fed', 'super bowl', 'bitcoin', 'election'.",
+        }
+    need = len(tokens)
 
-    async with httpx.AsyncClient(timeout=12.0) as c:
-        # Kalshi side — search markets matching keyword
+    async with httpx.AsyncClient(timeout=15.0) as c:
+        # Kalshi — seed from the /series catalog (precise), pull matching series'
+        # open markets. Polymarket — Gamma public API (active, prices inline).
         try:
-            r_k = await c.get(f"{KALSHI_BASE}/markets",
-                              params={"limit": 100, "status": "open"}, headers=_UA)
-            kalshi_markets = (r_k.json().get("markets") or []) if r_k.status_code == 200 else []
+            kalshi_markets, poly_markets = await asyncio.gather(
+                _kalshi_markets_for_topic(c, tokens),
+                _gamma_active_markets(c),
+            )
         except Exception as exc:
-            return {"error": "kalshi_unreachable", "detail": str(exc)[:200]}
+            return {"error": "upstream_unreachable", "detail": str(exc)[:200]}
 
-        # Polymarket side — via Pinax Token API
-        try:
-            r_p = await c.get(f"{PINAX_BASE}/polymarket/markets",
-                              params={"sort_by": "volume"}, headers=headers_pinax)
-            poly_markets = (r_p.json().get("data") or []) if r_p.status_code == 200 else []
-        except Exception as exc:
-            poly_markets = []
+    def _k_text(m: dict) -> str:
+        return " ".join(str(m.get(k) or "") for k in
+                        ("title", "subtitle", "yes_sub_title", "event_ticker", "ticker"))
 
-    kw_lower = keyword.lower()
+    def _p_text(m: dict) -> str:
+        return " ".join(str(m.get(k) or "") for k in
+                        ("question", "slug", "groupItemTitle"))
 
-    def _match(text: str) -> bool:
-        return kw_lower in (text or "").lower()
+    def _vol(m: dict, *keys: str) -> float:
+        for k in keys:
+            v = m.get(k)
+            if v not in (None, ""):
+                try:
+                    return float(v)
+                except Exception:
+                    pass
+        return 0.0
 
-    kalshi_hits = [
-        m for m in kalshi_markets
-        if _match(m.get("subtitle") or "") or _match(m.get("title") or "")
-        or _match(m.get("event_ticker") or "")
-    ][:limit]
-    poly_hits = [
-        m for m in poly_markets
-        if _match(m.get("market_slug") or "") or _match(m.get("event_slug") or "")
-        or _match(m.get("question") or "")
-    ][:limit]
+    # Kalshi markets are already series-filtered to the topic; rank by volume.
+    kalshi_hits = sorted(kalshi_markets,
+                         key=lambda m: _vol(m, "volume_fp", "volume_24h_fp"),
+                         reverse=True)[:limit]
+    # Polymarket: keep token matches (all tokens; relax to majority if empty),
+    # rank by volume.
+    # Require ALL query tokens on the Polymarket side. Relaxing to a subset let
+    # a single generic token ('champion', 'cup', 'taylor') pull in wildly
+    # off-topic markets (F1 championships for 'nba champion', MLS Cup for
+    # 'world cup', Marjorie Taylor Greene for 'taylor swift').
+    poly_scored = sorted(
+        ((_topic_match_score(_p_text(m), tokens), _vol(m, "volumeNum", "volume"), m)
+         for m in poly_markets),
+        key=lambda x: (x[0], x[1]), reverse=True)
+    poly_hits = [m for s, _, m in poly_scored if s >= need][:limit]
 
     def _kalshi_mid(m: dict) -> Optional[float]:
         yb = m.get("yes_bid_dollars") or m.get("yes_bid")
@@ -310,47 +598,46 @@ async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
         except Exception:
             return None
 
-    def _poly_mid(m: dict) -> Optional[float]:
-        for k in ("last_price_yes", "last_price", "yes_price", "price"):
-            v = m.get(k)
-            if v is not None:
-                try:
-                    p = float(v)
-                    if p > 1.5: p = p / 100.0
-                    return round(p, 4)
-                except Exception:
-                    pass
-        return None
-
-    # Naive pair-up: assume best-volume matched pair per source for now;
-    # callers can refine by sending a tighter keyword.
+    # Pair each Kalshi market with the Polymarket market that shares the most
+    # content words (same underlying condition), not merely the closest price.
     pairs = []
     for k_mkt in kalshi_hits:
         k_mid = _kalshi_mid(k_mkt)
-        if k_mid is None: continue
-        best_poly = None
-        best_score = -1
+        if k_mid is None:
+            continue
+        # Overlap on the human titles only — including ticker/slug tokens
+        # dilutes the Jaccard and hides genuinely same-condition pairs.
+        k_title = str(k_mkt.get("title") or k_mkt.get("subtitle") or "")
+        best = None
+        best_ov = 0.0
         for p_mkt in poly_hits:
-            p_mid = _poly_mid(p_mkt)
-            if p_mid is None: continue
-            # Score = inverse abs difference + keyword overlap (simple)
-            score = 1.0 - abs(p_mid - k_mid)
-            if score > best_score:
-                best_score = score
-                best_poly = (p_mkt, p_mid)
-        if best_poly is None: continue
-        p_mkt, p_mid = best_poly
+            p_mid = _gamma_yes_mid(p_mkt)
+            if p_mid is None:
+                continue
+            ov = _content_overlap(k_title, str(p_mkt.get("question") or ""))
+            if ov > best_ov:
+                best_ov = ov
+                best = (p_mkt, p_mid)
+        if best is None or best_ov < 0.25:
+            continue
+        p_mkt, p_mid = best
         spread = round(k_mid - p_mid, 4)
         pairs.append({
             "kalshi_ticker": k_mkt.get("ticker"),
-            "kalshi_title": k_mkt.get("subtitle") or k_mkt.get("title"),
+            "kalshi_title": k_mkt.get("title") or k_mkt.get("subtitle"),
             "kalshi_yes_mid": k_mid,
-            "polymarket_market_slug": p_mkt.get("market_slug"),
+            "polymarket_slug": p_mkt.get("slug"),
+            "polymarket_question": p_mkt.get("question"),
             "polymarket_yes_mid": p_mid,
+            "pair_semantic_overlap": round(best_ov, 3),
             "spread_yes_kalshi_minus_poly": spread,
             "spread_bps": int(spread * 10000),
             "arbitrage_direction": (
-                "long-kalshi-short-poly" if spread < -0.02
+                # Only assert a concrete direction on a strong same-condition
+                # match. Weak overlaps (different sport/strike/date that merely
+                # share generic words) must not read as a tradeable arbitrage.
+                "verify-same-condition-first" if best_ov < 0.5
+                else "long-kalshi-short-poly" if spread < -0.02
                 else "long-poly-short-kalshi" if spread > 0.02
                 else "tight"
             ),
@@ -358,70 +645,105 @@ async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
 
     pairs.sort(key=lambda p: abs(p["spread_yes_kalshi_minus_poly"]), reverse=True)
 
+    # Always surface the top priced markets on each side so the caller has the
+    # raw data even when no confident cross-venue pair exists.
+    kalshi_top = [
+        {"ticker": m.get("ticker"),
+         "title": (m.get("title") or m.get("subtitle") or "")[:90],
+         "yes_mid": _kalshi_mid(m)}
+        for m in kalshi_hits
+    ]
+    poly_top = [
+        {"slug": m.get("slug"),
+         "question": (m.get("question") or "")[:90],
+         "yes_mid": _gamma_yes_mid(m)}
+        for m in poly_hits
+    ]
+
     # Classify the result so the caller knows what to do next.
     if pairs:
         status = "ok"
         agent_note = (
-            "Spread > 200bps in either direction is a candidate arbitrage; verify the "
-            "two markets actually resolve on the same condition before sizing."
+            "Pairs matched by shared content words + price. spread > 200bps is a "
+            "candidate arbitrage, but VERIFY both markets resolve on the same "
+            "condition, strike and date before sizing — Kalshi (e.g. 'upper bound "
+            "above 4.25%') and Polymarket (e.g. 'cut by 25 bps') often frame the same "
+            "topic as different conditions. pair_semantic_overlap is Jaccard on content "
+            "words (0-1); treat < 0.3 as loosely related."
         )
-    elif kalshi_hits and not poly_hits:
+    elif kalshi_hits and poly_hits:
+        status = "matched_no_common_condition"
+        agent_note = (
+            f"Both venues list '{keyword}' markets ({len(kalshi_hits)} Kalshi / "
+            f"{len(poly_hits)} Polymarket) but none share enough content to be the same "
+            "resolvable condition, so no trustworthy spread. Compare kalshi_top vs "
+            "polymarket_top yourself, or send a more specific topic (add the threshold "
+            "or date) to align them."
+        )
+    elif kalshi_hits:
         status = "kalshi_only"
         agent_note = (
-            f"Topic '{keyword}' matched {len(kalshi_hits)} Kalshi markets but 0 on "
-            "Polymarket — no cross-source spread available. Either Polymarket has no "
-            "equivalent market, or your topic keyword doesn't overlap the Polymarket "
-            "slug/question. Try a broader keyword (e.g. swap 'fed rate cut december' for 'fed rate')."
+            f"Topic '{keyword}' matched {len(kalshi_hits)} Kalshi markets but 0 active "
+            "Polymarket markets. No cross-source spread; kalshi_top shown."
         )
-    elif poly_hits and not kalshi_hits:
+    elif poly_hits:
         status = "polymarket_only"
         agent_note = (
             f"Topic '{keyword}' matched {len(poly_hits)} Polymarket markets but 0 on "
-            "Kalshi — no cross-source spread available. Kalshi tends to phrase political "
-            "events differently (e.g. 'KXPRES-2028' rather than 'next-president'). Try "
-            "broadening or rephrasing the topic keyword."
+            "Kalshi. No cross-source spread; polymarket_top shown."
         )
     else:
         status = "no_matches"
-        # Best-effort fallback: show the caller a few candidate topics from
-        # each side so they can pivot. Just the top-volume sample we already have.
-        kalshi_sample = [
-            {"ticker": m.get("ticker"),
-             "title": (m.get("subtitle") or m.get("title") or "")[:80]}
-            for m in kalshi_markets[:5] if m.get("ticker")
-        ]
+
+    if status == "no_matches":
+        # Sensible fallbacks: real popular markets, NOT the default-sorted MVE
+        # sports-parlay junk the old code surfaced.
         poly_sample = [
-            {"slug": m.get("market_slug"),
-             "question": (m.get("question") or "")[:80]}
-            for m in poly_markets[:5] if m.get("market_slug")
+            {"slug": m.get("slug"), "question": (m.get("question") or "")[:80]}
+            for m in sorted(poly_markets, key=lambda m: _vol(m, "volumeNum", "volume"),
+                            reverse=True)[:5]
+            if m.get("slug") and m.get("question")
         ]
+        popular_cats = {"Politics", "Economics", "Crypto", "Financials", "World"}
+        cat_series = [s for s in (_SERIES_CACHE or [])
+                      if s.get("category") in popular_cats
+                      and str(s.get("ticker") or "").startswith("KX")
+                      and not str(s.get("ticker") or "").startswith("KXMVE")
+                      and 12 <= len((s.get("title") or "").strip()) <= 70
+                      and " " in (s.get("title") or "").strip()]
+        cat_series.sort(key=lambda s: len(s["title"]))
+        kalshi_sample = [{"series": s["ticker"], "title": s["title"].strip()[:80]}
+                         for s in cat_series[:5]]
         return {
             "status": "no_matches",
             "topic_keyword": keyword,
+            "tokens_used": tokens,
             "kalshi_candidates": 0,
             "polymarket_candidates": 0,
             "pairs": [],
             "did_you_mean": {
-                "kalshi_active": kalshi_sample,
+                "kalshi_series": kalshi_sample,
                 "polymarket_active": poly_sample,
             },
             "agent_note": (
-                f"No markets on either Kalshi or Polymarket matched '{keyword}'. "
-                "Sample active markets shown above — pick a keyword that appears in "
-                "one of their titles. Common high-volume topics: fed rate, super bowl, "
-                "presidential, btc price, world cup, oscars."
+                f"No active markets matched '{keyword}' on either venue. Topics that "
+                "resolve on both include: fed rate, presidential election, bitcoin "
+                "price, government shutdown, super bowl."
             ),
-            "sources": {"kalshi": KALSHI_BASE, "polymarket": "token-api proxy"},
+            "sources": {"kalshi": KALSHI_BASE, "polymarket": "gamma-api.polymarket.com"},
         }
 
     return {
         "status": status,
         "topic_keyword": keyword,
+        "tokens_used": tokens,
         "kalshi_candidates": len(kalshi_hits),
         "polymarket_candidates": len(poly_hits),
         "pairs": pairs,
+        "kalshi_top": kalshi_top,
+        "polymarket_top": poly_top,
         "agent_note": agent_note,
-        "sources": {"kalshi": KALSHI_BASE, "polymarket": "token-api proxy"},
+        "sources": {"kalshi": KALSHI_BASE, "polymarket": "gamma-api.polymarket.com"},
     }
 
 
