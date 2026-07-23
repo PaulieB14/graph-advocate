@@ -9021,14 +9021,25 @@ def build_app():
               }
             }
             """
-            recents_query = """
-            query Recents($addr: Bytes!) {
+            # Split into per-side queries so we can fetch ONLY the side the
+            # summary shows activity on. Querying the empty side (e.g. recentSent
+            # for a recipient-only address) makes the indexer full-scan the whole
+            # x402Payments table under the orderBy to confirm zero matches, which
+            # reliably ReadTimeouts (verified 2026-07-23: `from`-side of a
+            # recipient-only address hung >40s while the `to`-side returned in
+            # 0.14s). The skipped side would be empty anyway.
+            recents_received_query = """
+            query RecentsIn($addr: Bytes!) {
               recentReceived: x402Payments(
                 where: { to: $addr }, first: 10, orderBy: blockNumber, orderDirection: desc
               ) {
                 blockNumber blockTimestamp transactionHash from amountDecimal
                 transferMethod facilitator { id name }
               }
+            }
+            """
+            recents_sent_query = """
+            query RecentsOut($addr: Bytes!) {
               recentSent: x402Payments(
                 where: { from: $addr }, first: 10, orderBy: blockNumber, orderDirection: desc
               ) {
@@ -9069,21 +9080,28 @@ def build_app():
                         await asyncio.sleep(0.8)
                         summary_result, errs = await _query_gateway(client, summary_query)
                     if not errs:
-                        # Phase 2: only fetch recents if address has any x402 history
+                        # Phase 2: fetch recents ONLY for the side(s) the summary
+                        # shows activity on — never the empty side (see note on
+                        # the split queries above). A recipient-only address gets
+                        # just recentReceived; a payer-only address just recentSent.
                         sd = summary_result.get("data") or {}
-                        has_activity = bool(
-                            (sd.get("asRecipient") or [None])[0]
-                            or (sd.get("asPayer") or [None])[0]
-                            or sd.get("facilitator")
-                        )
-                        recents_result = {"data": {"recentReceived": [], "recentSent": []}}
-                        if has_activity:
-                            recents_result, _ = await _query_gateway(client, recents_query)
+                        has_recipient = bool((sd.get("asRecipient") or [None])[0])
+                        has_payer = bool((sd.get("asPayer") or [None])[0])
+                        recents_data = {"recentReceived": [], "recentSent": []}
+                        try:
+                            if has_recipient:
+                                rr, _ = await _query_gateway(client, recents_received_query)
+                                recents_data["recentReceived"] = (rr.get("data") or {}).get("recentReceived") or []
+                            if has_payer:
+                                rs, _ = await _query_gateway(client, recents_sent_query)
+                                recents_data["recentSent"] = (rs.get("data") or {}).get("recentSent") or []
+                        except _httpx_ox.TimeoutException:
+                            # Recents scan was slow — still return the summary
+                            # rather than fail the whole paid call. The valuable
+                            # aggregate is already in hand.
+                            pass
                         # Merge phase 1 + phase 2 into the shape downstream expects
-                        result = {"data": {
-                            **(summary_result.get("data") or {}),
-                            **(recents_result.get("data") or {}),
-                        }}
+                        result = {"data": {**(summary_result.get("data") or {}), **recents_data}}
                 if errs:
                     # Lag persisted across retry — surface a clean retryable
                     # error so the agent can decide whether to come back.
