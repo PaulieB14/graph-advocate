@@ -432,6 +432,12 @@ _PAID_CATALOG = {
         "op_id": 'polymarketScreen', "desc": 'Top holders of a Polymarket market, each with skill score and ghost-fill risk.',
         "a2a": False, "openapi": True, "wellknown": True,
     },
+    'polymarket/leaders': {
+        "path": "/polymarket/leaders", "price": '$0.02', "amount": '20000',
+        "body": {'sort_by': 'total_pnl', 'interval': '1d', 'limit': 10},
+        "op_id": 'polymarketLeaders', "desc": 'Top Polymarket traders leaderboard ranked by PnL or volume over a window — the discovery/copy-trade counterpart to the per-wallet skill endpoints.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
     'predmarket/spread': {
         "path": "/predmarket/spread", "price": '$0.05', "amount": '50000', "body": {},
         "op_id": 'predmarketSpread', "desc": 'Polymarket vs Limitless cross-venue spread on a topic — JOIN that single-venue APIs cannot return; arbitrage direction included.',
@@ -1392,6 +1398,7 @@ def _normalize_service(service: str | None) -> str:
         s.startswith("polymarket-pnl") or s.startswith("polymarket-screen")
         or s.startswith("polymarket-risk") or s.startswith("pm-pnl")
         or s.startswith("pm-screen") or s.startswith("pm-risk")
+        or s.startswith("pm-leaders") or s.startswith("polymarket-leaders")
         or s == "polymarket-token-api"
     ):
         return "polymarket-token-api"
@@ -8086,6 +8093,7 @@ def build_app():
             score_wallet,
             fetch_user_positions,
             fetch_user_aggregate,
+            fetch_leaders,
             fetch_market_meta,
             fetch_market_holders,
             normalize_wallet,
@@ -8124,6 +8132,44 @@ def build_app():
             except Exception as exc:
                 log.exception(f"pm-pnl-quick crashed: {wallet}")
                 _log_paid_failure(f"pm-pnl-quick {wallet[:10]}", exc)
+                return _RouteJSON({
+                    "error": "upstream_unavailable",
+                    "message": "Upstream data provider returned an error. Please retry shortly.",
+                    "retry_after_seconds": 30,
+                }, status_code=502)
+
+        async def _pm_leaders_handler(request):
+            """$0.02 — top Polymarket traders leaderboard (by PnL or volume).
+
+            The per-wallet endpoints answer "how good is THIS trader?"; this
+            answers "who are the best traders?" — for discovery / copy-trade /
+            cohort-building. Leaderboard mode of Pinax /users (no `user`).
+            """
+            data = await _pm_read_body(request)
+            sort_by = str(data.get("sort_by") or "total_pnl")
+            interval = data.get("interval") or None
+            try:
+                limit = int(data.get("limit") or 10)
+            except Exception:
+                limit = 10
+            try:
+                rows = await fetch_leaders(sort_by=sort_by, interval=interval, limit=limit)
+                traders = [{"rank": i, **r} for i, r in enumerate(rows, 1)]
+                payload = {
+                    "leaderboard": "polymarket",
+                    "sort_by": sort_by,
+                    "interval": interval or "all-time",
+                    "count": len(traders),
+                    "traders": traders,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _log_request("x402-paid", f"pm-leaders {sort_by}",
+                             "polymarket-leaders", "high", "polymarket-token-api",
+                             response=payload)
+                return _RouteJSON(payload)
+            except Exception as exc:
+                log.exception(f"pm-leaders crashed: {sort_by}")
+                _log_paid_failure(f"pm-leaders {sort_by}", exc)
                 return _RouteJSON({
                     "error": "upstream_unavailable",
                     "message": "Upstream data provider returned an error. Please retry shortly.",
@@ -9318,6 +9364,7 @@ def build_app():
             _RouteRoute("/polymarket/pnl", _pm_pnl_handler, methods=["POST"]),
             _RouteRoute("/polymarket/screen", _pm_screen_handler, methods=["POST"]),
             _RouteRoute("/polymarket/risk", _pm_risk_handler, methods=["POST"]),
+            _RouteRoute("/polymarket/leaders", _pm_leaders_handler, methods=["POST"]),
             _RouteRoute("/hyperliquid/score", _hl_score_handler, methods=["POST"]),
             _RouteRoute("/hyperliquid/pnl", _hl_pnl_handler, methods=["POST"]),
             _RouteRoute("/hyperliquid/screen", _hl_screen_handler, methods=["POST"]),

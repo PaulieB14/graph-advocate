@@ -144,6 +144,31 @@ async def fetch_user_aggregate(user: str) -> dict | None:
     return rows[0] if rows else None
 
 
+_LEADER_SORTS = {"total_pnl", "realized_pnl", "unrealized_pnl", "total_volume", "transactions"}
+_LEADER_INTERVALS = {"1h", "1d", "1w", "30d"}
+_LEADERS_MAX = 50
+
+
+async def fetch_leaders(sort_by: str = "total_pnl", interval: str | None = None,
+                        limit: int = 10) -> list[dict]:
+    """Top Polymarket traders — leaderboard mode of Pinax /users (omit `user`).
+
+    sort_by ∈ total_pnl|realized_pnl|unrealized_pnl|total_volume|transactions.
+    interval ∈ 1h|1d|1w|30d, or None for all-time. The per-wallet endpoints
+    answer "how good is THIS trader"; this answers "who are the best traders" —
+    the discovery / copy-trade counterpart.
+    """
+    sort_by = sort_by if sort_by in _LEADER_SORTS else "total_pnl"
+    try:
+        limit = max(1, min(int(limit), _LEADERS_MAX))
+    except Exception:
+        limit = 10
+    params: dict[str, Any] = {"sort_by": sort_by, "limit": limit}
+    if interval in _LEADER_INTERVALS:
+        params["interval"] = interval
+    return _data(await _pinax("/users", **params))
+
+
 async def fetch_market_meta(condition_id: str) -> dict | None:
     """Fetch a single market by condition_id. Returns the record with
     `outcomes: [{label, token_id}, ...]` for ghost-fill / screen lookups."""
