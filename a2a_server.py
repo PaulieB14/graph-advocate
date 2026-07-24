@@ -9681,6 +9681,26 @@ def build_app():
                             ),
                         },
                     ),
+                    "POST /polymarket/leaders": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.02",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Top Polymarket traders leaderboard. POST {sort_by?, interval?, limit?}. "
+                            "sort_by in total_pnl|realized_pnl|unrealized_pnl|total_volume|transactions "
+                            "(default total_pnl); interval in 1h|1d|1w|30d or omit for all-time; "
+                            "limit <= 50 (default 10). Ranked traders with PnL, volume, and transaction "
+                            "counts — the discovery / copy-trade / cohort-building counterpart to the "
+                            "per-wallet skill endpoints."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"sort_by":"total_pnl","interval":"1d","limit":10},
+                            input_schema={"type":"object","properties":{"sort_by":{"type":"string"},"interval":{"type":"string"},"limit":{"type":"integer"}},"required":[]},
+                            body_type="json",
+                            output=OutputConfig(example={"leaderboard":"polymarket","sort_by":"total_pnl","interval":"1d","count":2,"traders":[{"rank":1,"user":"0xcd30…","total_pnl":1741779.55,"total_volume":2206407.66,"transactions":3050}]},schema={"type":"object"}),
+                        )},
+                    ),
                     # ── Hyperliquid trader-intelligence (5 endpoints) ──────
                     "POST /hyperliquid/score": RouteConfig(
                         accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.02",
