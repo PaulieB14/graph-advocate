@@ -588,15 +588,16 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
     "substreams": {
         "install": "npx substreams-search-mcp",
         "curl_example": (
-            "# 1. Search Substreams packages (no auth needed)\n"
-            "npx substreams-search-mcp\n\n"
-            "# Or browse the registry directly\n"
-            "curl 'https://substreams.dev/packages?search=uniswap&sort=most_downloaded'\n\n"
-            "# 2. To stream data, install the Substreams CLI:\n"
+            "# 1. Browse the package registry in a browser (search is client-rendered,\n"
+            "#    so it is not curl/scrape-able — open the URL directly):\n"
+            "#    https://substreams.dev/packages?search=uniswap&sort=most_downloaded\n\n"
+            "# 2. Install the Substreams CLI to run packages:\n"
             "#    https://docs.substreams.dev/how-to-guides/installing-the-cli\n"
             "# 3. Auth: create an API key at https://thegraph.market, generate a JWT,\n"
             "#    then run:  substreams auth\n"
-            "# 4. Run a package:  substreams run <spkg> module_name -e mainnet.eth.streamingfast.io:443"
+            "# 4. Run a package:  substreams run <spkg> module_name -e mainnet.eth.streamingfast.io:443\n\n"
+            "# For plain ERC-20/721 transfers, balances or holders, the Token API\n"
+            "# (https://api.pinax.network) is usually the faster path than Substreams."
         ),
         "get_started": (
             "Substreams uses a JWT (not a plain API key). "
@@ -2532,7 +2533,9 @@ def _auto_search(request: str) -> str:
     ]
 
     run_subgraph = _any_word_match(SUBGRAPH_KEYWORDS, req_lower)
-    run_substreams = _any_word_match(SUBSTREAMS_KEYWORDS, req_lower)
+    # Plural-aware so the service name itself — "substreams" — triggers the search
+    # (matches the routing layer, which also uses the plural variant for these).
+    run_substreams = _any_word_match_plural(SUBSTREAMS_KEYWORDS, req_lower)
     run_token_api = (
         _any_word_match(TOKEN_API_KEYWORDS, req_lower)
         or any(p in req_lower for p in TOKEN_API_PHRASES)
@@ -2615,7 +2618,9 @@ def _auto_search(request: str) -> str:
         if run_substreams:
             ss_results = _search_substreams(search_term)
             ss_data = json.loads(ss_results)
-            if ss_data.get("results"):
+            # Pass context whether we got hits OR the registry-search-unavailable
+            # signal — the latter tells Claude not to claim "no package exists".
+            if ss_data.get("results") or ss_data.get("registry_search_unavailable"):
                 results.append(f"[LIVE SUBSTREAMS SEARCH for '{search_term}']\n{ss_results}")
 
         if run_token_api:
@@ -3778,24 +3783,40 @@ def _get_subgraph_schema(subgraph_id: str) -> str:
 
 
 def _search_substreams(keyword: str) -> str:
-    """Search substreams.dev registry (same API as substreams-search-mcp)."""
+    """Search the substreams.dev registry.
+
+    NOTE (2026-07-25): substreams.dev migrated to a client-rendered Next.js app
+    backed by the JWT-authenticated api.substreams.dev. Its /packages HTML no
+    longer server-renders package links, and there is no public unauthenticated
+    search endpoint (the CLI only exposes login/publish/verify — no list/search).
+    We still attempt the legacy scrape in case results are present, but an empty
+    scrape is NOT evidence that no package exists — so we must never report
+    "no packages found". Instead we return an honest payload: the browsable
+    registry URL, CLI guidance, and the better alternative where one exists.
+    """
     import urllib.request
 
+    kw = (keyword or "").strip()
+    browse_url = (
+        "https://substreams.dev/packages?"
+        + urllib.parse.urlencode({"search": kw, "sort": "most_downloaded"})
+    )
+
+    results: list[dict] = []
     try:
-        params = urllib.parse.urlencode({"search": keyword, "sort": "most_downloaded", "page": "1"})
+        params = urllib.parse.urlencode({"search": kw, "sort": "most_downloaded", "page": "1"})
         url = f"https://substreams.dev/packages?{params}"
         req = urllib.request.Request(url, headers={"User-Agent": "GraphAdvocate/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             html = resp.read().decode("utf-8", errors="replace")
 
-        # Parse package links — same pattern as substreams-search-mcp
-        # Links look like: href="/author/package-name/version"
+        # Legacy path: server-rendered links looked like href="/author/package/version".
+        # The current client-rendered site serves none of these, so this yields [].
         pattern = r'href="(/([^/"]+)/([^/"]+)/([^/"]+))"'
-        matches = re.findall(pattern, html)
-
         seen = set()
-        results = []
-        for href, author, name, version in matches:
+        for href, author, name, version in re.findall(pattern, html):
+            if author.startswith("_") or href.startswith("/_next"):
+                continue  # skip Next.js asset links
             key = f"{author}/{name}"
             if key in seen:
                 continue
@@ -3809,13 +3830,46 @@ def _search_substreams(keyword: str) -> str:
             })
             if len(results) >= 8:
                 break
+    except Exception:
+        results = []  # network/parse error — fall through to honest guidance
 
-        if not results:
-            return json.dumps({"results": [], "message": f"No substreams packages found for '{keyword}'"})
+    if results:
+        return json.dumps({"results": results, "total_found": len(results), "source": "substreams.dev"})
 
-        return json.dumps({"results": results, "total_found": len(results)})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    # Scrape empty: the registry is now client-rendered behind a JWT-gated API, so
+    # programmatic full-text search is unavailable. Do NOT claim no package exists.
+    kw_l = kw.lower()
+    # Word-boundary match (not substring) so "uniswap" doesn't trip "swap", etc.
+    token_ish = bool(re.search(
+        r"\b(erc-?20|erc-?721|transfers?|balances?|holders?|tokens?|swaps?|nfts?)\b",
+        kw_l,
+    ))
+    payload = {
+        "results": [],
+        "registry_search_unavailable": True,
+        "message": (
+            f"Substreams full-text search is currently unavailable programmatically: "
+            f"substreams.dev moved to a client-rendered app behind the JWT-gated "
+            f"api.substreams.dev, and there is no public search endpoint. This is NOT "
+            f"evidence that no package exists for '{kw}' — browse the registry directly "
+            f"or use the CLI."
+        ),
+        "browse_url": browse_url,
+        "cli_hint": (
+            "Install the Substreams CLI (https://docs.substreams.dev), run "
+            "`substreams auth`, then browse/run packages via https://substreams.dev."
+        ),
+    }
+    if token_ish:
+        payload["recommended_alternative"] = {
+            "service": "token-api",
+            "why": (
+                "For ERC-20/721 transfers, balances, holders, swaps and NFT activity, "
+                "the Token API (https://api.pinax.network) returns ready-to-use data "
+                "directly — usually faster and simpler than building or running a Substreams."
+            ),
+        }
+    return json.dumps(payload)
 
 
 _x402_bazaar_cache: dict[str, tuple[float, list]] = {}
