@@ -9067,18 +9067,19 @@ def build_app():
               }
             }
             """
-            # Split into per-side queries so we can fetch ONLY the side the
-            # summary shows activity on. Querying the empty side (e.g. recentSent
-            # for a recipient-only address) makes the indexer full-scan the whole
-            # x402Payments table under the orderBy to confirm zero matches, which
-            # reliably ReadTimeouts (verified 2026-07-23: `from`-side of a
-            # recipient-only address hung >40s while the `to`-side returned in
-            # 0.14s). The skipped side would be empty anyway.
+            # Fetch recents WITHOUT a server-side `orderBy: blockNumber` — that
+            # sort over the huge x402Payments table reliably Timeouts on every
+            # indexer (verified live 2026-07-26: the identical query minus orderBy
+            # returns instantly; WITH it, all 5 indexers Timeout). We pull the
+            # address's payments unordered (fast, filter-only) and sort newest-
+            # first in Python below. first:1000 is the GraphQL page max and covers
+            # every real address (heaviest seen ~188 payments); the >1000 case is
+            # flagged `recents_may_be_incomplete` rather than failing the call.
+            # Still split per-side + gated on the summary so we only hit the
+            # side(s) with activity (the empty side returns [] instantly anyway).
             recents_received_query = """
             query RecentsIn($addr: Bytes!) {
-              recentReceived: x402Payments(
-                where: { to: $addr }, first: 10, orderBy: blockNumber, orderDirection: desc
-              ) {
+              recentReceived: x402Payments(where: { to: $addr }, first: 1000) {
                 blockNumber blockTimestamp transactionHash from amountDecimal
                 transferMethod facilitator { id name }
               }
@@ -9086,9 +9087,7 @@ def build_app():
             """
             recents_sent_query = """
             query RecentsOut($addr: Bytes!) {
-              recentSent: x402Payments(
-                where: { from: $addr }, first: 10, orderBy: blockNumber, orderDirection: desc
-              ) {
+              recentSent: x402Payments(where: { from: $addr }, first: 1000) {
                 blockNumber blockTimestamp transactionHash to amountDecimal
                 transferMethod facilitator { id name }
               }
@@ -9118,6 +9117,7 @@ def build_app():
                 return rj, rj.get("errors") or []
 
             try:
+                recents_truncated = {"received": False, "sent": False}
                 # 30s timeout — was 20s but Graph gateway can route to lagging
                 # indexers that take 8-18s on the full query; tight bound caused
                 # paying customer ReadTimeouts on 2026-06-22.
@@ -9147,15 +9147,29 @@ def build_app():
                         has_recipient = bool((sd.get("asRecipient") or [None])[0])
                         has_payer = bool((sd.get("asPayer") or [None])[0])
                         recents_data = {"recentReceived": [], "recentSent": []}
+
+                        def _newest_first(rows):
+                            # Sort client-side (server-side orderBy Timeouts — see
+                            # note on the queries) and keep the 10 most recent.
+                            # blockNumber comes back as a string, so cast to sort.
+                            rows = rows or []
+                            rows.sort(key=lambda r: int(r.get("blockNumber") or 0),
+                                      reverse=True)
+                            return rows[:10]
+
                         try:
                             if has_recipient:
-                                rr, _ = await _query_gateway(client, recents_received_query)
-                                recents_data["recentReceived"] = (rr.get("data") or {}).get("recentReceived") or []
+                                rr, _ = await _query_gateway(client, recents_received_query, timeout=25.0)
+                                raw = (rr.get("data") or {}).get("recentReceived") or []
+                                recents_truncated["received"] = len(raw) >= 1000
+                                recents_data["recentReceived"] = _newest_first(raw)
                             if has_payer:
-                                rs, _ = await _query_gateway(client, recents_sent_query)
-                                recents_data["recentSent"] = (rs.get("data") or {}).get("recentSent") or []
+                                rs, _ = await _query_gateway(client, recents_sent_query, timeout=25.0)
+                                raw = (rs.get("data") or {}).get("recentSent") or []
+                                recents_truncated["sent"] = len(raw) >= 1000
+                                recents_data["recentSent"] = _newest_first(raw)
                         except _httpx_ox.TimeoutException:
-                            # Recents scan was slow — still return the summary
+                            # Recents fetch was slow — still return the summary
                             # rather than fail the whole paid call. The valuable
                             # aggregate is already in hand.
                             pass
@@ -9192,6 +9206,7 @@ def build_app():
                     "facilitator": d.get("facilitator"),
                     "recent_received": d.get("recentReceived", []),
                     "recent_sent": d.get("recentSent", []),
+                    "recents_may_be_incomplete": bool(recents_truncated["received"] or recents_truncated["sent"]),
                     "is_in_index": bool(as_recipient or as_payer or d.get("facilitator")),
                     "indexed_through_block": block.get("number"),
                     "indexed_through_timestamp": block.get("timestamp"),
