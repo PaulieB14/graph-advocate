@@ -9108,9 +9108,11 @@ def build_app():
                         or "unavailable" in joined
                         or "bad indexers" in joined)
 
-            async def _query_gateway(client, q: str) -> tuple[dict, list]:
-                r = await client.post(url, json={"query": q,
-                                                 "variables": {"addr": addr_lower}})
+            async def _query_gateway(client, q: str, timeout=None) -> tuple[dict, list]:
+                kwargs = {"json": {"query": q, "variables": {"addr": addr_lower}}}
+                if timeout is not None:
+                    kwargs["timeout"] = timeout
+                r = await client.post(url, **kwargs)
                 r.raise_for_status()
                 rj = r.json()
                 return rj, rj.get("errors") or []
@@ -9120,11 +9122,22 @@ def build_app():
                 # indexers that take 8-18s on the full query; tight bound caused
                 # paying customer ReadTimeouts on 2026-06-22.
                 async with _httpx_ox.AsyncClient(timeout=30.0) as client:
-                    # Phase 1: cheap summary
-                    summary_result, errs = await _query_gateway(client, summary_query)
+                    # Phase 1: cheap summary (normally ~1s). Give it a tight 12s
+                    # bound and retry once on a raw ReadTimeout: a hung/lagging
+                    # indexer shows up either as an errors envelope (_is_indexer_lag,
+                    # handled just below) OR as a silent connection hang. The gateway
+                    # load-balances, so a re-route usually lands on a fresher indexer.
+                    # Bounds phase 1 to ~24s worst case vs a single 30s hang, and
+                    # salvages the transient timeout that failed a paid call
+                    # (onchain-x402-addr 0x0ff5a6ec, 2026-07-26).
+                    try:
+                        summary_result, errs = await _query_gateway(client, summary_query, timeout=12.0)
+                    except _httpx_ox.TimeoutException:
+                        await asyncio.sleep(0.8)
+                        summary_result, errs = await _query_gateway(client, summary_query, timeout=12.0)
                     if errs and _is_indexer_lag(errs):
                         await asyncio.sleep(0.8)
-                        summary_result, errs = await _query_gateway(client, summary_query)
+                        summary_result, errs = await _query_gateway(client, summary_query, timeout=12.0)
                     if not errs:
                         # Phase 2: fetch recents ONLY for the side(s) the summary
                         # shows activity on — never the empty side (see note on
