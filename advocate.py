@@ -147,8 +147,10 @@ Best for: protocol-level indexed data (Uniswap, Aave, ENS, Compound, Curve, Bala
 Use when: the agent needs entities, relationships, or aggregations a subgraph tracks
 Key tools: search_subgraphs_by_keyword, get_schema_by_subgraph_id, execute_query_by_subgraph_id
 IMPORTANT — Common subgraph entity names (do NOT guess, use these):
-  - Uniswap V2: pairs(orderBy: reserveUSD) { token0 { symbol } token1 { symbol } reserveUSD volumeUSD }
-  - Uniswap V3: pools(orderBy: totalValueLockedUSD) { token0 { symbol } token1 { symbol } totalValueLockedUSD feeTier }
+  - Uniswap V2: pairs(orderBy: volumeUSD) { token0 { symbol } token1 { symbol } reserveUSD volumeUSD }
+  - Uniswap V3: pools(orderBy: volumeUSD) { token0 { symbol } token1 { symbol } totalValueLockedUSD volumeUSD feeTier }
+    (Uniswap ONLY: rank by volumeUSD even when the caller says "by TVL" — see the anti-TVL rule
+     below — and say in `reason` that you did, so they know what they are looking at.)
   - Aave V2/V3: markets(orderBy: totalDepositBalanceUSD) { name inputToken { symbol } totalDepositBalanceUSD totalBorrowBalanceUSD }
   - Compound: markets(orderBy: totalDepositBalanceUSD) { name inputToken { symbol } totalDepositBalanceUSD }
   - ENS: registrations(orderBy: registrationDate) { domain { name } registrant { id } registrationDate }
@@ -187,6 +189,7 @@ pre-built tooling. Install via: npx <package-name>
   Coverage: V3 on Ethereum, Arbitrum, Base, Polygon, Optimism, BSC | V4 on Ethereum, Arbitrum, Base, Optimism, BSC | V2 on Ethereum, Base
   Powered by Graph subgraphs addressed by SUBGRAPH ID, so they auto-follow the publisher's latest published version
   IMPORTANT — rank Uniswap pools by volumeUSD, NEVER by TVL: Uniswap subgraph TVL/liquidity is inflated by illiquid spam-token pools (a single fake pool can report trillions). This applies whether or not you recommend the MCP.
+  This rule OVERRIDES the caller's wording. If they ask for "top pools by TVL", still order by volumeUSD — but you MUST say so in `reason` ("ranked by volumeUSD rather than TVL because …"). Silently substituting the metric gives them numbers they did not ask for and cannot spot; the query now runs for real, so what comes back is what they will act on.
   Schema note: V2 is Pair-based (`pairs`, reserveUSD); V3/V4 are Pool-based (`pools`, feeTier, totalValueLockedUSD). Some deployments price via nativePriceUSD/derivedNative instead of ethPriceUSD/derivedETH.
   Install: npx -y graph-uniswap-mcp (needs GRAPH_API_KEY)
 - graph-polymarket-mcp (v2.0.0): Polymarket prediction markets — 31 tools combining The Graph subgraphs + Polymarket REST APIs (Gamma + CLOB)
@@ -614,13 +617,15 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
     },
     "subgraph-registry": {
         "curl_example": (
-            "# Example: top Uniswap V3 pools by TVL on Ethereum — a REAL, runnable query.\n"
+            "# Example: top Uniswap V3 pools on Ethereum — a REAL, runnable query.\n"
+            "# Ranked by volumeUSD, not TVL: Uniswap subgraph TVL is inflated by\n"
+            "# illiquid spam-token pools, so a TVL sort returns junk at the top.\n"
             "# For YOUR protocol/chain, reply with its name and I'll return the exact subgraph ID.\n"
             "# Get a free API key first: thegraph.com/studio\n"
             "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV' \\\n"
             "  -H 'Authorization: Bearer YOUR_API_KEY' \\\n"
             "  -H 'Content-Type: application/json' \\\n"
-            "  -d '{\"query\": \"{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id token0 { symbol } token1 { symbol } feeTier totalValueLockedUSD volumeUSD } }\"}'"
+            "  -d '{\"query\": \"{ pools(first: 10, orderBy: volumeUSD, orderDirection: desc) { id token0 { symbol } token1 { symbol } feeTier totalValueLockedUSD volumeUSD } }\"}'"
         ),
         "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
     },

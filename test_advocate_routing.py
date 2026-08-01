@@ -730,6 +730,83 @@ class TestCompareRoute(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestSubgraphExecExtraction(unittest.TestCase):
+    """Pure-logic guards for subgraph_exec. Live behaviour lives in
+    eval_delivery.py; these run offline so they stay in the fast suite."""
+
+    def setUp(self):
+        from subgraph_exec import extract_runnable, strip_false_capability_claims
+        self.extract = extract_runnable
+        self.strip = strip_false_capability_claims
+
+    def _rec(self, **args):
+        return {"query_ready": {"tool": "execute_query_by_subgraph_id", "args": args}}
+
+    def test_extracts_subgraph_id_and_gql(self):
+        got = self.extract(self._rec(subgraph_id="Abc123", gql="{ pools { id } }"))
+        self.assertEqual(got, ("Abc123", "{ pools { id } }"))
+
+    def test_accepts_query_alias_for_gql(self):
+        got = self.extract(self._rec(subgraph_id="Abc123", query="{ pools { id } }"))
+        self.assertEqual(got, ("Abc123", "{ pools { id } }"))
+
+    def test_rejects_non_subgraph_tools(self):
+        # REST services must never be "executed" as subgraph queries.
+        self.assertIsNone(self.extract(
+            {"query_ready": {"tool": "getV1EvmBalances", "args": {"network": "base"}}}))
+
+    def test_rejects_incomplete_and_malformed(self):
+        for bad in (None, "not a dict", {}, {"query_ready": None},
+                    self._rec(subgraph_id="Abc123"), self._rec(gql="{ a }"),
+                    self._rec(subgraph_id="  ", gql="{ a }")):
+            self.assertIsNone(self.extract(bad), f"should reject: {bad!r}")
+
+    def test_strips_false_capability_claims(self):
+        reason = ("The Aave subgraph is purpose-built for this. "
+                  "I cannot make live HTTP calls myself. "
+                  "Use the curl below.")
+        out = self.strip(reason)
+        self.assertNotIn("cannot make live", out.lower())
+        self.assertIn("purpose-built", out)
+        self.assertIn("curl", out)
+
+    def test_strip_never_returns_empty(self):
+        # If every sentence was a false claim, keep the original rather than
+        # handing the caller a blank reason.
+        self.assertTrue(self.strip("I cannot execute queries."))
+        self.assertEqual(self.strip(""), "")
+
+    def test_strip_leaves_clean_prose_alone(self):
+        clean = "The ENS subgraph indexes Domain entities with registrationDate."
+        self.assertEqual(self.strip(clean), clean)
+
+
+class TestUniswapTvlOverride(unittest.TestCase):
+    """Uniswap subgraph TVL is inflated by spam pools (a single fake pool
+    reports $1.1T TVL against $0 volume), so every Uniswap ranking must sort
+    by volumeUSD. The prompt used to say both things in two places and the
+    model coin-flipped; these pin the surfaces that must agree."""
+
+    def test_static_benchmark_ranks_by_volume(self):
+        import a2a_server
+        gql = a2a_server._BENCHMARK_UNI_V3_ETH_POOLS["query_ready"]["args"]["gql"]
+        self.assertIn("orderBy: volumeUSD", gql)
+        self.assertNotIn("orderBy: totalValueLockedUSD", gql)
+
+    def test_static_benchmark_discloses_the_substitution(self):
+        import a2a_server
+        reason = a2a_server._BENCHMARK_UNI_V3_ETH_POOLS["reason"].lower()
+        self.assertIn("volumeusd", reason)
+        self.assertIn("tvl", reason)
+
+    def test_prompt_hint_agrees_with_the_anti_tvl_rule(self):
+        import advocate
+        hint = [l for l in advocate.SYSTEM.splitlines()
+                if l.strip().startswith("- Uniswap V3:")]
+        self.assertTrue(hint, "Uniswap V3 entity hint missing from prompt")
+        self.assertIn("orderBy: volumeUSD", hint[0])
+
+
 if __name__ == "__main__":
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
@@ -745,6 +822,8 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestCompareRoute))
     suite.addTests(loader.loadTestsFromTestCase(TestLogPaidFailureNormalization))
     suite.addTests(loader.loadTestsFromTestCase(TestPayerCapture))
+    suite.addTests(loader.loadTestsFromTestCase(TestSubgraphExecExtraction))
+    suite.addTests(loader.loadTestsFromTestCase(TestUniswapTvlOverride))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

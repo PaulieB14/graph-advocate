@@ -16,7 +16,9 @@ Claude-powered A2A routing agent for The Graph Protocol. Agents ask plain-Englis
 |---|---|
 | `advocate.py` | Core routing logic, system prompt, Claude calls, auto-search, SQLite logging |
 | `a2a_server.py` | A2A HTTP server (JSON-RPC 2.0), x402 payments, dashboard, feedback, quality scoring |
-| `test_advocate_routing.py` | 34-case test suite — run after any advocate.py change |
+| `subgraph_exec.py` | Runs a routing answer's `query_ready` against the gateway (paid `/route`) |
+| `test_advocate_routing.py` | 100-case offline suite — run after any advocate.py change |
+| `eval_delivery.py` | Live delivery eval — did the query actually run and return what was asked? |
 | `erc8004-registration.json` | On-chain agent metadata (synced to IPFS + Arbitrum) |
 | `.env.example` | All env vars documented |
 
@@ -28,7 +30,19 @@ pip install -r requirements.txt
 ANTHROPIC_API_KEY=sk-ant-... python3 a2a_server.py
 ```
 
-Test: `python3 test_advocate_routing.py` (34 tests must pass)
+Test: `python3 test_advocate_routing.py` (100 tests must pass, offline, ~10s)
+
+Delivery eval (live — makes real model + gateway calls):
+
+```bash
+python3 eval_delivery.py                    # full corpus, one run each
+python3 eval_delivery.py --quick --repeat 5 # execution cases, 5x — catches flaky intent drift
+```
+
+Shape tests can't see whether a caller got their data. `eval_delivery.py` asserts against
+things that can contradict the model: gateway errors, row counts, the literal `orderBy`
+field. **Always use `--repeat`** on ranking cases — the model is non-deterministic, and the
+Uniswap TVL contradiction showed up as 2/5, not as a clean failure.
 
 ## API endpoints
 

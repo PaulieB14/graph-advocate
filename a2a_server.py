@@ -908,20 +908,25 @@ _MAX_CACHE_ENTRIES = 500  # evict oldest when exceeded
 # field names are verified — running each query end-to-end returns real data.
 _BENCHMARK_UNI_V3_ETH_POOLS = {
     "recommendation": "subgraph-registry",
-    "reason": "Uniswap V3 Ethereum subgraph indexes Pool entities with totalValueLockedUSD and feeTier. Returns the top pools by TVL with token symbols ready for display.",
+    # Ranked by volumeUSD, NOT TVL. Uniswap subgraph TVL is inflated by
+    # illiquid spam-token pools, so a totalValueLockedUSD sort puts junk at
+    # the top — this response used to do exactly that, and being static it
+    # did so deterministically on every benchmark run. The substitution is
+    # stated in `reason` so nobody thinks they got a TVL ranking.
+    "reason": "Uniswap V3 Ethereum subgraph indexes Pool entities with volumeUSD, totalValueLockedUSD and feeTier. Ranked by volumeUSD rather than TVL: Uniswap subgraph TVL is inflated by illiquid spam-token pools, so a TVL sort returns junk pools at the top. TVL is still returned on each row so you can see both.",
     "confidence": "high",
     "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
     "query_ready": {
         "tool": "execute_query_by_subgraph_id",
         "args": {
             "subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
-            "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id feeTier token0 { symbol } token1 { symbol } totalValueLockedUSD volumeUSD } }",
+            "gql": "{ pools(first: 10, orderBy: volumeUSD, orderDirection: desc) { id feeTier token0 { symbol } token1 { symbol } totalValueLockedUSD volumeUSD } }",
         },
     },
     "curl_example": (
         "curl 'https://gateway.thegraph.com/api/<API_KEY>/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV' "
         "-H 'Content-Type: application/json' "
-        "-d '{\"query\":\"{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id feeTier token0 { symbol } token1 { symbol } totalValueLockedUSD volumeUSD } }\"}'"
+        "-d '{\"query\":\"{ pools(first: 10, orderBy: volumeUSD, orderDirection: desc) { id feeTier token0 { symbol } token1 { symbol } totalValueLockedUSD volumeUSD } }\"}'"
     ),
     "playground": "https://thegraph.com/explorer/subgraphs/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV?view=Query&chain=arbitrum-one",
     "cache_for_seconds": 86400,
