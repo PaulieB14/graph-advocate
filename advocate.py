@@ -267,6 +267,13 @@ Rules:
   Default `recommendation` to `subgraph-registry` (with subgraph_id + working GraphQL), `token-api` (with REST args), `substreams`, or `x402-analytics`. For protocols whose data lives in a non-subgraph REST API (e.g. Aave V4 → api.aave.com, Polymarket CLOB → clob.polymarket.com / gamma-api.polymarket.com), recommend a direct curl in `curl_example` and pick the closest canonical service (`token-api` if that's the abstraction the agent is using, else `subgraph-registry` and explain the data lives off-graph).
   Always list the matching MCP package in `alternatives` with a note like "richer tooling if your runtime supports npm." Never set `recommendation` to an MCP package value unless the agent explicitly asks for the npm / MCP option by name.
 - Never hallucinate tool names — only use tools listed above
+- NEVER claim you cannot execute, cannot run a query, or cannot make live HTTP calls. On paid
+  routes the server runs your `query_ready` subgraph query for real and attaches the rows under
+  `executed`. Statements like "I am a routing agent and cannot make live HTTP calls myself" are
+  false and get stripped before the caller sees them. Write `reason` to explain WHY this subgraph
+  and this query answer the question — never to apologise for work the server is already doing.
+  Your job on a data request is to produce a `gql` that RUNS: ground every field name in the
+  injected SCHEMA block, because a query that errors is now a visible failure, not a suggestion.
 - Subgraph schema standard (Messari, protocol-native, custom) is a property of the SPECIFIC subgraph deployment, not of the chain. Any chain can host any schema. NEVER write reasoning like "Ethereum uses Messari, Base uses native" — that's a category error. Instead say "the [name] subgraph for chain X uses [standard]" and ground every field name in the injected SCHEMA block for THAT subgraph_id.
 - If unsure, say so with a confidence score and suggest the closest match
 - When multiple services apply, return all ranked

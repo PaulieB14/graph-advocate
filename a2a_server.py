@@ -34,6 +34,7 @@ import json
 from datetime import timedelta
 
 from advocate import ask_graph_advocate, ask_graph_advocate_chat
+from subgraph_exec import execute_query_ready, strip_false_capability_claims
 
 REPEAT_WINDOW_MINUTES = 30
 RATE_LIMIT_WINDOW_SECONDS = 60
@@ -1266,6 +1267,18 @@ def _init_activity_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_quality_ts ON quality_scores(timestamp)")
+
+        # executed — did we actually RUN the query we recommended?
+        # NULL on responses where execution was never attempted (free routing,
+        # REST services, answers with no runnable subgraph query); 1/0 on paid
+        # /route calls that tried. Added 2026-08-01 after a paying caller asked
+        # twice for "actual results", got prose both times, and the shape-only
+        # scorer graded both 5.0/5. Delivery is the thing the score was blind
+        # to, so it now has a column of its own. Idempotent ALTER.
+        try:
+            conn.execute("ALTER TABLE quality_scores ADD COLUMN executed BOOLEAN")
+        except Exception:
+            pass
 
         # Daily query limits — persists across deploys
         conn.execute("""
@@ -3529,6 +3542,14 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
         has_install = bool(rec.get("install"))
         parse_ok = rec.get("recommendation", "unknown") != "unknown"
 
+        # Delivery, not just shape. Every signal above measures what the answer
+        # LOOKS like — none of them notice that the caller asked for results and
+        # received a query. When execution was attempted, its outcome is the
+        # strongest quality signal we have, so it gates the top of the scale.
+        executed_block = rec.get("executed") if isinstance(rec, dict) else None
+        exec_attempted = isinstance(executed_block, dict)
+        exec_ok = bool(executed_block.get("ok")) if exec_attempted else None
+
         # MCP tool servers don't use curl; their install is the implicit
         # `npx <pkg>` that the advocate prompt constructs. Auto-crediting
         # those two points fixes the chronic 2/5 ceiling on these services
@@ -3578,12 +3599,21 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
                 1 if (has_install or install_na) else 0,
             ])
 
+        # A well-formed answer whose query does not run is not a 5/5. Cap it at
+        # 3 so the failure is visible in the daily average instead of hiding
+        # behind perfect shape. Only applies where we actually tried — free
+        # routing and opted-out callers are scored exactly as before, so
+        # historical numbers stay comparable.
+        if exec_attempted and not exec_ok:
+            score = min(score, 3)
+
         import sqlite3 as _sq
         conn = _sq.connect(str(DB_PATH))
         conn.execute(
             "INSERT INTO quality_scores (timestamp, activity_id, request, service, "
-            "has_query_ready, has_subgraph_id, has_curl_example, has_install, parse_success, score) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "has_query_ready, has_subgraph_id, has_curl_example, has_install, parse_success, "
+            "score, executed) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 datetime.now(timezone.utc).isoformat(),
                 activity_id,
@@ -3595,6 +3625,7 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
                 has_install,
                 parse_ok,
                 score,
+                exec_ok,  # None when execution was never attempted
             ),
         )
         conn.commit()
@@ -6691,7 +6722,7 @@ CHAT_HTML = """<!DOCTYPE html>
   </div>
   <div class="welcome" id="welcome">
     <h2>What can Graph Advocate do?</h2>
-    <p>I route agents and humans to the right Graph Protocol service — Token API, subgraphs, Substreams, MCP servers — given a plain-English data question. I don't execute the query for you; I tell you exactly which tool to call and how.</p>
+    <p>I route agents and humans to the right Graph Protocol service — Token API, subgraphs, Substreams, MCP servers — given a plain-English data question. Free routing tells you exactly which tool to call and how; on paid <code>/route</code> calls I also run the subgraph query and hand back the rows, with the indexed block height so you can see how fresh they are.</p>
     <div class="suggestions">
       <button class="suggestion" onclick="useSuggestion(this)">What Token API endpoints are available?</button>
       <button class="suggestion" onclick="useSuggestion(this)">Find me Uniswap subgraphs</button>
@@ -8027,6 +8058,36 @@ def build_app():
 
             try:
                 rec, _ = ask_graph_advocate(user_text, requesting_agent="x402-paid")
+
+                # The caller paid. If the routing answer carries a runnable
+                # subgraph query, run it and hand back rows instead of
+                # homework — a paid "here's the query, go run it yourself" is
+                # the one failure the auto-scorer can't see (it grades shape,
+                # not delivery) and the one customers retry over.
+                # Routing-only callers opt out with {"execute": false}.
+                if req_data.get("execute", True):
+                    try:
+                        executed = await execute_query_ready(rec)
+                    except Exception:
+                        # Execution is strictly additive — a crash here must
+                        # never cost the caller the routing answer they paid for.
+                        log.exception("X402-ROUTE execution helper crashed")
+                        executed = None
+                    if executed is not None:
+                        rec["executed"] = executed
+                        if executed.get("ok"):
+                            rec["reason"] = strip_false_capability_claims(
+                                rec.get("reason", ""))
+                            log.info(
+                                f"X402-ROUTE executed {executed['subgraph_id'][:12]}… "
+                                f"rows={executed['row_count']} "
+                                f"in {executed['elapsed_ms']}ms"
+                            )
+                        else:
+                            log.warning(
+                                f"X402-ROUTE execution failed: {executed.get('error')}"
+                            )
+
                 _log_request("x402-paid", user_text, rec.get("recommendation", "unknown"),
                             rec.get("confidence", "high"), "x402-route", response=rec)
                 log.info(f"X402-ROUTE paid query: {user_text[:60]}")
