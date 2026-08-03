@@ -365,6 +365,12 @@ _PAID_CATALOG = {
         "path": "/agent/score", "price": '', "amount": '', "body": {},
         "a2a": False, "openapi": False, "wellknown": True,
     },
+    'ask': {
+        "path": "/ask", "price": '$0.05', "amount": '50000', "body": {'question': 'When did x402 settlement volume on Base inflect upward?'},
+        "op_id": 'askSettlements',
+        "desc": 'Natural-language Q&A over the x402 Base settlements warehouse: 132M EIP-3009 settlement rows on R2 plus pre-aggregated daily_stats, answered as JSON with the SQL trace.',
+        "a2a": True, "openapi": True, "wellknown": True,
+    },
     'hyperliquid/fills': {
         "path": "/hyperliquid/fills", "price": '$0.02', "amount": '20000', "body": {'coin': 'SOL', 'n': 10},
         "a2a": True, "openapi": False, "wellknown": False,
@@ -11027,7 +11033,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/quota", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip", "/ask")
