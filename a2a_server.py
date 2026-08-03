@@ -373,7 +373,9 @@ _PAID_CATALOG = {
     },
     'hyperliquid/fills': {
         "path": "/hyperliquid/fills", "price": '$0.02', "amount": '20000', "body": {'coin': 'SOL', 'n': 10},
-        "a2a": True, "openapi": False, "wellknown": False,
+        "op_id": 'hyperliquidFills',
+        "desc": 'Recent Hyperliquid perp fill stream: the last N fills with direction, price, size, notional, fee and trader address, plus an aggregate buy/sell notional split and a whale-fill count for fills over $10k.',
+        "a2a": True, "openapi": True, "wellknown": True,
     },
     'hyperliquid/pnl': {
         "path": "/hyperliquid/pnl", "price": '$0.05', "amount": '50000', "body": {'user': '0x...'},
@@ -417,7 +419,9 @@ _PAID_CATALOG = {
     },
     'onchain-x402/address': {
         "path": "/onchain-x402/address", "price": '$0.01', "amount": '10000', "body": {'address': '0x...'},
-        "a2a": True, "openapi": False, "wellknown": False,
+        "op_id": 'onchainX402Address',
+        "desc": 'On-chain x402 settlement profile for an address: lifetime totals as payer and recipient, volume, first and last seen, recent payments in both directions and facilitator metadata, read from the x402 Base subgraph on The Graph Network.',
+        "a2a": True, "openapi": True, "wellknown": True,
     },
     'polymarket/pnl': {
         "path": "/polymarket/pnl", "price": '$0.05', "amount": '50000', "body": {'wallet': '0x...', 'method': 'hifo'},
