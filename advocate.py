@@ -164,10 +164,12 @@ npm: subgraph-mcp-skills (AI agent skills for querying subgraphs via MCP tools)
 Best for: raw block data, traces, logs, anything not yet in a subgraph, high-throughput streaming
 Use when: the agent needs highly specific or real-time block-level data, custom transformations, or data not covered by existing subgraphs
 Key tools: search_substreams, stream_data
-Browse packages (no auth needed): https://substreams.dev
-Auth: Substreams uses a JWT (not a plain API key like subgraphs). Sign up at https://thegraph.market → create an API key → generate a JWT → run `substreams auth` to use it. Docs: https://docs.substreams.dev
+Search the registry with NO auth at all: GET https://substreams.dev/v1/registry/packages?query=<term> (public REST, spec at https://substreams.dev/v1/registry/openapi.yaml). Parameter is `query`, not `q` — a wrong name returns HTTP 500. Each result gives `spkg` (full URL — use when RUNNING: `substreams gui <spkg> <module>`) and `reference` (`<slug>@<version>` — use when SHOWING a human).
+Auth: only needed to *run* a package, not to search. JWT (not a plain API key): sign up at https://thegraph.market → create an API key → generate a JWT → `substreams auth`. Docs: https://docs.substreams.dev
+HOSTED SINKS — route here when the ask is "get this chain data into MY database" rather than "answer this query now". Managed Substreams-sink-as-a-service on The Graph Market: supply a .spkg with a `db_out` module, a start block and DB credentials, and StreamingFast runs the sink into your own Postgres or ClickHouse. Reorg-aware (applies the right upserts on a fork) and cursor-checkpointed (a restart resumes at the last confirmed block, no re-index). Postgres for app-facing reads, ClickHouse for analytics/dashboards. Free to operate until end of 2026; you pay for Substreams data either way. Docs: https://docs.substreams.dev/how-to-guides/sinks/hosted-sinks
+Hosted Sinks connection gotchas (cause most first-deploy failures): the sink dials out from StreamingFast (us-central1, Iowa) so the DB must be reachable from there. Supabase → use the DIRECT host db.<project-ref>.supabase.co, NOT the pooler (PgBouncer breaks the sink's prepared statements), SSL require or higher. Neon → free endpoints suspend on inactivity, use a paid plan for anything continuous. ClickHouse Cloud → native TLS port is 9440 not 9000, enable Secure and add StreamingFast to the IP Access List. All three: a dedicated user scoped to one schema, write access only.
 npm: substreams-search-mcp (search and inspect Substreams packages, browse registry, introspect .spkg modules)
-npm: create-substreams-sink-sql (scaffold a Substreams SQL sink for PostgreSQL — zero custom code)
+npm: create-substreams-sink-sql (scaffold a SELF-HOSTED Substreams SQL sink for PostgreSQL — the DIY alternative to Hosted Sinks, when you want to run the sink yourself)
 
 [PROTOCOL-SPECIFIC MCP SERVERS — npm packages by @paulieb, ALWAYS ALTERNATIVES]
 These are wrappers around the subgraphs and REST APIs already listed above —
@@ -618,6 +620,9 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
             "https://substreams.dev/v1/registry/packages is public and unauthenticated. "
             "A JWT is only needed to *run* a package: sign up at https://thegraph.market → "
             "create an API key → generate a JWT → use it with `substreams auth`. "
+            "To land the output continuously in your own Postgres or ClickHouse instead of "
+            "querying it now, use Hosted Sinks — managed, reorg-aware, cursor-checkpointed: "
+            "https://docs.substreams.dev/how-to-guides/sinks/hosted-sinks. "
             "Docs: https://docs.substreams.dev"
         ),
     },
@@ -796,6 +801,7 @@ _SERVICE_METADATA: dict[str, dict] = {
             "Custom indexing pipelines",
             "Raw event logs across large block ranges",
             "Streaming traces / receipts at full chain throughput",
+            "Continuously syncing chain data into your own Postgres or ClickHouse (Hosted Sinks)",
         ],
         "not_for": ["Quick one-shot reads (subgraph or token-api are cheaper)"],
         "auth": "JWT from https://thegraph.market — used with `substreams auth`",
