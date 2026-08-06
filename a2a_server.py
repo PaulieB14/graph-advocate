@@ -7313,6 +7313,11 @@ def build_app():
     .links{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
     .link{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#c7cee5;text-decoration:none;font-size:0.88rem;font-weight:600;transition:all 0.2s}
     .link:hover{background:linear-gradient(135deg,#6366f1,#818cf8);border-color:transparent;color:#fff;transform:translateY(-1px)}
+    .stats{display:flex;gap:0;justify-content:center;flex-wrap:wrap;margin:8px 0 4px}
+    .stat{padding:0 18px;border-right:1px solid rgba(255,255,255,0.08)}
+    .stat:last-child{border-right:none}
+    .stat b{display:block;font-size:1.35rem;font-weight:800;background:linear-gradient(135deg,#fff,#a5b4fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-family:'JetBrains Mono',monospace}
+    .stat span{font-size:0.68rem;letter-spacing:0.07em;text-transform:uppercase;color:rgba(199,206,229,0.45)}
     .try{margin:32px 0 8px;text-align:left;background:rgba(0,0,0,0.35);border:1px solid rgba(99,102,241,0.25);border-radius:12px;padding:16px 18px}
     .try .lbl{font-size:0.72rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#818cf8;margin-bottom:10px}
     .try pre{font-family:'JetBrains Mono',monospace;font-size:0.78rem;line-height:1.55;color:#c7cee5;overflow-x:auto;white-space:pre}
@@ -7338,10 +7343,11 @@ def build_app():
       <span class="badge">🆔 ERC-8004 #734</span>
       <span class="badge">📛 graphadvocate.eth</span>
     </div>
+    <div class="stats">__STATS__</div>
     <div class="try">
       <div class="lbl">Try it — free, no key, no wallet</div>
-      <pre>curl -sX POST https://graphadvocate.com/chat \
-  -H "Content-Type: application/json" \
+      <pre>curl -sX POST https://graphadvocate.com/chat \\
+  -H "Content-Type: application/json" \\
   -d '{"message":"best subgraph for uniswap v3 on ethereum"}'</pre>
       <div class="out">Returns the subgraph to use and the GraphQL to run against it. Chat hands you the query, never the data — run it with your own key, or let the paid endpoints run it for you.</div>
     </div>
@@ -7360,9 +7366,39 @@ def build_app():
 </body>
 </html>"""
 
+    def _landing_stats() -> str:
+        """Live counters for the landing strip.
+
+        Server-rendered so the page stays script-free and one request. Any
+        failure falls back to the static figures - a landing page must never
+        500 because a counter query did.
+        """
+        subgraphs, endpoints = "15.5K+", str(len(_PAID_CATALOG))
+        served = settlements = None
+        try:
+            import sqlite3 as _sq
+            conn = _sq.connect(str(DB_PATH))
+            served = conn.execute(
+                "SELECT COUNT(*) FROM activity WHERE service NOT IN "
+                "('introduction','out-of-scope','rate-limited') "
+                "AND service NOT LIKE 'agent-exchange-%'"
+            ).fetchone()[0]
+            conn.close()
+        except Exception:
+            pass
+        cells = [
+            (f"{served:,}" if served else "5K+", "requests routed"),
+            (subgraphs, "subgraphs indexed"),
+            (endpoints, "paid endpoints"),
+            ("20+", "chains"),
+        ]
+        return "".join(
+            f'<div class="stat"><b>{v}</b><span>{k}</span></div>' for v, k in cells
+        )
+
     async def landing_endpoint(request):
         """GET / — HTML landing page with OG meta tags for x402scan listing."""
-        return HTMLResponse(LANDING_HTML, headers={
+        return HTMLResponse(LANDING_HTML.replace("__STATS__", _landing_stats()), headers={
             "cache-control": "public, max-age=300",
         })
 
