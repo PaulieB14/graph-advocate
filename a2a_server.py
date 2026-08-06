@@ -7279,7 +7279,7 @@ def build_app():
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Graph Advocate — Onchain Data Routing Agent</title>
-  <meta name="description" content="Claude-powered routing agent for The Graph Protocol. Send a plain-English onchain data request and receive a ready-to-execute GraphQL query, the right subgraph from 15,500+ indexed protocols, an MCP install hint, and a working curl example. Free tier: 3 queries/day, then $0.01 USDC on Base via x402.">
+  <meta name="description" content="Claude-powered routing agent for The Graph Protocol. Ask in plain English; paid calls run the query against 15,500+ indexed subgraphs and return the rows. Free chat hands you the subgraph and the GraphQL to run yourself. $0.01 USDC per call on Base via x402.">
   <!-- Base App registration — dashboard.base.org domain verification -->
   <meta name="base:app_id" content="6a396b7d2d9d578ecf123857" />
   <link rel="icon" type="image/png" href="/graphadvocate.png">
@@ -7288,7 +7288,7 @@ def build_app():
   <!-- Open Graph -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="Graph Advocate — Onchain Data Routing Agent">
-  <meta property="og:description" content="Claude-powered routing for The Graph Protocol. 15,500+ subgraphs, Token API, Substreams, and 8+ MCP packages. Pay-per-query via x402 on Base.">
+  <meta property="og:description" content="Claude-powered routing for The Graph Protocol. Paid calls run the query and return the rows across 15,500+ subgraphs, Token API and Substreams. Pay-per-query via x402 on Base.">
   <meta property="og:image" content="https://graphadvocate.com/graphadvocate.png">
   <meta property="og:image:width" content="1024">
   <meta property="og:image:height" content="1024">
@@ -7297,7 +7297,7 @@ def build_app():
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Graph Advocate — Onchain Data Routing Agent">
-  <meta name="twitter:description" content="Claude-powered routing for The Graph Protocol. 15,500+ subgraphs queryable via x402.">
+  <meta name="twitter:description" content="Ask in plain English, get the rows back. 15,500+ subgraphs, paid per call via x402 on Base.">
   <meta name="twitter:image" content="https://graphadvocate.com/graphadvocate.png">
 
   <style>
@@ -7332,9 +7332,9 @@ def build_app():
     <h1>Graph Advocate</h1>
     <p class="tagline">Onchain Data Routing for The Graph Protocol</p>
     <p class="desc">
-      Send a plain-English data request and get back the right subgraph,
-      a ready-to-execute GraphQL query, an MCP install hint, and a working
-      curl example. Powered by Claude with auto-search across 15,500+ subgraphs.
+      Ask in plain English. Paid calls <b>run the query and return the rows</b> —
+      not homework. Free chat hands you the subgraph and the GraphQL to run
+      yourself. Auto-searched across 15,500+ subgraphs, powered by Claude.
     </p>
     <div class="badges">
       <span class="badge">⚡ A2A v2</span>
