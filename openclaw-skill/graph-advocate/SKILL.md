@@ -1,7 +1,7 @@
 ---
 name: graph-advocate
 description: "Route any blockchain data question to the right Graph Protocol service. Returns live data from 15,500+ subgraphs, Token API (EVM/Solana/TON + Polymarket + Hyperliquid), x402 payment analytics, cross-venue prediction-market spreads (Polymarket ↔ Limitless, Polymarket ↔ Kalshi), and protocol-specific MCP packages. Trigger keywords: subgraph, token, balance, holder, swap, pool, TVL, DeFi, NFT, Aave, Uniswap, Polymarket, Limitless, Kalshi, prediction market spread, arbitrage, Hyperliquid, perps, ENS, governance, x402, onchain data, blockchain."
-version: 2.9.0
+version: 2.9.1
 homepage: https://github.com/PaulieB14/graph-advocate
 metadata:
   clawdbot:
@@ -94,7 +94,7 @@ If the request spans two services, use both and combine results.
 | Method | URL | Purpose |
 |--------|-----|---------|
 | POST | `https://graphadvocate.com/` | A2A JSON-RPC 2.0 |
-| POST | `https://graphadvocate.com/chat` | Simple HTTP chat |
+| POST | `https://graphadvocate.com/chat` | Free, no identity or wallet. Returns the query to run and how to get your own Token API JWT — never the data itself |
 | GET | `https://graphadvocate.com/.well-known/agent-card.json` | Agent card |
 | GET | `https://graphadvocate.com/agents/capabilities.json` | Machine-readable capability list |
 | GET | `https://graphadvocate.com/mcp/catalog` | List of installable MCP servers |
