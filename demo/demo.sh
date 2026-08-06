@@ -10,7 +10,10 @@
 # Each segment maps to a section of SCRIPT.md.
 
 set -euo pipefail
-BASE="https://graph-advocate-production.up.railway.app"
+# The Railway-generated hostname was retired when the custom domain landed; it
+# now 404s, so every call in this script did too. An external agent hit exactly
+# that in issue #4 after following a URL published before the move.
+BASE="${BASE:-https://graphadvocate.com}"
 WALLET="0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86"
 USDC_BASE="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 

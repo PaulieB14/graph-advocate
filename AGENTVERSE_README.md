@@ -68,13 +68,18 @@ This is what makes Graph Advocate **agent-native** rather than a generic API.
 
 ### Same identity also runs Lodestar Dispatch RPC
 
-graphadvocate.eth is a registered provider on **Lodestar Dispatch** — decentralised JSON-RPC on The Graph Horizon framework, paid in GRT via TAP receipts.
+graphadvocate.eth **was** a registered provider on **Lodestar Dispatch** — decentralised JSON-RPC on
+The Graph Horizon framework, paid in GRT via TAP receipts — running a provider that scored 0.84 on
+the network dashboard, network-leading at the time.
 
-- 555 GRT provisioned on the V2 RPCDataService contract `0x7101D5C1A5c89C3647F5118da118E56C023bA0b9` (also still 10k GRT thawing on the V1 contract)
-- Score 0.84 in `gateway.lodestar-dashboard.com/providers/42161` (network-leading)
-- RPC endpoint: `https://dispatch-production-5ffc.up.railway.app`
+That position was fully exited on **2026-06-04**, so this is track record rather than current
+status. The RPC endpoint and the Lodestar dashboard host are both offline; the on-chain
+provisioning history remains verifiable against the V2 RPCDataService contract
+`0x7101D5C1A5c89C3647F5118da118E56C023bA0b9` on Arbitrum.
 
-Same wallet earning across **two paid agent services simultaneously** — verifiable on-chain.
+Kept here because running a paid Horizon data service alongside a paid agent service is the
+relevant experience — but stated in the past tense, because claiming live earnings from a service
+you have left is the kind of thing an agent card should never do.
 
 ## Pricing
 
