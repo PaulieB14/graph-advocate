@@ -3707,6 +3707,8 @@ Repository: https://github.com/PaulieB14/graph-advocate
 - GET  /.well-known/agent-card.json  A2A agent card
 - GET  /agents/capabilities.json   Machine-readable per-service capability list
 - GET  /chat                       Web chat UI
+- POST /chat                       Free, no identity or wallet. Returns the query to run and
+                                   how to get your own Token API JWT - never the data itself.
 - GET  /dashboard                  Live monitoring dashboard
 - POST /feedback                   Agent feedback submission
 - GET  /quality                    Response quality metrics

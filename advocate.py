@@ -1010,6 +1010,14 @@ def build_capabilities() -> dict:
                 "they pay $0.01 USDC from the first call."
             ),
             "paid": "$0.01 USDC on Base after free tier (or from call 1 if anonymous)",
+            # The open path, stated so a caller does not conclude from the two lines above
+            # that identifying itself or paying are the only ways in. The boundary is what
+            # comes back, not who is asking: guidance is free, metered execution is not.
+            "chat": (
+                "POST /chat is free and needs no identity or wallet. It returns the query "
+                "to run and how to get your own free Token API JWT — never the data itself. "
+                "Executing against metered infrastructure is what the paid endpoints do."
+            ),
             "payment_protocol": "x402 v2",
             "payment_network": "eip155:8453 (Base)",
             "usdc_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
