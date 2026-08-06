@@ -7313,6 +7313,10 @@ def build_app():
     .links{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
     .link{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#c7cee5;text-decoration:none;font-size:0.88rem;font-weight:600;transition:all 0.2s}
     .link:hover{background:linear-gradient(135deg,#6366f1,#818cf8);border-color:transparent;color:#fff;transform:translateY(-1px)}
+    .try{margin:32px 0 8px;text-align:left;background:rgba(0,0,0,0.35);border:1px solid rgba(99,102,241,0.25);border-radius:12px;padding:16px 18px}
+    .try .lbl{font-size:0.72rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#818cf8;margin-bottom:10px}
+    .try pre{font-family:'JetBrains Mono',monospace;font-size:0.78rem;line-height:1.55;color:#c7cee5;overflow-x:auto;white-space:pre}
+    .try .out{margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.07);font-size:0.74rem;color:rgba(199,206,229,0.62)}
     .footer{margin-top:48px;font-size:0.75rem;color:rgba(199,206,229,0.4);font-family:'JetBrains Mono',monospace}
     code{background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:#a5b4fc}
   </style>
@@ -7334,6 +7338,13 @@ def build_app():
       <span class="badge">🆔 ERC-8004 #734</span>
       <span class="badge">📛 graphadvocate.eth</span>
     </div>
+    <div class="try">
+      <div class="lbl">Try it — free, no key, no wallet</div>
+      <pre>curl -sX POST https://graphadvocate.com/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"best subgraph for uniswap v3 on ethereum"}'</pre>
+      <div class="out">Returns the subgraph to use and the GraphQL to run against it. Chat hands you the query, never the data — run it with your own key, or let the paid endpoints run it for you.</div>
+    </div>
     <div class="links">
       <a class="link" href="/dashboard">📊 Live Dashboard</a>
       <a class="link" href="/chat">💬 Try in Chat</a>
@@ -7342,8 +7353,8 @@ def build_app():
       <a class="link" href="https://github.com/PaulieB14/graph-advocate" target="_blank">⭐ GitHub</a>
     </div>
     <div class="footer">
-      Free tier: 3 queries/day · then $0.01 USDC/query on Base via x402<br>
-      To call directly: <code>POST /route</code> with x402 payment header
+      <code>/chat</code> free · A2A with <code>metadata</code> 3 free/day · anonymous $0.01 from call 1<br>
+      Paid calls settle in USDC on Base via x402
     </div>
   </div>
 </body>
