@@ -640,6 +640,17 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
     return resp
 
 
+def _one_line(text: str, limit: int) -> str:
+    """Collapse to a single line and cap, for log lines.
+
+    Log aggregators split on newlines, so a multi-line body becomes several
+    records and only the first keeps its prefix. Collapsing first means one
+    message stays one searchable record.
+    """
+    flat = " ".join((text or "").split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
 def _is_rate_limited(task_id: str) -> bool:
     """Return True if this sender has exceeded RATE_LIMIT_MAX_REQUESTS in the window."""
     import time
@@ -811,14 +822,31 @@ _INJECTION_SUBSTRINGS = (
 )
 
 
-def _is_junk(user_text: str) -> bool:
-    """Return True for known out-of-scope protocol blobs, prompt injection, or agent ack replies."""
+def _junk_reason(user_text: str) -> str | None:
+    """Why this payload is out of scope, or None if it is not.
+
+    Returns the *reason* rather than a bool. A verdict with no reason is
+    unauditable: on 2026-08-06 a peer agent sent a private registration
+    credential over A2A in reply to a validation we had asked for, and it landed
+    in the same bucket as a payment pitch. Nothing recorded which rule fired, so
+    the only way to find out was to read the rule list and guess.
+    """
     t = user_text.strip().lower()
-    if any(t.startswith(p) for p in _JUNK_PREFIXES):
-        return True
-    if any(s in t for s in _INJECTION_SUBSTRINGS):
-        return True
-    return any(s in t for s in _AGENT_REPLY_SUBSTRINGS)
+    for pfx in _JUNK_PREFIXES:
+        if t.startswith(pfx):
+            return f"junk-prefix:{pfx[:24]}"
+    for sub in _INJECTION_SUBSTRINGS:
+        if sub in t:
+            return f"injection:{sub[:24]}"
+    for sub in _AGENT_REPLY_SUBSTRINGS:
+        if sub in t:
+            return f"agent-ack:{sub[:24]}"
+    return None
+
+
+def _is_junk(user_text: str) -> bool:
+    """Back-compat wrapper - prefer [`_junk_reason`] so the verdict is explainable."""
+    return _junk_reason(user_text) is not None
 
 
 def _is_repeat_intro(user_text: str) -> bool:
@@ -2320,7 +2348,10 @@ class GraphAdvocateExecutor(AgentExecutor):
             )
             return
 
-        log.info(f"REQUEST  task={task_id} | {user_text[:120]}")
+        # One line, always. A multi-line body makes Railway split the entry, so
+        # the tail becomes its own record with no task id on it - which is how
+        # a peer's message became an 84-char orphan nobody could grep for.
+        log.info(f"REQUEST  task={task_id} | {_one_line(user_text, 400)}")
 
         # ── Rate limit per sender (no Claude call) ───────────────────────────
         if _is_rate_limited(task_id):
@@ -2695,9 +2726,11 @@ class GraphAdvocateExecutor(AgentExecutor):
             return
 
         # ── Fast-reject: known junk protocols (no Claude call) ───────────────
-        if _is_junk(user_text):
-            log.info(f"JUNK     task={task_id} | fast-rejected")
-            _log_request(task_id, user_text, "out-of-scope", "high", "fast-reject")
+        _junk = _junk_reason(user_text)
+        if _junk:
+            # Name the rule that fired. "fast-rejected" alone cost a real message.
+            log.info(f"JUNK     task={task_id} | rule={_junk} | {_one_line(user_text, 200)}")
+            _log_request(task_id, user_text, "out-of-scope", "high", f"fast-reject:{_junk}")
             await event_queue.enqueue_event(
                 new_agent_text_message(json.dumps({
                     "recommendation": "out-of-scope",
@@ -4967,7 +5000,10 @@ def _build_dashboard_data() -> dict:
         if len(recent) >= 200:
             break
         ts = r.get("ts", "")
-        req = r.get("request", "")[:200]
+        # 2,000, not 200: a peer's A2A message runs to ~1,900 characters and the
+        # part that matters (a credential, an ask, a link) sits past 200. The row
+        # is stored uncapped; this is only how much of it we hand the dashboard.
+        req = r.get("request", "")[:2000]
         service = r.get("service", "unknown")
         dedup_key = (service, _canon_req(req))
         if dedup_key in seen_keys:
