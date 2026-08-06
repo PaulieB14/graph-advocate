@@ -5796,7 +5796,44 @@ async def dashboard_endpoint(request: Request):
         .row-cat-badge.cat-intro{background:rgba(148,163,184,0.15);color:#94a3b8}
         .row-cat-badge.cat-noise{background:rgba(248,113,113,0.12);color:#f87171}
         .row-cat-badge.cat-challenge{background:rgba(251,191,36,0.12);color:#fbbf24}
-      </style>
+    
+    /* ── Small screens ──────────────────────────────────────────────────
+       There were no media queries at all, which showed up worst in the one
+       block that has to be usable on a phone: the try-it curl. `white-space:pre`
+       made it scroll sideways, so a copy-paste command could not be read
+       without dragging it. Wrapping preserves the text exactly - the newlines
+       and backslashes are still what gets copied - it just stops the line
+       running off the screen. */
+    @media (max-width: 640px) {
+      body { padding: 24px 16px; -webkit-text-size-adjust: 100%; }
+      h1 { font-size: 1.85rem; }
+      .sub { font-size: 0.95rem; }
+      .desc { font-size: 0.95rem; margin-bottom: 24px; }
+
+      /* Wrap instead of scroll, and indent the continuation so the shell's
+         line structure still reads. */
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.72rem; }
+      .try { padding: 14px; margin: 24px 0 8px; }
+
+      /* A 2x2 grid: the flex row wrapped unevenly and left orphaned dividers
+         mid-row, because every .stat carried a border-right. */
+      .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 0; }
+      .stat { padding: 0 8px; border-right: none; }
+      .stat:nth-child(odd) { border-right: 1px solid rgba(255,255,255,0.08); }
+      .stat b { font-size: 1.15rem; }
+      .stat span { font-size: 0.62rem; }
+
+      .badges { gap: 6px; margin-bottom: 24px; }
+      .badge { padding: 5px 11px; font-size: 0.72rem; }
+      .links { gap: 8px; }
+    }
+
+    @media (max-width: 380px) {
+      h1 { font-size: 1.6rem; }
+      .stats { grid-template-columns: 1fr; }
+      .stat:nth-child(odd) { border-right: none; }
+    }
+  </style>
       <div class="feed feed-large" id="feed"></div>
     </div>
   </div>
