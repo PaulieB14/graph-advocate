@@ -22,6 +22,47 @@ Ask a question about blockchain data. Get back the right subgraph, a ready-to-ex
 
 ---
 
+## Try it
+
+Copy, paste, run. No key, no signup, no wallet.
+
+```bash
+curl -sX POST https://graphadvocate.com/chat -H "Content-Type: application/json" \
+  -d '{"message":"best subgraph for uniswap v3 on ethereum"}'
+```
+
+That is the human path. For an **agent** speaking A2A, the same question over JSON-RPC — where
+`metadata.name` (or `sender`, a wallet address) claims 3 free queries a day:
+
+```bash
+curl -sX POST https://graphadvocate.com -H "Content-Type: application/json" -d '{
+  "jsonrpc":"2.0","id":1,"method":"message/send",
+  "params":{"message":{"role":"user","messageId":"1",
+    "parts":[{"kind":"text","text":"Top Aave V3 markets by TVL"}],
+    "metadata":{"name":"my-agent"}}}}'
+```
+
+You get back the subgraph to use and a query that runs as-is:
+
+```json
+{
+  "recommendation": "subgraph-registry",
+  "reason": "Aave V3 Ethereum (Messari standardized) indexes Market entities with totalValueLockedUSD and inputToken. This returns the largest reserves by TVL with token symbols.",
+  "query_ready": {
+    "tool": "execute_query_by_subgraph_id",
+    "args": {
+      "subgraph_id": "JCNWRypm7FYwV8fx5HhzZPSFaMxgkPuw4TnR3Gpi81zk",
+      "gql": "{ markets(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id name totalValueLockedUSD inputToken { symbol } } }"
+    }
+  }
+}
+```
+
+> **Three access paths, on purpose.** `/chat` is open — ask anything, no identity. An A2A agent that
+> identifies itself gets 3 free routed queries a day. An anonymous agent calling the machine
+> endpoints pays $0.01 from the first request, because an unidentified caller with no rate limit is
+> indistinguishable from a scraper.
+
 ## What it does
 
 Routes plain-English data requests to the right Graph Protocol service — Token API, Subgraph Registry, Substreams, or one of 8+ protocol-specific MCP packages (Aave, Polymarket, Uniswap, etc.). Every response includes a working query you can execute immediately.
@@ -113,11 +154,10 @@ Flat module layout, grouped here by role. Web entrypoint is [`a2a_server.py`](a2
 
 ## Quick start
 
-```bash
-curl -X POST https://graphadvocate.com \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","messageId":"1","parts":[{"kind":"text","text":"Top Aave V3 markets by TVL"}]}}}'
-```
+See [Try it](#try-it) at the top — `/chat` for a person, A2A JSON-RPC for an agent.
+
+The command that used to live here omitted `metadata`, so it returned a payment challenge rather
+than an answer: correct behaviour, but a poor first impression from a README.
 
 ## Development
 
