@@ -598,9 +598,13 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
     "substreams": {
         "install": "npx substreams-search-mcp",
         "curl_example": (
-            "# 1. Browse the package registry in a browser (search is client-rendered,\n"
-            "#    so it is not curl/scrape-able — open the URL directly):\n"
-            "#    https://substreams.dev/packages?search=uniswap&sort=most_downloaded\n\n"
+            "# 1. Search the registry — public REST API, no auth, no key, no JWT.\n"
+            "#    NOTE: the parameter is `query`, not `q`; a wrong name returns HTTP 500.\n"
+            "curl -s 'https://substreams.dev/v1/registry/packages?query=uniswap&pageSize=5'\n\n"
+            "# Each result carries two references for the same package:\n"
+            "#   spkg      — full URL, use when RUNNING:  substreams gui <spkg> <module>\n"
+            "#   reference — <slug>@<version>, use when SHOWING a command to a human\n"
+            "# Spec: https://substreams.dev/v1/registry/openapi.yaml\n\n"
             "# 2. Install the Substreams CLI to run packages:\n"
             "#    https://docs.substreams.dev/how-to-guides/installing-the-cli\n"
             "# 3. Auth: create an API key at https://thegraph.market, generate a JWT,\n"
@@ -610,9 +614,11 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
             "# (https://api.pinax.network) is usually the faster path than Substreams."
         ),
         "get_started": (
-            "Substreams uses a JWT (not a plain API key). "
-            "Sign up at https://thegraph.market → create an API key → generate a JWT → "
-            "use it with `substreams auth`. Docs: https://docs.substreams.dev"
+            "Searching the registry needs nothing at all — the REST API at "
+            "https://substreams.dev/v1/registry/packages is public and unauthenticated. "
+            "A JWT is only needed to *run* a package: sign up at https://thegraph.market → "
+            "create an API key → generate a JWT → use it with `substreams auth`. "
+            "Docs: https://docs.substreams.dev"
         ),
     },
     "subgraph-registry": {
@@ -3419,7 +3425,10 @@ CHAT_TOOLS = [
         "name": "search_substreams",
         "description": (
             "Search the Substreams package registry (substreams.dev) for streaming data modules. "
-            "Returns matching packages with name, author, and links to the package page and .spkg file. "
+            "Hits the public REST registry API — no auth — and returns each package's slug, "
+            "organization, version, network, download count, the `spkg` URL for running it, and "
+            "the short `<slug>@<version>` reference for showing a human. An empty result from this "
+            "tool is authoritative: it means the registry matched nothing, not that search failed. "
             "Use this when users ask about raw block data, event logs, streaming, or real-time data."
         ),
         "input_schema": {
@@ -3803,16 +3812,25 @@ def _get_subgraph_schema(subgraph_id: str) -> str:
 
 
 def _search_substreams(keyword: str) -> str:
-    """Search the substreams.dev registry.
+    """Search the substreams.dev registry over its public REST API.
 
-    NOTE (2026-07-25): substreams.dev migrated to a client-rendered Next.js app
-    backed by the JWT-authenticated api.substreams.dev. Its /packages HTML no
-    longer server-renders package links, and there is no public unauthenticated
-    search endpoint (the CLI only exposes login/publish/verify — no list/search).
-    We still attempt the legacy scrape in case results are present, but an empty
-    scrape is NOT evidence that no package exists — so we must never report
-    "no packages found". Instead we return an honest payload: the browsable
-    registry URL, CLI guidance, and the better alternative where one exists.
+    History worth keeping: on 2026-07-25 substreams.dev became a client-rendered
+    app behind the JWT-gated api.substreams.dev, the HTML scrape this used
+    stopped returning links, and there was no public search endpoint - so this
+    function returned honest "search unavailable" guidance rather than claim no
+    package existed.
+
+    That gap is closed. StreamingFast shipped a public, agent-facing REST API
+    (`security: []` - no auth, no key, no JWT), documented at
+    https://substreams.dev/v1/registry/openapi.yaml. Verified 2026-08-06.
+
+    Two gotchas encoded here rather than rediscovered:
+      * the parameter is `query`, not `q`. A wrong name returns **HTTP 500**,
+        not a 400 or an empty page, so it reads as an outage.
+      * every result carries two references, and they are not interchangeable.
+        `spkg` is a full URL for EXECUTING (`substreams run <spkg> <module>`);
+        `reference` is the short `<slug>@<version>` form for DISPLAYING to a
+        human. The API's own schema says so; we surface both and label them.
     """
     import urllib.request
 
@@ -3822,74 +3840,69 @@ def _search_substreams(keyword: str) -> str:
         + urllib.parse.urlencode({"search": kw, "sort": "most_downloaded"})
     )
 
-    results: list[dict] = []
     try:
-        params = urllib.parse.urlencode({"search": kw, "sort": "most_downloaded", "page": "1"})
-        url = f"https://substreams.dev/packages?{params}"
-        req = urllib.request.Request(url, headers={"User-Agent": "GraphAdvocate/1.0"})
+        params = urllib.parse.urlencode({"query": kw, "pageSize": 8})
+        url = f"https://substreams.dev/v1/registry/packages?{params}"
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "GraphAdvocate/1.0", "accept": "application/json"}
+        )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            html = resp.read().decode("utf-8", errors="replace")
-
-        # Legacy path: server-rendered links looked like href="/author/package/version".
-        # The current client-rendered site serves none of these, so this yields [].
-        pattern = r'href="(/([^/"]+)/([^/"]+)/([^/"]+))"'
-        seen = set()
-        for href, author, name, version in re.findall(pattern, html):
-            if author.startswith("_") or href.startswith("/_next"):
-                continue  # skip Next.js asset links
-            key = f"{author}/{name}"
-            if key in seen:
-                continue
-            seen.add(key)
-            results.append({
-                "name": name,
-                "author": author,
-                "version": version,
-                "package_url": f"https://substreams.dev{href}",
-                "spkg_url": f"https://spkg.io/{author}/{name}-{version}.spkg",
-            })
-            if len(results) >= 8:
-                break
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        packages = data.get("packages") or []
     except Exception:
-        results = []  # network/parse error — fall through to honest guidance
+        packages = None  # network/parse failure - distinct from "no matches"
 
-    if results:
-        return json.dumps({"results": results, "total_found": len(results), "source": "substreams.dev"})
+    if packages:
+        results = []
+        for p in packages:
+            org = (p.get("organization") or {}).get("slug") or ""
+            results.append({
+                "name": p.get("slug") or p.get("name"),
+                "organization": org,
+                "version": p.get("latestVersion") or "",
+                "network": p.get("network") or "",
+                "downloads": p.get("downloads"),
+                # For running it programmatically.
+                "spkg_url": p.get("spkg") or "",
+                # For showing a human - same package, readable form.
+                "reference": p.get("reference") or "",
+                "run_command": (
+                    f"substreams gui {p.get('spkg')} <module>" if p.get("spkg") else ""
+                ),
+            })
+        return json.dumps({
+            "results": results,
+            "total_found": len(results),
+            "has_more": bool(data.get("hasMore")),
+            "source": "substreams.dev/v1/registry (public REST API, no auth)",
+            "browse_url": browse_url,
+        })
 
-    # Scrape empty: the registry is now client-rendered behind a JWT-gated API, so
-    # programmatic full-text search is unavailable. Do NOT claim no package exists.
-    kw_l = kw.lower()
-    # Word-boundary match (not substring) so "uniswap" doesn't trip "swap", etc.
-    token_ish = bool(re.search(
-        r"\b(erc-?20|erc-?721|transfers?|balances?|holders?|tokens?|swaps?|nfts?)\b",
-        kw_l,
-    ))
-    payload = {
+    if packages == []:
+        # A real, authoritative empty result - the API answered and matched nothing.
+        return json.dumps({
+            "results": [],
+            "total_found": 0,
+            "message": (
+                f"The substreams.dev registry returned no packages matching '{kw}'. "
+                f"This is an authoritative empty result, not a search failure."
+            ),
+            "browse_url": browse_url,
+            "source": "substreams.dev/v1/registry (public REST API, no auth)",
+        })
+
+    # The request itself failed. Never report "no packages" from an error.
+    return json.dumps({
         "results": [],
         "registry_search_unavailable": True,
         "message": (
-            f"Substreams full-text search is currently unavailable programmatically: "
-            f"substreams.dev moved to a client-rendered app behind the JWT-gated "
-            f"api.substreams.dev, and there is no public search endpoint. This is NOT "
-            f"evidence that no package exists for '{kw}' — browse the registry directly "
-            f"or use the CLI."
+            f"Could not reach the substreams.dev registry API just now, so this is "
+            f"NOT evidence that no package exists for '{kw}'. Browse the registry "
+            f"directly, or retry."
         ),
         "browse_url": browse_url,
-        "cli_hint": (
-            "Install the Substreams CLI (https://docs.substreams.dev), run "
-            "`substreams auth`, then browse/run packages via https://substreams.dev."
-        ),
-    }
-    if token_ish:
-        payload["recommended_alternative"] = {
-            "service": "token-api",
-            "why": (
-                "For ERC-20/721 transfers, balances, holders, swaps and NFT activity, "
-                "the Token API (https://api.pinax.network) returns ready-to-use data "
-                "directly — usually faster and simpler than building or running a Substreams."
-            ),
-        }
-    return json.dumps(payload)
+        "openapi": "https://substreams.dev/v1/registry/openapi.yaml",
+    })
 
 
 _x402_bazaar_cache: dict[str, tuple[float, list]] = {}
