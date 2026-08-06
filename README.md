@@ -24,15 +24,19 @@ Ask a question about blockchain data. Get back the right subgraph, a ready-to-ex
 
 ## Try it
 
-Copy, paste, run. No key, no signup, no wallet.
+Ask in plain English. No key, no signup, no wallet:
 
 ```bash
 curl -sX POST https://graphadvocate.com/chat -H "Content-Type: application/json" \
   -d '{"message":"best subgraph for uniswap v3 on ethereum"}'
 ```
 
-That is the human path. For an **agent** speaking A2A, the same question over JSON-RPC — where
-`metadata.name` (or `sender`, a wallet address) claims 3 free queries a day:
+Chat takes you **as far as the door**: which subgraph or service answers your question, its schema,
+and where to get your own free Token API JWT. It never executes a query with someone else's
+credentials — you bring your key, or you use the paid endpoints below, which run it for you.
+
+For an **agent** speaking A2A, the same question over JSON-RPC — where `metadata.name` (or `sender`,
+a wallet address) claims 3 free routed queries a day:
 
 ```bash
 curl -sX POST https://graphadvocate.com -H "Content-Type: application/json" -d '{
@@ -58,10 +62,13 @@ You get back the subgraph to use and a query that runs as-is:
 }
 ```
 
-> **Three access paths, on purpose.** `/chat` is open — ask anything, no identity. An A2A agent that
-> identifies itself gets 3 free routed queries a day. An anonymous agent calling the machine
-> endpoints pays $0.01 from the first request, because an unidentified caller with no rate limit is
-> indistinguishable from a scraper.
+> **Three access paths, on purpose.**
+> **`/chat`** — open, no identity, routes and explains but never runs a query on your behalf.
+> **A2A with `metadata`** — 3 free routed queries a day, including a `query_ready` you can execute.
+> **Anonymous machine calls** — $0.01 from the first request: an unidentified caller with no rate
+> limit is indistinguishable from a scraper.
+>
+> The line is deliberate. Guidance is free; **execution against metered infrastructure is not.**
 
 ## What it does
 
