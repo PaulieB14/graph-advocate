@@ -822,6 +822,46 @@ _INJECTION_SUBSTRINGS = (
 )
 
 
+# ── Blocked senders ──────────────────────────────────────────────────────────
+#
+# Agents that solicit repeatedly rather than ask anything. This is not spam
+# filtering by content - a sender here has been observed pitching the same paid
+# service several times a day - so the cheapest correct response is to drop it
+# before the model is ever called.
+#
+# Matched on three independent signals because a determined pitcher rotates one
+# and keeps the others: the declared name, the payment address it wants funding,
+# and the domain it advertises. Any hit blocks.
+#
+# Extend at runtime without a deploy: NUTHATCH-style env override, comma
+# separated, merged with the built-ins.
+#   GA_BLOCKED_SENDERS="badagent,0xdead...,evil.example"
+_BLOCKED_NAMES = {"metavision"}
+_BLOCKED_ADDRESSES = {"0xf94a2d1751300b44c8fda99972cc24386829da1a"}
+_BLOCKED_DOMAINS = {"metavision.click"}
+
+
+def _blocked_sender(name: str, address: str, text: str) -> str | None:
+    """Why this sender is blocked, or None. Reason names the signal that hit."""
+    extra = {
+        p.strip().lower()
+        for p in (os.environ.get("GA_BLOCKED_SENDERS") or "").split(",")
+        if p.strip()
+    }
+    n = (name or "").strip().lower()
+    a = (address or "").strip().lower()
+    t = (text or "").lower()
+
+    if n and (n in _BLOCKED_NAMES or n in extra):
+        return f"blocked-name:{n[:32]}"
+    if a and (a in _BLOCKED_ADDRESSES or a in extra):
+        return f"blocked-address:{a[:12]}…"
+    for d in _BLOCKED_DOMAINS | extra:
+        if d and "." in d and d in t:
+            return f"blocked-domain:{d[:32]}"
+    return None
+
+
 def _junk_reason(user_text: str) -> str | None:
     """Why this payload is out of scope, or None if it is not.
 
@@ -2332,6 +2372,7 @@ class GraphAdvocateExecutor(AgentExecutor):
         )
         if sender_address or sender_name or metadata:
             log.info(f"SENDER   task={task_id} context={context_id} name={sender_name} addr={sender_address} meta={list(metadata.keys()) if metadata else '(none)'}")
+
         history = self._history.get(task_id, [])
 
         user_text = ""
@@ -2341,6 +2382,26 @@ class GraphAdvocateExecutor(AgentExecutor):
                     user_text += part.root.text
                 elif hasattr(part, "text"):
                     user_text += part.text
+
+        # Drop known solicitors before the model is called - they cost nothing
+        # this way, and the reason is recorded so the decision stays auditable.
+        _blocked = _blocked_sender(sender_name, sender_address, user_text)
+        if _blocked:
+            log.info(f"BLOCKED  task={task_id} rule={_blocked} name={sender_name}")
+            _log_request(task_id, user_text, "blocked", "high", _blocked)
+            await event_queue.enqueue_event(
+                new_agent_text_message(json.dumps({
+                    "recommendation": "blocked",
+                    "reason": (
+                        "This sender is blocked. Graph Advocate routes onchain data "
+                        "questions; it does not evaluate unsolicited service offers."
+                    ),
+                    "confidence": "high",
+                    "query_ready": None,
+                    "alternatives": [],
+                }))
+            )
+            return
 
         if not user_text:
             await event_queue.enqueue_event(
