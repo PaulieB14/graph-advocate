@@ -1424,12 +1424,28 @@ _CANONICAL_SERVICES = {
 # Agent-exchange-* services are excluded by PREFIX (see _qx_where_clause) so
 # new AE variants (commons-opportunity, new-bot-intro, job-failed, etc.) auto-
 # exclude without needing to remember to add them here.
-_META_SERVICES_EXCLUDED_FROM_HEADLINE = {
-    "conformance", "introduction", "cached", "out-of-scope",
-    "operational-confirmation", "registry-info", "rate-limited",
-    "x402-paid", "x402-failed", "x402-tip", "payment-required",
-    "chat", "unknown",
+# Service classes that never get a quality score written (see _score_response).
+# The 5-point rubric — parse, query_ready, subgraph_id, curl, install — doesn't
+# apply to a greeting, a refusal, or a payment challenge, so scoring one records
+# a ~1 and drags the average down for behaving correctly.
+_NON_ROUTING_SERVICES = {
+    "introduction", "out-of-scope", "conformance",
+    "operational-confirmation", "tip", "x402-tip",
+    "x402-paid", "x402-failed", "payment-required",
+    "blocked",
+    "chat", "cached", "rate-limited",
+    "clarification-needed", "no-match", "unclear-request",
+    "registry-info",
 }
+
+# The read-side headline filter MUST be a superset of the write-side skip.
+# Skipping the write only protects rows created from now on; whenever a new
+# non-routing service is added, the rows written before it existed keep
+# counting. That is exactly how `blocked` (added 2026-08-07) landed 2 rows at
+# score 1.00 and pulled the 24h average to 2.33 against a 7-day 4.09 — and
+# tip / no-match / clarification-needed / unclear-request had quietly done the
+# same with 6 more rows. Deriving one from the other makes that impossible.
+_META_SERVICES_EXCLUDED_FROM_HEADLINE = _NON_ROUTING_SERVICES | {"unknown"}
 
 # Anything starting with this prefix is an Agent Exchange event broadcast or
 # webhook re-emission, not a real Q&A response. Auto-scored 1.0 by the
@@ -3604,17 +3620,10 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
                 or tid.startswith(_AGENT_EXCHANGE_PREFIX)):
                 return
 
-        # Skip scoring entirely for non-routing service classes.
-        NON_ROUTING_SERVICES = {
-            "introduction", "out-of-scope", "conformance",
-            "operational-confirmation", "tip", "x402-tip",
-            "x402-paid", "x402-failed", "payment-required",
-            "blocked",
-            "chat", "cached", "rate-limited",
-            "clarification-needed", "no-match", "unclear-request",
-            "registry-info",
-        }
-        if service in NON_ROUTING_SERVICES:
+        # Skip scoring entirely for non-routing service classes. Defined at
+        # module level so the read-side headline filter can derive from it —
+        # the two drifting apart is what let refusals into the average.
+        if service in _NON_ROUTING_SERVICES:
             return
 
         # Services that don't expose a subgraph_id by design — REST APIs, MCP

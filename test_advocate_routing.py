@@ -808,6 +808,23 @@ class TestUniswapTvlOverride(unittest.TestCase):
 
 
 class TestRefusalScoring(unittest.TestCase):
+    def test_headline_filter_is_a_superset_of_the_write_skip(self):
+        """The read-side filter must cover everything the write-side skips.
+
+        Skipping the write only protects rows created from now on. Any row
+        written before a service joined the skip list keeps counting toward the
+        headline average forever. On 2026-08-07 `blocked` had 2 such rows at
+        score 1.00 — and tip / no-match / clarification-needed / unclear-request
+        had 6 more between them, all scoring ~1.
+        """
+        import a2a_server as srv
+
+        missing = srv._NON_ROUTING_SERVICES - srv._META_SERVICES_EXCLUDED_FROM_HEADLINE
+        assert not missing, (
+            f"services skipped at write time but still counted in the headline "
+            f"average: {sorted(missing)}"
+        )
+
     def test_refusal_services_are_not_quality_scored(self):
         """Refusals must never enter the quality metric.
 
