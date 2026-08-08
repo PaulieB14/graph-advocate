@@ -807,6 +807,61 @@ class TestUniswapTvlOverride(unittest.TestCase):
         self.assertIn("orderBy: volumeUSD", hint[0])
 
 
+class TestRefusalScoring(unittest.TestCase):
+    def test_refusal_services_are_not_quality_scored(self):
+        """Refusals must never enter the quality metric.
+
+        The 5-point rubric grades on query_ready / subgraph_id / curl / install. A
+        correct refusal has none of them by construction, so scoring one records a 1
+        and drags the average down for doing the right thing. On 2026-08-07 the new
+        `blocked` service did exactly that: two MetaVision solicitations were dropped
+        correctly and scored 1 each, pulling the 24h average to 2.33 against a 7-day
+        4.09.
+
+        This asserts on the write itself rather than on the constant, so adding a new
+        refusal service and forgetting to exclude it fails here instead of showing up
+        as a phantom quality drop days later.
+        """
+        import sqlite3
+        import a2a_server as srv
+
+        writes = []
+        real_connect = sqlite3.connect
+
+        class _Spy:
+            def __init__(self, *a, **k):
+                self._c = None
+
+            def execute(self, sql, params=()):
+                writes.append((sql, params))
+                return self
+
+            def commit(self):
+                pass
+
+            def close(self):
+                pass
+
+        sqlite3.connect = lambda *a, **k: _Spy()
+        try:
+            for service in ("blocked", "out-of-scope", "payment-required",
+                            "introduction", "rate-limited", "chat"):
+                writes.clear()
+                srv._score_response("MetaVision offer - AI Inference",
+                                    {"recommendation": service, "reason": "solicitor"})
+                assert not writes, f"{service!r} was quality-scored; refusals must be skipped"
+
+            # A real routing answer must still be scored, or the exclusion is too broad.
+            writes.clear()
+            srv._score_response("Top Aave V3 markets by TVL", {
+                "recommendation": "subgraph-registry",
+                "query_ready": {"tool": "execute_query_by_subgraph_id", "args": {}},
+            })
+            assert writes, "a routing answer was not scored"
+        finally:
+            sqlite3.connect = real_connect
+
+
 if __name__ == "__main__":
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
@@ -824,6 +879,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestPayerCapture))
     suite.addTests(loader.loadTestsFromTestCase(TestSubgraphExecExtraction))
     suite.addTests(loader.loadTestsFromTestCase(TestUniswapTvlOverride))
+    suite.addTests(loader.loadTestsFromTestCase(TestRefusalScoring))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

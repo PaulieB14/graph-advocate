@@ -3609,6 +3609,7 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
             "introduction", "out-of-scope", "conformance",
             "operational-confirmation", "tip", "x402-tip",
             "x402-paid", "x402-failed", "payment-required",
+            "blocked",
             "chat", "cached", "rate-limited",
             "clarification-needed", "no-match", "unclear-request",
             "registry-info",
