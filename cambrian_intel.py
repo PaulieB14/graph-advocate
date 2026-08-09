@@ -64,6 +64,9 @@ _MIN_TX_COUNT = 500
 # Bridged wrappers (Wormhole wSOL and friends) are deliberately NOT auto-resolved here either: an
 # agent handed wSOL as "SOL" computes wrong supply and wrong holders. Pinning them is worthwhile
 # later, but it needs an explicit address map and a `bridged` label, not a symbol lookup.
+# Retired 2026-08-08 in favour of CoinGecko's market-cap-ranked platform map (see
+# `_coingecko_map`), which derives the same answer from data and cannot go stale. Kept only as the
+# fallback for the case where CoinGecko is unreachable AND has no cached map.
 _NON_EVM_MAJORS = {
     "BTC", "DOGE", "XRP", "ADA", "DOT", "ATOM", "NEAR", "TON",
     "SUI", "APT", "SEI", "TRX", "XLM", "SOL", "AVAX", "LTC", "BCH", "ALGO",
@@ -75,6 +78,73 @@ _MIN_TWEETS = 5
 _MIN_AUTHORS = 4
 
 _momentum_cache: dict[str, tuple[float, list]] = {}
+_coingecko_cache: dict[str, tuple[float, dict]] = {}
+
+# CoinGecko's mapping is near-static and its demo tier allows ~10k calls/month, so a day is cheap:
+# two calls per refresh = ~60/month. Contrast Cambrian's 1,000/month, which is the tight budget.
+_CG_TTL = 24 * 60 * 60
+
+# CoinGecko's chain keys for the chains GA queries.
+_CG_PLATFORM = {
+    "ethereum": "ethereum",
+    "base": "base",
+    "arbitrum": "arbitrum-one",
+    "polygon": "polygon-pos",
+    "optimism": "optimistic-ethereum",
+    "bsc": "binance-smart-chain",
+}
+
+
+def _coingecko_map() -> dict:
+    """symbol -> {"id", "platforms"} for the top coins by market cap. Cached for a day.
+
+    This is the authoritative half of resolution, and it replaces two worse mechanisms.
+
+    Ranking by market cap is what disambiguates a shared ticker: "DOGE" matches six CoinGecko
+    entries, three of which are "department-of-government-eff*" clones that DO carry Ethereum
+    addresses. Taking the highest-market-cap claimant yields `dogecoin` — whose Ethereum platform
+    entry is correctly absent, because Dogecoin has no EVM contract. That single fact replaces a
+    hand-maintained non-EVM denylist, which would have rotted the first time a new chain launched
+    a token with a major's ticker.
+
+    It also confirms rather than infers the addresses: CoinGecko's `chainlink` and `morpho` match
+    what the txCount heuristic guessed, which is reassuring but not something to keep relying on.
+    """
+    cached = _coingecko_cache.get("map")
+    if cached and time.time() - cached[0] < _CG_TTL:
+        return cached[1]
+
+    key = os.getenv("COINGECKO_API_KEY", "").strip()
+    headers = {"x-cg-demo-api-key": key} if key else {}
+
+    def _get(url: str):
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+
+    try:
+        # Two calls: the full platform map (~18k coins), and the market-cap ordering that picks
+        # which claimant of a ticker is the real one.
+        listing = _get("https://api.coingecko.com/api/v3/coins/list?include_platform=true")
+        markets = _get(
+            "https://api.coingecko.com/api/v3/coins/markets"
+            "?vs_currency=usd&order=market_cap_desc&per_page=250&page=1"
+        )
+    except Exception as e:
+        log.warning(f"coingecko: map fetch failed — {e}")
+        return cached[1] if cached else {}
+
+    platforms = {c["id"]: (c.get("platforms") or {}) for c in listing if c.get("id")}
+    out: dict[str, dict] = {}
+    for c in markets:
+        sym = (c.get("symbol") or "").upper()
+        if sym and sym not in out:  # markets is already market-cap ordered
+            out[sym] = {"id": c.get("id"), "platforms": platforms.get(c.get("id"), {})}
+    _coingecko_cache["map"] = (time.time(), out)
+    log.info(f"coingecko: resolved {len(out)} symbols across {len(platforms)} coins")
+    return out
+
+
 
 
 def _api_key() -> str:
@@ -255,20 +325,63 @@ async def narrative_vs_flow(chain: str = "ethereum", limit: int = 10, cohort: in
 
     now = time.time()
     resolved, unresolved = [], []
+    cg = _coingecko_map()
+    cg_platform = _CG_PLATFORM.get(chain_key)
+
     for sym, social in by_symbol.items():
-        if sym in _NON_EVM_MAJORS:
-            # Refused by identity, before any liquidity test — see _NON_EVM_MAJORS.
-            unresolved.append({
-                "symbol": sym,
-                "reason": "non_evm_asset",
-                "detail": (
-                    "This ticker belongs to a non-EVM asset; the tokens carrying it on this chain "
-                    "are unrelated (e.g. DOGE resolves to 'Department Of Government Efficiency', "
-                    "101k txs). Refused rather than guessed."
-                ),
-            })
+        # Tier 1: CoinGecko, when it knows this ticker. Authoritative, so it decides both the
+        # address AND whether one exists at all — no liquidity heuristic can overrule it.
+        cg_hit = cg.get(sym)
+        pinned = None
+        if cg_hit and cg_platform:
+            addr = (cg_hit.get("platforms") or {}).get(cg_platform)
+            if addr:
+                pinned = addr.lower()
+            else:
+                # CoinGecko knows this ticker's top claimant and it has no contract on this chain.
+                # That is a fact, not a lookup failure: Dogecoin, Stellar, Solana and Cardano all
+                # land here, and the impostors carrying their tickers are correctly not substituted.
+                unresolved.append({
+                    "symbol": sym,
+                    "reason": "non_evm_asset",
+                    "detail": (
+                        f"CoinGecko's top-market-cap claimant for {sym} is '{cg_hit.get('id')}', "
+                        f"which has no contract on {chain}. Tokens carrying this ticker here are "
+                        f"unrelated (DOGE, for one, resolves on-chain to 'Department Of Government "
+                        f"Efficiency' with 101k txs). Refused rather than substituted."
+                    ),
+                    "coingecko_id": cg_hit.get("id"),
+                })
+                continue
+
+        if not cg and sym in _NON_EVM_MAJORS:
+            # CoinGecko unavailable and uncached — fall back to the static set so a non-EVM major
+            # still cannot be substituted by a namesake.
+            unresolved.append({"symbol": sym, "reason": "non_evm_asset",
+                               "detail": "CoinGecko unavailable; refused from the static non-EVM set."})
             continue
+
         tok = best.get(sym)
+        if pinned:
+            # Prefer the pinned address over the most-transacted claimant. They usually agree —
+            # CoinGecko's chainlink and morpho match what txCount picks — but when they disagree,
+            # the registry is right and the heuristic is a guess.
+            match = next((t for t in (data.get("tokens") or [])
+                          if (t.get("id") or "").lower() == pinned), None)
+            if match:
+                tok = match
+            elif tok:
+                unresolved.append({
+                    "symbol": sym,
+                    "reason": "canonical_token_not_in_subgraph",
+                    "detail": (
+                        f"CoinGecko pins {sym} to {pinned} on {chain}, which this Uniswap subgraph "
+                        f"does not index — it trades elsewhere. Refusing rather than falling back "
+                        f"to the most-transacted namesake, which would be a different asset."
+                    ),
+                    "canonical_address": pinned,
+                })
+                continue
         if not tok:
             # Expected: Cambrian's cohort is chain-agnostic and includes SOL, XLM, ADA and other
             # non-EVM assets. Reported, never dropped — a caller comparing counts would otherwise
