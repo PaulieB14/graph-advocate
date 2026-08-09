@@ -948,6 +948,23 @@ _SERVICE_METADATA: dict[str, dict] = {
             "Compare WETH/USDC liquidity across V2, V3 and V4",
         ],
     },
+    "cambrian-social": {
+        "summary": (
+            "Social-signal layer (Cambrian deep42) JOINed with on-chain flow from The Graph. "
+            "Answers what is being talked about versus what is actually being traded — a gap "
+            "neither a social feed nor a chain indexer can measure alone."
+        ),
+        "best_for": [
+            "Tokens loud on social but quiet on-chain (narrative ahead of money)",
+            "Real on-chain flow with little social attention (the inverse, which social feeds cannot see)",
+        ],
+        "auth": "Server-side (Cambrian key held by Graph Advocate); callers pay per request via x402",
+        "interface": "REST (POST, JSON body)",
+        "example_prompts": [
+            "Which trending tokens have no on-chain flow behind the hype?",
+            "Show me tokens accumulating on-chain that nobody is talking about",
+        ],
+    },
     "graph-limitless-mcp": {
         "summary": "MCP server for Limitless prediction markets on Base.",
         "best_for": ["Limitless market state and trades on Base"],
