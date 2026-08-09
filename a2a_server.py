@@ -3875,6 +3875,9 @@ requests (no sender metadata) are not eligible and pay $0.01 USDC from call 1.
 | POST /kalshi/sports-live-edge  | $0.05        | Live sports mispricing (play-by-play vs candles) |
 | POST /predmarket/spread        | $0.05        | Cross-venue Polymarket↔Limitless spread (JOIN) |
 | POST /narrative/divergence     | $0.05        | Social momentum vs on-chain flow divergence (Cambrian↔Graph JOIN) |
+| POST /polymarket/leaders       | $0.05        | PM leaderboard with derived skill metrics |
+| POST /onchain-x402/address     | $0.02        | On-chain x402 activity for an address (Base) |
+| POST /ask                      | $0.05        | NL Q&A over 132M+ x402 settlements on Base |
 | POST /uniswap/pretrade         | $0.02        | Uniswap pre-trade check: real liquidity, deepest venue, honeypot flow, volume trend |
 | POST /uniswap/basis            | $0.05        | Uniswap spot vs Hyperliquid perp basis (cross-venue JOIN) |
 | POST /uniswap/traders          | $0.02        | Uniswap per-wallet flow: accumulators vs distributors |

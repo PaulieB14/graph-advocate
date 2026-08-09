@@ -72,7 +72,7 @@ You get back the subgraph to use and a query that runs as-is:
 
 ## What it does
 
-Routes plain-English data requests to the right Graph Protocol service — Token API, Subgraph Registry, Substreams, or one of 8+ protocol-specific MCP packages (Aave, Polymarket, Uniswap, etc.). Every response includes a working query you can execute immediately.
+Routes plain-English data requests to the right Graph Protocol service — Token API, Subgraph Registry, Substreams, or one of 5 protocol-specific MCP packages (Aave, Polymarket, lending, Limitless, Predict.fun). Every response includes a working query you can execute immediately.
 
 Searches 15,500+ indexed subgraphs in real-time. Powered by Claude.
 
@@ -106,6 +106,14 @@ Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x40
 | `POST /kalshi-polymarket/spread` | $0.05 | Cross-source arbitrage spread between Kalshi and Polymarket on a topic — JOIN passthrough APIs can't return |
 | `POST /kalshi/sports-live-edge` | $0.05 | Live sports mispricing: play-by-play momentum vs market reaction; flags latency-arb windows |
 | `POST /predmarket/spread` | $0.05 | **Polymarket ↔ Limitless cross-venue spread** on a topic — paired markets, per-pair yes-mid spread (bps), arbitrage direction. JOIN single-venue passthroughs can't return |
+| `POST /narrative/divergence` | $0.05 | **Social momentum vs on-chain flow** — Cambrian deep42 JOINed with Uniswap flow acceleration. Finds tokens loud on social but quiet on-chain, and real flow nobody is tweeting about |
+| `POST /uniswap/pretrade` | $0.02 | Pre-trade check: real liquidity, deepest venue, honeypot flow, volume trend |
+| `POST /uniswap/basis` | $0.05 | Uniswap spot vs Hyperliquid perp basis — cross-venue JOIN |
+| `POST /uniswap/traders` | $0.02 | Per-wallet Uniswap flow: accumulators vs distributors |
+| `POST /polymarket/leaders` | $0.05 | Polymarket leaderboard with derived skill metrics |
+| `POST /onchain-x402/address` | $0.02 | On-chain x402 activity for an address (Base settlements) |
+| `POST /ask` | $0.05 | Natural-language Q&A over 132M+ x402 settlements on Base |
+| `POST /agent/score` | $0.02 | 0–100 agent reputation (ERC-8004 + USDC settlements + feedback registry) |
 
 ```bash
 # Try it
