@@ -454,6 +454,11 @@ _PAID_CATALOG = {
         "op_id": 'predmarketSpread', "desc": 'Polymarket vs Limitless cross-venue spread on a topic — JOIN that single-venue APIs cannot return; arbitrage direction included.',
         "a2a": False, "openapi": True, "wellknown": True,
     },
+    'narrative/divergence': {
+        "path": "/narrative/divergence", "price": '$0.05', "amount": '50000', "body": {},
+        "op_id": 'narrativeDivergence', "desc": 'Narrative-vs-flow divergence: social momentum (Cambrian deep42) JOINed with on-chain flow acceleration from a Uniswap subgraph. Finds tokens loud on social but quiet on-chain, and the reverse — a JOIN neither a social feed nor a chain indexer can return alone.',
+        "a2a": False, "openapi": True, "wellknown": True,
+    },
     'route': {
         "path": "/route", "price": '', "amount": '', "body": {},
         "a2a": False, "openapi": False, "wellknown": True,
@@ -8726,6 +8731,31 @@ def build_app():
                     "retry_after_seconds": 30,
                 }, status_code=502)
 
+        async def _narrative_divergence_handler(request):
+            """$0.05 — social momentum vs on-chain flow acceleration, ranked by the gap."""
+            from cambrian_intel import narrative_vs_flow
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            chain = str(body.get("chain") or "ethereum").strip() or "ethereum"
+            limit = body.get("limit") or 10
+            cohort = body.get("cohort") or 40
+            try:
+                result = await narrative_vs_flow(chain, limit=limit, cohort=cohort)
+                _log_request("x402-paid", f"narrative-divergence {chain}",
+                             "narrative-divergence", "high", "cambrian-deep42+uniswap-subgraph",
+                             response=result)
+                return _RouteJSON(result)
+            except Exception as exc:
+                log.exception(f"narrative-divergence crashed: {chain}")
+                _log_paid_failure(f"narrative-divergence {chain}", exc)
+                return _RouteJSON({
+                    "error": "upstream_unavailable",
+                    "message": "Cambrian or the Uniswap subgraph was unreachable; retry shortly.",
+                    "retry_after_seconds": 30,
+                }, status_code=502)
+
         async def _predmarket_spread_handler(request):
             """$0.05 — Polymarket ↔ Limitless cross-market spread on a topic."""
             from limitless_intel import polymarket_limitless_spread
@@ -9671,6 +9701,7 @@ def build_app():
             _RouteRoute("/kalshi/consensus-trend", _kalshi_consensus_handler, methods=["POST"]),
             _RouteRoute("/kalshi-polymarket/spread", _kalshi_spread_handler, methods=["POST"]),
             _RouteRoute("/kalshi/sports-live-edge", _kalshi_sports_handler, methods=["POST"]),
+            _RouteRoute("/narrative/divergence", _narrative_divergence_handler, methods=["POST"]),
             _RouteRoute("/predmarket/spread", _predmarket_spread_handler, methods=["POST"]),
             _RouteRoute("/uniswap/pretrade", _uniswap_pretrade_handler, methods=["POST"]),
             _RouteRoute("/uniswap/basis", _uniswap_basis_handler, methods=["POST"]),
@@ -10341,6 +10372,28 @@ def build_app():
                             input_schema={"type":"object","properties":{"milestone":{"type":"string","description":"Kalshi sports milestone id"},"market":{"type":"string","description":"Optional ticker for candlestick reaction comparison"}},"required":["milestone"]},
                             body_type="json",
                             output=OutputConfig(example={"milestone_id":"NFLGAME-XYZ-1","momentum_score_last_5_events":0.8,"market_reaction_pct_last_hour":0.4,"latency_arbitrage_signal":"upside-lag-likely","candles_returned":60},schema={"type":"object"}),
+                        )},
+                    ),
+                    "POST /narrative/divergence": RouteConfig(
+                        accepts=[PaymentOption(scheme="exact", pay_to=X402_WALLET, price="$0.05",
+                            network="eip155:8453", max_timeout_seconds=300,
+                            extra={"name": "USD Coin", "version": "2"})],
+                        description=(
+                            "Narrative-vs-flow divergence. POST {chain?, limit?, cohort?}. JOINs "
+                            "Cambrian deep42 social momentum (tweet velocity, unique authors, "
+                            "reach) against on-chain flow ACCELERATION from a Uniswap subgraph - "
+                            "recent volume vs each token's own baseline, so it measures activity, "
+                            "not token size. Surfaces tokens loud on social but quiet on-chain, "
+                            "and the reverse: real flow nobody is tweeting about, which a social "
+                            "feed structurally cannot see. Ticker squatters are filtered by "
+                            "most-transacted-claimant; non-EVM symbols are reported, never dropped."
+                        ),
+                        mime_type="application/json",
+                        extensions={**declare_discovery_extension(
+                            input={"chain":"ethereum","limit":10},
+                            input_schema={"type":"object","properties":{"chain":{"type":"string","default":"ethereum"},"limit":{"type":"integer","minimum":1,"maximum":25,"default":10},"cohort":{"type":"integer","minimum":10,"maximum":100,"default":40}}},
+                            body_type="json",
+                            output=OutputConfig(example={"chain":"ethereum","cohort_size":11,"social_source":"cache","ranked":[{"symbol":"ZIG","token_address":"0x...","divergence":80.0,"reading":"overhyped","social_rank":80.0,"flow_rank":0.0,"flow_acceleration":0.22,"social":{"momentum_score":128.4,"sentiment":8.1,"recent_tweets":5,"unique_authors":4},"onchain":{"tx_count_lifetime":51234,"chain":"ethereum"},"thin_sample":False}],"unresolved":[{"symbol":"XLM","reason":"no_token_on_chain"}],"unresolved_count":12,"how_to_read":"divergence = social percentile - on-chain percentile within this cohort; positive = talk ahead of money, negative = money moving quietly."},schema={"type":"object"}),
                         )},
                     ),
                     "POST /predmarket/spread": RouteConfig(
@@ -11239,6 +11292,7 @@ def build_app():
             or scope["path"].startswith("/kalshi/")
             or scope["path"].startswith("/kalshi-polymarket/")
             or scope["path"].startswith("/predmarket/")
+            or scope["path"].startswith("/narrative/")
             or scope["path"].startswith("/uniswap/")
             or scope["path"].startswith("/onchain-x402/")
             or scope["path"].startswith("/agent/")
