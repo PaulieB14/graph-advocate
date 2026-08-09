@@ -101,7 +101,12 @@ in order and verify at the end — a missed step usually fails **silently**, not
 | 5 | `AgentSkill` list (agent card) | `a2a_server.py` (~2245) | invisible to A2A callers |
 | 6 | `llms.txt` price table | `a2a_server.py` (~3860) | invisible to LLM tooling |
 
-Plus the README's paid-endpoint table, which humans read first and which omitted 7 live endpoints
+Plus two more that are easy to forget because they live outside `a2a_server.py`:
+
+| 7 | `docs/*.mdx` + `docs/docs.json` nav | the Mintlify site at docs.graphadvocate.com |
+| 8 | `openclaw-skill/graph-advocate/SKILL.md` | what ClawHub installs |
+
+And the README's paid-endpoint table, which humans read first and which omitted 7 live endpoints
 before the audit.
 
 **#3 and #4 are the trap.** They are ~900 lines apart, produce byte-identical 404s, and each one
