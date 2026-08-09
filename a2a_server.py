@@ -3892,10 +3892,15 @@ free tier — payment is required from call 1 regardless of sender metadata.
 - subgraph-registry    — GraphQL: 15,500+ subgraphs, custom queries
 - substreams           — gRPC: raw block/event/trace streaming
 - graph-aave-mcp       — MCP: Aave V2/V3/V4, 40 tools
-- graph-polymarket-mcp — MCP: Polymarket, 31 tools
+- graph-uniswap-mcp    — MCP: Uniswap V2/V3/V4, 8 tools over 13 subgraphs (6 chains)
+- graph-polymarket-mcp — MCP: Polymarket, 35 tools (incl. CLOB V2 builder attribution)
 - graph-lending-mcp    — MCP: cross-protocol lending (Messari)
 - graph-limitless-mcp  — MCP: Limitless prediction markets on Base
 - predictfun-mcp       — MCP: Predict.fun on BNB Chain
+- polymarket-token-api — REST: Polymarket markets, OHLCV, P&L, positions
+- hyperliquid-token-api— REST: Hyperliquid markets, users, vaults
+- cambrian-social      — REST: social momentum + sentiment, JOINed with on-chain flow
+- copytrade            — REST: free Hyperliquid vault feed (lifetime flows + native APR/names)
 - 8004scan             — REST: ERC-8004 agent discovery
 - mcp8004              — Library: ERC-8004 auth middleware for MCP servers
 
