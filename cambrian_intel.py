@@ -51,6 +51,24 @@ _MOMENTUM_TTL = 2 * 60 * 60
 # MORPHO impostors, which sit at ~2 transactions; a genuine token clears this by orders of magnitude.
 _MIN_TX_COUNT = 500
 
+# Assets whose ticker is NOT theirs on an EVM chain. Symbol resolution is refused outright for
+# these — no activity threshold can save it, which is the whole point.
+#
+# Measured on Uniswap V3 mainnet 2026-08-08: "DOGE" resolves to `0x1121acc1…` **"Department Of
+# Government Efficiency"** with 101,264 transactions — it clears the activity floor below by 200x
+# and is a genuinely liquid token that is genuinely not Dogecoin. "XLM" resolves to
+# "BenjaminNetanyahuGazaHamasIronDome". These are not squatters that a liquidity bar filters out;
+# they are real markets that happen to own the ticker. Refusing by identity is the only correct
+# move, and reporting the symbol as non-EVM is more honest than reporting a confident wrong answer.
+#
+# Bridged wrappers (Wormhole wSOL and friends) are deliberately NOT auto-resolved here either: an
+# agent handed wSOL as "SOL" computes wrong supply and wrong holders. Pinning them is worthwhile
+# later, but it needs an explicit address map and a `bridged` label, not a symbol lookup.
+_NON_EVM_MAJORS = {
+    "BTC", "DOGE", "XRP", "ADA", "DOT", "ATOM", "NEAR", "TON",
+    "SUI", "APT", "SEI", "TRX", "XLM", "SOL", "AVAX", "LTC", "BCH", "ALGO",
+}
+
 # Cambrian's cohort includes tokens with 3 tweets from 3 authors. Ranking those against a token with
 # 130 tweets is noise pretending to be signal, so they are carried but flagged, not silently ranked.
 _MIN_TWEETS = 5
@@ -238,6 +256,18 @@ async def narrative_vs_flow(chain: str = "ethereum", limit: int = 10, cohort: in
     now = time.time()
     resolved, unresolved = [], []
     for sym, social in by_symbol.items():
+        if sym in _NON_EVM_MAJORS:
+            # Refused by identity, before any liquidity test — see _NON_EVM_MAJORS.
+            unresolved.append({
+                "symbol": sym,
+                "reason": "non_evm_asset",
+                "detail": (
+                    "This ticker belongs to a non-EVM asset; the tokens carrying it on this chain "
+                    "are unrelated (e.g. DOGE resolves to 'Department Of Government Efficiency', "
+                    "101k txs). Refused rather than guessed."
+                ),
+            })
+            continue
         tok = best.get(sym)
         if not tok:
             # Expected: Cambrian's cohort is chain-agnostic and includes SOL, XLM, ADA and other
