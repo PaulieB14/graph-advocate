@@ -1,0 +1,66 @@
+---
+title: "MCP packages"
+description: "Six protocol-specific MCP servers Graph Advocate routes to. All free, all npx-installable, all reading The Graph directly — no Graph Advocate call required."
+---
+
+Graph Advocate routes to **six protocol-specific MCP servers**. Every one is free, installs with `npx`, and reads The Graph directly with your own API key. You do not need to call Graph Advocate to use them — routing you *to* them is the point.
+
+<Note>
+These are alternatives, never the primary answer. Each is a thin wrapper around subgraphs and REST APIs an agent can call directly. The MCP packages the calls with friendly tool names and saves you writing the GraphQL — that is the whole value, and it is a real one.
+</Note>
+
+## The packages
+
+| Package | Covers | Install |
+|---|---|---|
+| `graph-aave-mcp` | Aave V2/V3/V4 — 40+ tools, including cross-chain liquidation risk | `npx graph-aave-mcp` |
+| `graph-uniswap-mcp` | Uniswap V2/V3/V4 — 8 tools over 13 subgraphs, 6 chains | `npx -y graph-uniswap-mcp` |
+| `graph-polymarket-mcp` | Polymarket — 35 tools, live CLOB + on-chain analytics + CLOB V2 builder attribution | `npx graph-polymarket-mcp` |
+| `graph-lending-mcp` | Cross-protocol lending via Messari standardized subgraphs | `npx graph-lending-mcp` |
+| `graph-limitless-mcp` | Limitless prediction markets on Base | `npx graph-limitless-mcp` |
+| `predictfun-mcp` | Predict.fun on BNB Chain | `npx predictfun-mcp` |
+
+Most need a free Graph API key from [thegraph.com/studio](https://thegraph.com/studio/) in `GRAPH_API_KEY`. `predictfun-mcp` needs none.
+
+## Uniswap
+
+```bash
+GRAPH_API_KEY=your_key npx -y graph-uniswap-mcp
+```
+
+Eight tools across **13 subgraphs** — V2, V3 and V4 on Ethereum, Base, Arbitrum, Polygon, Optimism and BSC. Subgraph-ID addressed and schema-adaptive, so a subgraph version bump does not break it.
+
+Good for: *"Top Uniswap V3 pools on Base by volume"*, *"Compare WETH/USDC liquidity across V2, V3 and V4"*.
+
+For **derived** Uniswap answers — pre-trade liquidity checks, spot-vs-perp basis, per-wallet accumulation — see [Uniswap pre-trade & flow](/uniswap). Those are paid endpoints because they assemble something the raw subgraph does not contain. The basis JOIN in particular has no MCP equivalent: it spans two venues.
+
+## Aave
+
+```bash
+GRAPH_API_KEY=your_key npx graph-aave-mcp
+```
+
+40+ tools over Aave V2, V3 and V4, including cross-chain liquidation risk and V4 hub/spoke topology. Good for: *"Top Aave V3 markets by TVL on Ethereum"*, *"Recent Aave liquidations above $50K"*.
+
+## Polymarket
+
+```bash
+npx graph-polymarket-mcp
+```
+
+35 tools spanning the Gamma and CLOB REST APIs and the Polymarket subgraphs — live prices, order books, trader P&L, UMA resolution status. As of v2.1.1 it also covers **CLOB V2 builder attribution**, which answers "which frontend routed this flow" — a question no V1 contract emits the data for.
+
+## Lending, Limitless, Predict.fun
+
+`graph-lending-mcp` compares protocols through Messari's standardized schema, so Aave and Compound become directly comparable. `graph-limitless-mcp` covers Limitless on Base. `predictfun-mcp` covers Predict.fun on BNB Chain and needs no key at all.
+
+## Machine-readable
+
+Every package above is declared in Graph Advocate's capability catalog with its install command, auth requirement and example prompts:
+
+```bash
+curl -s https://graphadvocate.com/agents/capabilities.json \
+  | jq '.capabilities[] | select(.interface | test("MCP"))'
+```
+
+That endpoint is the source of truth — this page is generated from the same metadata.
