@@ -578,6 +578,16 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
         ),
         "get_started": "Free API key: https://thegraph.com/studio/",
     },
+    "graph-uniswap-mcp": {
+        "install": "npx -y graph-uniswap-mcp",
+        "curl_example": (
+            "# Run the MCP server (requires GRAPH_API_KEY env var)\n"
+            "GRAPH_API_KEY=your_key npx -y graph-uniswap-mcp\n\n"
+            "# 8 tools over 13 Graph subgraphs — Uniswap V2/V3/V4 across 6 chains\n"
+            "# Free API key: https://thegraph.com/studio/"
+        ),
+        "get_started": "Free API key: https://thegraph.com/studio/",
+    },
     "graph-limitless-mcp": {
         "install": "npx graph-limitless-mcp",
         "curl_example": (
@@ -924,6 +934,19 @@ _SERVICE_METADATA: dict[str, dict] = {
         "auth": "Free Graph Network API key",
         "interface": "MCP",
         "example_prompts": ["Compare Aave vs Compound TVL on Ethereum", "Top lending markets by utilization"],
+    },
+    "graph-uniswap-mcp": {
+        "summary": "MCP server for Uniswap V2/V3/V4 — 8 tools over 13 Graph subgraphs (6 chains x 3 versions).",
+        "best_for": [
+            "Uniswap pools, swaps and liquidity across Ethereum, Base, Arbitrum, Polygon, Optimism, BSC",
+            "Comparing the same pair across V2/V3/V4",
+        ],
+        "auth": "Graph API key (env: GRAPH_API_KEY)",
+        "interface": "MCP",
+        "example_prompts": [
+            "Top Uniswap V3 pools on Base by volume",
+            "Compare WETH/USDC liquidity across V2, V3 and V4",
+        ],
     },
     "graph-limitless-mcp": {
         "summary": "MCP server for Limitless prediction markets on Base.",

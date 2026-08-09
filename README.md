@@ -72,7 +72,7 @@ You get back the subgraph to use and a query that runs as-is:
 
 ## What it does
 
-Routes plain-English data requests to the right Graph Protocol service — Token API, Subgraph Registry, Substreams, or one of 5 protocol-specific MCP packages (Aave, Polymarket, lending, Limitless, Predict.fun). Every response includes a working query you can execute immediately.
+Routes plain-English data requests to the right Graph Protocol service — Token API, Subgraph Registry, Substreams, or one of 6 protocol-specific MCP packages (Aave, Uniswap, Polymarket, lending, Limitless, Predict.fun). Every response includes a working query you can execute immediately.
 
 Searches 15,500+ indexed subgraphs in real-time. Powered by Claude.
 
