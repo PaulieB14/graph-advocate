@@ -2243,6 +2243,25 @@ SKILLS = [
         output_modes=["text"],
     ),
     AgentSkill(
+        id="narrative_divergence",
+        name="Narrative vs on-chain flow divergence (JOIN)",
+        description=(
+            "POST /narrative/divergence {chain?, limit?, cohort?}. Ranks trending tokens by the "
+            "gap between social momentum (Cambrian deep42: tweet velocity, unique authors, reach) "
+            "and on-chain flow ACCELERATION from a Uniswap subgraph — recent volume against each "
+            "token's own baseline, so it measures activity rather than token size. Surfaces tokens "
+            "loud on social but quiet on-chain, and the reverse: real flow nobody is tweeting "
+            "about, which a social feed structurally cannot see. Ticker squatters are filtered by "
+            "most-transacted claimant; non-EVM symbols are reported in `unresolved`, never dropped. "
+            "$0.05 USDC on Base."
+        ),
+        tags=["defi", "social", "sentiment", "uniswap", "divergence", "join"],
+        examples=[
+            "Which trending tokens have no on-chain flow behind the hype?",
+            "Show me tokens accumulating on-chain that nobody is talking about",
+        ],
+    ),
+    AgentSkill(
         id="predmarket_spread",
         name="Polymarket ↔ Limitless cross-venue spread (JOIN)",
         description=(
@@ -2775,6 +2794,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                 ],
                 "paid_endpoints": {
                     "POST /predmarket/spread": "$0.05 — Polymarket↔Limitless cross-venue spread on a topic",
+                    "POST /narrative/divergence": "$0.05 — social momentum vs on-chain flow divergence (Cambrian↔Graph JOIN)",
                     "POST /polymarket/pnl-quick": "$0.02 — derived skill metrics for a Polymarket wallet",
                     "POST /hyperliquid/score": "$0.02 — Hyperliquid perps trader skill score",
                     "POST /uniswap/pretrade": "$0.02 — Uniswap pre-trade check (real liquidity, deepest venue, honeypot flow, volume trend)",
