@@ -183,6 +183,39 @@ def _fetch_momentum(limit: int = 40) -> tuple[list, str]:
         return (cached[1] if cached else []), "stale" if cached else "unavailable"
 
 
+def _fetch_sentiment_shifts(limit: int = 40) -> tuple[list, str]:
+    """Cambrian's sentiment-shift cohort. Same cache discipline as the momentum cohort.
+
+    A *delta*, not a level, which is why it earns its place: `/narrative/divergence` already
+    computes flow acceleration, so pairing a sentiment shift against a flow shift reads far
+    sharper than either level alone. Sentiment turning up while flow turns down is a different
+    statement from "loud on social", and only the pair can make it.
+    """
+    key = f"shifts:{limit}"
+    cached = _momentum_cache.get(key)
+    if cached and time.time() - cached[0] < _MOMENTUM_TTL:
+        return cached[1], "cache"
+
+    api_key = _api_key()
+    if not api_key:
+        return (cached[1] if cached else []), "unconfigured"
+
+    url = f"{CAMBRIAN_BASE}/deep42/social-data/sentiment-shifts?{urllib.parse.urlencode({'limit': limit})}"
+    req = urllib.request.Request(url, headers={"X-API-KEY": api_key})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            rows = json.loads(r.read())
+        if not isinstance(rows, list):
+            raise ValueError(f"unexpected payload type {type(rows).__name__}")
+        _momentum_cache[key] = (time.time(), rows)
+        return rows, "live"
+    except Exception as e:
+        # Non-fatal by design: shifts enrich the answer, they do not constitute it. The endpoint
+        # must still work when only the momentum half is available.
+        log.warning(f"cambrian: sentiment-shifts fetch failed — {e}")
+        return (cached[1] if cached else []), "stale" if cached else "unavailable"
+
+
 def _percentile_ranks(values: list[float]) -> list[float]:
     """Rank each value 0-100 within its own cohort.
 
@@ -416,6 +449,9 @@ async def narrative_vs_flow(chain: str = "ethereum", limit: int = 10, cohort: in
             "unresolved_count": len(unresolved),
         }
 
+    shift_rows, shift_source = _fetch_sentiment_shifts(cohort)
+    shifts = {(r.get("tokenSymbol") or "").upper(): r for r in shift_rows if r.get("tokenSymbol")}
+
     social_ranks = _percentile_ranks([float(s.get("momentumScore") or 0) for s, _, _ in resolved])
     flow_ranks = _percentile_ranks([a for _, _, a in resolved])
 
@@ -444,6 +480,27 @@ async def narrative_vs_flow(chain: str = "ethereum", limit: int = 10, cohort: in
             "onchain": {"tx_count_lifetime": int(tok.get("txCount") or 0), "chain": chain},
             "thin_sample": tweets < _MIN_TWEETS or authors < _MIN_AUTHORS,
         })
+        sh = shifts.get((social.get("tokenSymbol") or "").upper())
+        if sh:
+            shift = float(sh.get("sentimentShift") or 0)
+            # Both sides are now deltas, which is the point: sentiment turning one way while flow
+            # turns the other is the sharpest reading this endpoint can produce, and neither level
+            # alone can express it. Flow "rising" is >1.0 because acceleration is a ratio to baseline.
+            flow_rising = accel > 1.0
+            out[-1]["sentiment_shift"] = {
+                "shift": round(shift, 2),
+                "current": sh.get("currentSentiment"),
+                "previous": sh.get("previousSentiment"),
+                "bullish_ratio": sh.get("bullishRatio"),
+                "social_volume_change": sh.get("volumeChange"),
+                "confidence": sh.get("confidenceScore"),
+                "divergence_note": (
+                    "sentiment improving while on-chain flow slows" if shift > 1 and not flow_rising
+                    else "sentiment souring while on-chain flow accelerates" if shift < -1 and flow_rising
+                    else "sentiment and flow moving together" if abs(shift) > 1
+                    else "sentiment broadly flat"
+                ),
+            }
 
     out.sort(key=lambda r: abs(r["divergence"]), reverse=True)
 
@@ -451,6 +508,7 @@ async def narrative_vs_flow(chain: str = "ethereum", limit: int = 10, cohort: in
         "chain": chain,
         "cohort_size": len(resolved),
         "social_source": freshness,
+        "sentiment_shift_source": shift_source,
         "social_cache_ttl_seconds": _MOMENTUM_TTL,
         "ranked": out[:limit],
         "unresolved": unresolved[:30],

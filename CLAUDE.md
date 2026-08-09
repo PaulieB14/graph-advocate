@@ -86,6 +86,63 @@ Uniswap TVL contradiction showed up as 2/5, not as a clean failure.
 - **Scoring:** Every response auto-scored 0-5 (parse, query_ready, subgraph_id, curl, install)
 - **x402:** 3 free queries/day per sender, then $0.01 USDC on Base
 
+## Adding a new paid endpoint — the six places
+
+Every documentation drift found in the 2026-08-08 audit came from missing one of these. The
+generated surfaces were correct throughout; only the hand-maintained ones rotted. Work the list
+in order and verify at the end — a missed step usually fails **silently**, not loudly.
+
+| # | Place | File | Miss it and… |
+|---|---|---|---|
+| 1 | `RouteConfig` metadata dict | `a2a_server.py` (~450) | absent from `openapi.json` + `/.well-known/x402` |
+| 2 | The handler | `a2a_server.py` (~8700) | nothing to call |
+| 3 | ASGI **prefix allowlist** | `a2a_server.py` (~11270, `scope["path"].startswith(...)`) | **silent 404** |
+| 4 | `PaymentMiddlewareASGI(routes={...})` | `a2a_server.py` (~10370) | **silent 404, identical to #3** |
+| 5 | `AgentSkill` list (agent card) | `a2a_server.py` (~2245) | invisible to A2A callers |
+| 6 | `llms.txt` price table | `a2a_server.py` (~3860) | invisible to LLM tooling |
+
+Plus the README's paid-endpoint table, which humans read first and which omitted 7 live endpoints
+before the audit.
+
+**#3 and #4 are the trap.** They are ~900 lines apart, produce byte-identical 404s, and each one
+alone is insufficient. If a new endpoint 404s in production, check both before checking anything
+else.
+
+**Generated, so leave alone:** `openapi.json`, `/.well-known/x402`. Both derive from #1. CDP Bazaar
+and x402scan crawl `/.well-known/x402`, so they need no manual registration either.
+
+**Not a paid-endpoint surface:** `agents/capabilities.json` lists *routed services*, not priced
+paths — see below.
+
+### Verifying it landed
+
+```bash
+# 402 = wired. 404 = missed #3 or #4. 500 locally is normal (no CDP keys) —
+# compare against a known-good sibling rather than reading it as a defect.
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://graphadvocate.com/<path> \
+  -H 'content-type: application/json' -d '{}'
+```
+
+`pkill -f a2a_server.py` does not reliably kill a local server. Confirm with `pgrep` — a stale
+process serving old code produces phantom 404s that look exactly like a wiring bug.
+
+## Adding a new routed service (capability)
+
+Services are separate from priced endpoints and live in **`advocate.py`**, not `a2a_server.py`:
+
+1. `_SERVICE_METADATA` — drives `build_capabilities()` → `/agents/capabilities.json`
+2. `_SERVICE_CURL_EXAMPLES` — install / curl / get-started hints. Reads **only** those three keys;
+   anything else added here is ignored silently
+3. The routing prompt in `advocate.py` (~line 189) — what the model actually reads when choosing
+4. README services line
+
+The two dicts are ~200 lines apart and both contain a `"graph-limitless-mcp"` key, so an anchored
+edit can land in the wrong one. Verify with `build_capabilities()` rather than by grepping.
+
+**Declared ≠ reachable, and reachable ≠ declared.** `graph-uniswap-mcp` was published to npm and
+named in the routing prompt for months while `capabilities.json` omitted it — an outside agent
+(issue #5) found the inconsistency before we did.
+
 ## What NOT to break
 
 - Word boundary matching in `_auto_search` — prevents "compound" matching "compounded"
