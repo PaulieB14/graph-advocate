@@ -1,0 +1,100 @@
+---
+title: "Narrative vs on-chain flow"
+description: "One paid endpoint that JOINs social momentum with on-chain flow acceleration. Finds tokens loud on social but quiet on-chain — and the inverse, which a social feed structurally cannot see."
+---
+
+One x402 endpoint for **narrative-versus-flow divergence**. Social feeds tell you what is being talked about. Subgraphs tell you what is being traded. Neither can tell you where those two disagree — that is the JOIN Graph Advocate assembles.
+
+## What you get
+
+| Endpoint | Cost | Returns |
+|---|---:|---|
+| `POST /narrative/divergence` | $0.05 | Trending tokens ranked by the gap between social momentum and on-chain flow acceleration, with sentiment shift, resolved contract address, and every unresolvable symbol reported by reason |
+
+Per-call payment in USDC on Base via x402. No subscription, no API key, no free tier.
+
+## The two readings
+
+**Overhyped** — high social rank, low flow rank. The talk is running ahead of the money.
+
+**Under the radar** — real on-chain flow with little social attention. This is the direction a purely social feed *structurally cannot produce*, because the signal is the absence of tweets.
+
+## Why acceleration, not volume
+
+The on-chain half is deliberately **not** absolute volume. Ranking tokens by USD volume ranks them by size: LINK beats a small token every day of the week, and that says nothing about whether anything is happening.
+
+Instead each token's last 2 days of volume is compared against **its own prior 8-day baseline**. That parallels how social momentum is itself a velocity, and it means a $50k token accelerating 4× outranks a $500M token drifting sideways — which is the entire point.
+
+## Sample request
+
+```bash
+curl -X POST 'https://graphadvocate.com/narrative/divergence' \
+  -H 'Content-Type: application/json' \
+  -d '{"chain": "ethereum", "limit": 10}'
+```
+
+Response (abridged):
+
+```json
+{
+  "chain": "ethereum",
+  "cohort_size": 12,
+  "social_source": "cache",
+  "sentiment_shift_source": "live",
+  "ranked": [
+    {
+      "symbol": "ICP",
+      "token_address": "0x054b8f99d15cc5b35a42a926635977d62692f25b",
+      "divergence": -90.9,
+      "reading": "under_the_radar",
+      "social_rank": 9.1,
+      "flow_rank": 100.0,
+      "flow_acceleration": 1.95,
+      "sentiment_shift": {
+        "shift": -1.04,
+        "divergence_note": "sentiment souring while on-chain flow accelerates"
+      },
+      "thin_sample": false
+    }
+  ],
+  "unresolved": [
+    { "symbol": "XLM", "reason": "non_evm_asset", "coingecko_id": "stellar" }
+  ],
+  "unresolved_count": 12
+}
+```
+
+## What it refuses to guess
+
+Social feeds emit **ticker symbols**, not contract addresses, and tickers are actively squatted. Uniswap V3 on Ethereum carries five tokens called "Morpho Token" and roughly fifteen claiming `LINK`. Worse, some impostors are genuinely liquid: `DOGE` resolves on-chain to *"Department Of Government Efficiency"* with over 100,000 transactions, so no liquidity threshold can separate it from the real thing.
+
+Resolution therefore goes through CoinGecko's market-cap-ranked registry, which answers both questions authoritatively: which address is canonical, and whether an EVM contract exists at all. Dogecoin's Ethereum entry is correctly absent, so the memecoin is never substituted for it.
+
+Anything that cannot be resolved is returned in `unresolved` with a reason — never dropped:
+
+| `reason` | Meaning |
+|---|---|
+| `non_evm_asset` | The ticker's top claimant has no contract on this chain (SOL, XLM, ADA, DOGE) |
+| `below_activity_floor` | Best claimant is a ticker squatter, not the real token |
+| `canonical_token_not_in_subgraph` | The canonical address trades elsewhere, not on this Uniswap deployment |
+| `stale_day_data` | The token has effectively stopped trading — absent flow, not low flow |
+
+A caller comparing counts will always be able to reconcile them. A confident wrong answer is worse than a stated gap.
+
+## Freshness
+
+`social_source` and `sentiment_shift_source` each report `live`, `cache` or `stale`. The social half is fetched on a timer and shared across callers; the on-chain half is queried live on every request, so flow is never stale even when sentiment is.
+
+## Parameters
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `chain` | string | `ethereum` | Any chain with a Uniswap V3 subgraph — `ethereum`, `base`, `arbitrum`, `polygon`, `optimism`, `bsc` |
+| `limit` | int | 10 | Rows returned, capped at 25 |
+| `cohort` | int | 40 | How many trending tokens to rank within. Wider is more meaningful and costs nothing extra |
+
+Ranks are **relative to the fetched cohort**, not the whole market.
+
+## Sources
+
+Social momentum and sentiment shift from [Cambrian](https://cambrian.org) deep42. On-chain flow from Uniswap V3 subgraphs via The Graph. Symbol resolution via CoinGecko.

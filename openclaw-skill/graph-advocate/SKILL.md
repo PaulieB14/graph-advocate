@@ -27,6 +27,12 @@ Match the user's intent to the right service. Load only the reference you need.
 | **Cross-protocol lending** | graph-lending-mcp | — | Messari standardized — 40+ protocols on 15 chains |
 | **Limitless prediction markets** | graph-limitless-mcp | — | Markets on Base |
 | **Cross-venue prediction-market spread (Polymarket ↔ Limitless)** | `/predmarket/spread` (paid) | — | Same-topic markets paired across venues, per-pair yes-mid spread (bps), arbitrage direction. JOIN single-venue passthroughs can't return. $0.05 USDC. |
+| **Narrative vs on-chain flow** | `/narrative/divergence` (paid) | — | Trending tokens ranked by the gap between social momentum and on-chain flow acceleration. Finds hype with no money behind it, and real flow nobody is tweeting about. $0.05 USDC. |
+| **Uniswap pre-trade check** | `/uniswap/pretrade` (paid) | `graph-uniswap-mcp` | Real liquidity, deepest venue, honeypot flow, volume trend. $0.02 USDC. |
+| **Uniswap spot vs perp basis** | `/uniswap/basis` (paid) | — | Uniswap spot against the Hyperliquid perp — cross-venue JOIN. $0.05 USDC. |
+| **Uniswap per-wallet flow** | `/uniswap/traders` (paid) | `graph-uniswap-mcp` | Accumulators vs distributors for a token. $0.02 USDC. |
+| **Polymarket leaderboard** | `/polymarket/leaders` (paid) | `graph-polymarket-mcp` | Top traders with derived skill metrics. $0.05 USDC. |
+| **Hyperliquid fill stream** | `/hyperliquid/fills` (paid) | — | Recent perp fills for a coin with bid/ask flow summary. $0.02 USDC. |
 | **Cross-source prediction-market spread (Kalshi ↔ Polymarket)** | `/kalshi-polymarket/spread` (paid) | — | Same-topic markets across Kalshi + Polymarket with mid-spread and arbitrage direction. $0.05 USDC. |
 | **Agent reputation score (0-100)** | `/agent/score` (paid) | — | Composite from ERC-8004 registration + USDC settlement velocity + on-chain feedback registry, aggregated across all of owner's agents. Hard 8004 gate filters burns/CEX. Buyer-agent's "should I trust this peer" call. Response includes counterparty-ref-v1 conformant SHA-256 + preimage + canonical JCS string so a verifier can re-derive byte-exact without callback. $0.02 USDC. |
 | **Kalshi consensus trend** | `/kalshi/consensus-trend` (paid) | — | Slope/acceleration/volatility band from Kalshi forecast_history. $0.05 USDC. |

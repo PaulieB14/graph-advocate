@@ -16,27 +16,52 @@
         "groups": [
           {
             "group": "Getting started",
-            "pages": ["index", "quickstart", "agent-card"]
+            "pages": [
+              "index",
+              "quickstart",
+              "agent-card"
+            ]
           },
           {
             "group": "Routing",
-            "pages": ["route", "examples"]
+            "pages": [
+              "route",
+              "examples"
+            ]
           },
           {
             "group": "Trader intelligence",
-            "pages": ["hyperliquid", "polymarket", "kalshi", "predmarket"]
+            "pages": [
+              "hyperliquid",
+              "polymarket",
+              "kalshi",
+              "predmarket",
+              "uniswap",
+              "narrative"
+            ]
           },
           {
             "group": "x402 analytics",
-            "pages": ["ask", "onchain-address", "agent-score"]
+            "pages": [
+              "ask",
+              "onchain-address",
+              "agent-score"
+            ]
           },
           {
             "group": "Discovery",
-            "pages": ["bazaar-active", "bazaar-search", "claw-scout"]
+            "pages": [
+              "bazaar-active",
+              "bazaar-search",
+              "claw-scout"
+            ]
           },
           {
             "group": "Payments",
-            "pages": ["x402", "outreach"]
+            "pages": [
+              "x402",
+              "outreach"
+            ]
           }
         ]
       }
@@ -44,8 +69,14 @@
   },
   "navbar": {
     "links": [
-      { "label": "Live API", "href": "https://graphadvocate.com" },
-      { "label": "GitHub", "href": "https://github.com/PaulieB14/graph-advocate" }
+      {
+        "label": "Live API",
+        "href": "https://graphadvocate.com"
+      },
+      {
+        "label": "GitHub",
+        "href": "https://github.com/PaulieB14/graph-advocate"
+      }
     ],
     "primary": {
       "type": "button",

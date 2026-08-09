@@ -1,0 +1,50 @@
+---
+title: "Uniswap pre-trade & flow"
+description: "Three paid endpoints over Uniswap subgraphs: pre-trade liquidity checks, spot-vs-perp basis, and per-wallet accumulation. Plus graph-uniswap-mcp for direct tool access."
+---
+
+Three x402 endpoints for **acting on Uniswap data**, not just reading it. Each answers a question a raw subgraph query leaves you to assemble yourself.
+
+## What you get
+
+| Endpoint | Cost | Returns |
+|---|---:|---|
+| `POST /uniswap/pretrade` | $0.02 | Real liquidity, deepest venue, honeypot-flow flags, volume trend — the checks worth running *before* sizing a trade |
+| `POST /uniswap/basis` | $0.05 | Uniswap spot vs Hyperliquid perp basis. **Cross-venue JOIN** neither venue's API can return |
+| `POST /uniswap/traders` | $0.02 | Per-wallet flow: who is accumulating, who is distributing |
+
+Per-call payment in USDC on Base via x402.
+
+## Why not just query the subgraph
+
+You can, and for many questions you should — the subgraph is public and Graph Advocate will happily route you to it for free via `POST /route`.
+
+These endpoints exist for the questions where the raw data is the *input*, not the answer:
+
+- **Pre-trade** needs pool depth across fee tiers and versions, then a judgment about which venue is actually deepest for your size. The anti-TVL trap matters here: high TVL in a pool you cannot trade through is not liquidity.
+- **Basis** requires a second venue entirely. Uniswap's subgraph has no idea what the Hyperliquid perp is priced at.
+- **Traders** needs per-wallet swap aggregation and a directional call on each one.
+
+## Sample request
+
+```bash
+curl -X POST 'https://graphadvocate.com/uniswap/pretrade' \
+  -H 'Content-Type: application/json' \
+  -d '{"token": "WETH", "chain": "ethereum"}'
+```
+
+## Prefer an MCP server?
+
+`graph-uniswap-mcp` gives the same underlying data as tools in your agent, free, with your own Graph API key:
+
+```bash
+GRAPH_API_KEY=your_key npx -y graph-uniswap-mcp
+```
+
+Eight tools across **13 subgraphs** — Uniswap V2, V3 and V4 on Ethereum, Base, Arbitrum, Polygon, Optimism and BSC. Get a free key at [thegraph.com/studio](https://thegraph.com/studio/).
+
+The MCP is the right choice when you want to explore. The paid endpoints are the right choice when you want a derived answer — the basis JOIN in particular has no MCP equivalent, because it spans two venues.
+
+## Chains
+
+`ethereum`, `base`, `arbitrum`, `polygon`, `optimism`, `bsc`. Version selection is automatic; pass `version` to pin one.

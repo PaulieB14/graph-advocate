@@ -13,6 +13,7 @@ Four paid x402 endpoints that turn raw Polymarket trade history into agent-ready
 | `POST /polymarket/pnl` | $0.05 | Full dossier — scores + per-market position records + open positions. |
 | `POST /polymarket/screen` | $0.02 | Size the room — top holders of a market, each with skill score + ghost-fill risk. |
 | `POST /polymarket/risk` | $0.02 | Ghost-fill counterparty risk — wallet-type detection for the wallet you're about to fill against. |
+| `POST /polymarket/leaders` | $0.05 | Leaderboard with derived skill metrics per trader. |
 
 Per-call payment in USDC on Base via x402. No subscription, no API key, no rate limit beyond the facilitator.
 

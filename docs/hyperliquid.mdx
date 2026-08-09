@@ -14,6 +14,7 @@ Five paid x402 endpoints that turn raw Hyperliquid fills, positions, and vault f
 | `POST /hyperliquid/screen` | $0.05 | Top N traders of a coin, each one scored. Use for "who are the sharps on HYPE right now?" |
 | `POST /hyperliquid/vault` | $0.10 | Vault evaluator: leader's own trading skill, top-depositor concentration, redemption pressure, distribution rate |
 | `POST /hyperliquid/risk` | $0.02 | Counterparty risk: liquidation rate, funding burn, outflow flag — for agents about to take the other side of a trade |
+| `POST /hyperliquid/fills` | $0.02 | Recent perp fill stream for a coin, with a bid/ask flow summary (N capped at 10) |
 
 Per-call payment in USDC on Base via x402. No subscription, no API key, no rate limit beyond the facilitator.
 
