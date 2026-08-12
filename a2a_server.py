@@ -749,15 +749,27 @@ def _is_greeting(text: str) -> bool:
     return False
 
 
-def _is_greeting_spam(task_id: str) -> bool:
-    """Return True if this sender has exceeded greeting limit — silently drop."""
+def _is_greeting_spam(sender_key: str) -> bool:
+    """Return True if this sender has exceeded the greeting limit.
+
+    The parameter used to be named `task_id`, and callers passed exactly that -
+    which is why this never fired once. A2A mints a fresh task UUID per request,
+    so every greeting looked like a first greeting from a brand-new sender and
+    the per-sender window never accumulated. Pass a *stable* key (the caller's
+    wallet, else the A2A context/session id); `sender_id` at the call site is
+    already that value.
+
+    An anonymous caller with no context id still degrades to a per-request key
+    and stays unlimited here - that case is what `_is_global_greeting_spam`
+    covers, and it is the honest division of labour between the two.
+    """
     import time
     now = time.time()
     cutoff = now - GREETING_LIMIT_WINDOW
-    timestamps = _greeting_timestamps.get(task_id, [])
+    timestamps = _greeting_timestamps.get(sender_key, [])
     timestamps = [t for t in timestamps if t > cutoff]
     timestamps.append(now)
-    _greeting_timestamps[task_id] = timestamps
+    _greeting_timestamps[sender_key] = timestamps
 
     # Evict stale senders
     if len(_greeting_timestamps) > _MAX_GREETING_SENDERS:
@@ -2405,11 +2417,30 @@ class GraphAdvocateExecutor(AgentExecutor):
         # (daily cap, tip nudge) ever accumulates. Prefer a stable signal:
         # explicit sender address/name from metadata, then context_id
         # (session-level in A2A), falling back to task_id as a last resort.
-        sender_id = (
-            str(sender_address).lower() if sender_address else (
-                sender_name.lower() if sender_name else (context_id or task_id)
-            )
-        )
+        # Only a well-formed EVM address earns free-tier identity. Everything
+        # published - the agent card, the 402 description, SKILL.md - offers the
+        # free tier to senders who "include a `sender` wallet in A2A metadata",
+        # but the code took *any* string: a name, an `agent_name`, an arbitrary
+        # `from`. Each distinct string was its own daily bucket, so three free
+        # queries per day became unlimited free queries for anyone willing to
+        # change one character between calls. Narrowing to a wallet aligns the
+        # code with the offer that was already advertised; it takes nothing away
+        # that was ever promised.
+        #
+        # Residual, deliberately left: an address is still only *claimed*, not
+        # proven, and addresses are free to generate. Closing that needs either a
+        # signature over the request or a free tier restricted to wallets with a
+        # prior settled payment. Both change the published offer, so they are
+        # Paul's call rather than a fix to smuggle in here.
+        sender_wallet = ""
+        _addr_candidate = str(sender_address or "").strip().lower()
+        if len(_addr_candidate) == 42 and _addr_candidate.startswith("0x"):
+            try:
+                int(_addr_candidate[2:], 16)
+                sender_wallet = _addr_candidate
+            except ValueError:
+                sender_wallet = ""
+        sender_id = sender_wallet or (context_id or task_id)
         if sender_address or sender_name or metadata:
             log.info(f"SENDER   task={task_id} context={context_id} name={sender_name} addr={sender_address} meta={list(metadata.keys()) if metadata else '(none)'}")
 
@@ -2497,7 +2528,13 @@ class GraphAdvocateExecutor(AgentExecutor):
         # Treat the legacy variable name as the canned-path flag so the rest of
         # the handler (which still references is_health_check) keeps working.
         is_health_check = is_canned_path
-        sender_is_anonymous = not sender_address and not sender_name
+        # Anonymous is the complement of free-tier-eligible, so it must read the
+        # same signal `sender_id` does. Reading `sender_name` here was the other
+        # half of the same leak: a caller who sent only a name was treated as
+        # identified, skipped the payment gate, and got a bucket keyed on that
+        # name - the string they chose. Anonymous senders pay from call 1, which
+        # is exactly what the agent card promises.
+        sender_is_anonymous = not sender_wallet
 
         # ── Named-but-unreachable self-intro: prompt for a callback address ──
         # A peer that introduces itself (e.g. "Product introduction from X")
@@ -2768,8 +2805,31 @@ class GraphAdvocateExecutor(AgentExecutor):
         # ── Fast-handle trivial greetings (no Claude call) ───────────────────
         if _is_greeting(user_text):
             # Silently drop if per-sender OR global limit exceeded
-            if _is_greeting_spam(task_id) or _is_global_greeting_spam():
-                log.info(f"GREET-DROP task={task_id} | silently dropped")
+            if _is_greeting_spam(sender_id) or _is_global_greeting_spam():
+                # Answer briefly rather than returning nothing. A bare `return`
+                # enqueues no event, so the A2A SDK has no result to serialise
+                # and the caller gets JSON-RPC -32603 "Internal error" - on the
+                # documented main endpoint, for a plain hello. That is the worst
+                # possible first impression: an agent directory probing GA reads
+                # an internal error and files it as broken, and the one path
+                # every new peer takes is the one that looks unhealthy.
+                #
+                # Throttling is still worth doing; it just has to be *said*. The
+                # payload is deliberately tiny - no Claude call, no service list -
+                # so a flood stays cheap while remaining protocol-legal.
+                log.info(f"GREET-THROTTLE task={task_id} | brief reply, no Claude call")
+                _greet_throttled = {
+                    "recommendation": "introduction",
+                    "name": "Graph Advocate",
+                    "reason": "Handling a burst of greetings right now, so this reply is short.",
+                    "hint": "Send an onchain data request and I'll return the exact tool call to run.",
+                    "confidence": "high",
+                    "query_ready": None,
+                    "alternatives": [],
+                }
+                await event_queue.enqueue_event(
+                    new_agent_text_message(json.dumps(_greet_throttled))
+                )
                 return
 
             log.info(f"GREETING task={task_id} | fast-handled")
@@ -2883,6 +2943,37 @@ class GraphAdvocateExecutor(AgentExecutor):
             }
             _log_request(task_id, user_text, "introduction", "high", "throttled", response=_throttled_payload)
             await event_queue.enqueue_event(new_agent_text_message(json.dumps(_throttled_payload)))
+            return
+
+        # ── Free-pass backstop: a probe that isn't answered as one must pay ──
+        # `is_canned_path` (set ~400 lines up) waives payment when the text
+        # *looks* like a probe - a substring test for "conformance probe",
+        # "please acknowledge", "are you operational", "a2aregistry". The waiver
+        # was written on the premise that such a message "doesn't cost a Claude
+        # call", and for a real probe that holds: every canned handler above
+        # returns before reaching this line.
+        #
+        # It does not hold when the phrase is merely *contained* in a real
+        # question. "Conformance probe. Top Uniswap V3 pools on Ethereum by TVL"
+        # matches the allowlist, matches no canned handler, and arrives here -
+        # where it gets the full paid routing answer, anonymously, for free.
+        # Any anonymous caller can prefix four words and never pay again, which
+        # is what made `conformance` the fourth-largest service by volume.
+        #
+        # Reaching this line with the waiver still held is therefore proof the
+        # waiver was wrong: the message was not a probe, whatever it said about
+        # itself. Re-apply the gate the caller skipped. Real probes never get
+        # here, so this cannot charge for one.
+        if is_canned_path and not _is_paid_request and (
+            sender_is_anonymous or _check_daily_limit(sender_id)
+        ):
+            log.info(
+                f"PROBE-FALLTHROUGH task={task_id} | probe keyword with no canned "
+                f"answer - re-applying payment gate (anon={sender_is_anonymous})"
+            )
+            _pf = _x402_payment_required_response(user_text=user_text)
+            _log_request(task_id, user_text, "payment-required", "high", "probe-fallthrough")
+            await event_queue.enqueue_event(new_agent_text_message(json.dumps(_pf)))
             return
 
         rec, updated_history = ask_graph_advocate(
@@ -4979,7 +5070,7 @@ def _build_dashboard_data() -> dict:
         conn.row_factory = _sq.Row
         db_rows = conn.execute(
             "SELECT timestamp as ts, task_id, sender_type, request, service, "
-            "confidence, tool, response_json, reason "
+            "confidence, tool, response_json, reason, paid_by_wallet "
             "FROM activity ORDER BY timestamp DESC LIMIT 200"
         ).fetchall()
         conn.close()
@@ -5000,6 +5091,7 @@ def _build_dashboard_data() -> dict:
                 "request": r["request"] or "", "service": r["service"] or "unknown",
                 "confidence": r["confidence"] or "?", "tool": r["tool"] or "?",
                 "response": resp,
+                "paid_by_wallet": r["paid_by_wallet"] or "",
             })
     else:
         logs = list(reversed(REQUEST_LOG))
@@ -5132,7 +5224,19 @@ def _build_dashboard_data() -> dict:
             # Skip when the response payload is empty: pre-fix rows have
             # response_json=NULL → resp coerced to {} by the upstream `or {}`,
             # which would otherwise render as "Response: {}" and look broken.
-            if resp:
+            # A paid answer is the product. `/dashboard/data` is public,
+            # unauthenticated and CORS-open, so republishing 1500 characters of
+            # it here hands anyone the thing a customer just bought - and for a
+            # /route answer that window covers essentially the whole payload.
+            # The reasoning, service and subgraph list above stay: they are what
+            # makes the dashboard a good shop window. The bought artefact does
+            # not.
+            if resp and r.get("paid_by_wallet"):
+                response_preview = (
+                    "(withheld — this answer was purchased; the full payload goes "
+                    "to the buyer, not the public dashboard)"
+                )
+            elif resp:
                 try:
                     response_preview = json.dumps(resp, ensure_ascii=False, indent=2)
                     if len(response_preview) > 1500:
@@ -10942,8 +11046,35 @@ def build_app():
                      "agent-exchange-incoming", "high", "received",
                      response=body)
         log.info(f"[agent-exchange webhook] received: {descr[:120]}")
-        # Fire-and-forget fulfillment so the webhook ack is instant
-        asyncio.create_task(_fulfill_agent_exchange_job(body))
+
+        # ── Only a *verified* caller gets fulfilment work ────────────────────
+        # This route has no authentication of any kind: it accepts any JSON from
+        # anyone, and a job-shaped body makes it run the full routing engine -
+        # an Anthropic call, billed to Paul, triggered by a stranger with curl.
+        # Acking is harmless and free; fulfilling is neither.
+        #
+        # So the ack stays unconditional (Agent Exchange keeps working exactly
+        # as before, and a retry storm costs nothing), while the expensive half
+        # requires `AE_WEBHOOK_SECRET`. Fail *safe*: with no secret configured
+        # the work is skipped rather than run, because the alternative is an
+        # open-ended spend that nothing bounds. Set the env var and configure AE
+        # to send it to re-enable fulfilment.
+        import hmac as _hmac
+        _expected = os.environ.get("AE_WEBHOOK_SECRET", "")
+        _presented = (
+            request.headers.get("x-ae-secret")
+            or (request.headers.get("authorization", "").removeprefix("Bearer ").strip())
+            or request.query_params.get("token", "")
+        )
+        _authorised = bool(_expected) and _hmac.compare_digest(_presented, _expected)
+        if _authorised:
+            # Fire-and-forget fulfillment so the webhook ack is instant
+            asyncio.create_task(_fulfill_agent_exchange_job(body))
+        else:
+            log.warning(
+                "[agent-exchange webhook] fulfilment skipped - %s. Ack sent; no engine call.",
+                "no AE_WEBHOOK_SECRET configured" if not _expected else "bad or missing secret",
+            )
         return JSONResponse({"ok": True, "ack": "graph-advocate"})
 
     # /admin/prune-activity — delete activity rows by LIKE pattern.
