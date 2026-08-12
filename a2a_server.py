@@ -2060,7 +2060,7 @@ SKILLS = [
         name="Polymarket size-the-room (top holders + skill + ghost-fill risk)",
         description=(
             "POST /polymarket/screen {condition_id, n?}. Returns the top N (default 10, "
-            "max 25) position holders of a market, ranked by position size, each with "
+            "max 10) position holders of a market, ranked by position size, each with "
             "skill_score, sharp/retail/insufficient_data classification, AND ghost-fill "
             "risk per holder. The pre-trade check for trading and market-maker agents — "
             "answers 'who am I about to be against, and will their fills actually settle?' "
@@ -2137,7 +2137,7 @@ SKILLS = [
         id="hyperliquid_screen",
         name="Hyperliquid top traders by coin (skill + risk)",
         description=(
-            "POST /hyperliquid/screen {coin, n?}. Top N (default 10, max 25) traders of a "
+            "POST /hyperliquid/screen {coin, n?}. Top N (default 10, max 10) traders of a "
             "Hyperliquid coin (BTC, ETH, SOL, etc.), ranked by total_volume, each with "
             "skill_score, sharp/retail/insufficient_data classification, liquidation_rate, "
             "and funding burn. Pre-trade check for perps market-makers and copy-trade "
@@ -7722,7 +7722,7 @@ def build_app():
             {
                 "id": "screen", "method": "POST", "url": BASE_URL + "/hyperliquid/screen",
                 "price_usdc": 0.05,
-                "input": {"coin": "BTC|ETH|HYPE|@N|dex:symbol", "n": "1-25 (default 10)"},
+                "input": {"coin": "BTC|ETH|HYPE|@N|dex:symbol", "n": "1-10 (default 10)"},
                 "returns": [
                     "traders[] ranked by coin volume with skill_score and classification",
                     "sharp_count / retail_count / neutral_count headline",
@@ -8397,10 +8397,16 @@ def build_app():
                         break
 
             if not user_text:
+                # 400, not 200. The x402 middleware settles the payment on a 2xx,
+                # so returning this as a success took $0.01 for the sentence
+                # "Missing request text" - the caller pays to be told they made a
+                # typo, and pays again on the retry that fixes it. A 4xx leaves
+                # the payment unsettled, which is the honest outcome when no
+                # answer was produced.
                 return _RouteJSON({
                     "error": "Missing request text",
                     "hint": "POST {\"request\": \"your query\"} or A2A format",
-                })
+                }, status_code=400)
 
             try:
                 rec, _ = ask_graph_advocate(user_text, requesting_agent="x402-paid")
@@ -8644,11 +8650,22 @@ def build_app():
         async def _pm_screen_handler(request):
             """$0.02 — top-N holders of a market ranked by skill + ghost-fill risk."""
             data = await _pm_read_body(request)
-            condition_id = normalize_condition_id(data.get("condition_id"))
+            # Accept `market` as an alias. The public /polymarket catalog has
+            # always documented the body as {"market": "<market_slug or
+            # condition_id>"}, while this handler read only `condition_id` - so
+            # a caller who followed the catalog paid $0.02 and got
+            # "invalid_condition_id". Reading both makes the documented request
+            # work; `normalize_condition_id` still rejects anything that is not
+            # a real id, so nothing looser is admitted.
+            condition_id = normalize_condition_id(
+                data.get("condition_id") or data.get("market")
+            )
+            _N_CAP = 10  # Pinax free-tier caps holders at 10
             try:
-                n = max(1, min(10, int(data.get("n") or 10)))  # Pinax free-tier caps at 10
+                _n_requested = int(data.get("n") or _N_CAP)
             except (TypeError, ValueError):
-                n = 10
+                _n_requested = _N_CAP
+            n = max(1, min(_N_CAP, _n_requested))
             if not condition_id:
                 return _RouteJSON({"error": "invalid_condition_id"}, status_code=400)
             try:
@@ -8740,6 +8757,16 @@ def build_app():
                     "holders": list(scored),
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                 }
+                # Say so when the answer is smaller than the question. Asking for
+                # 25 and silently receiving 10 is indistinguishable from "this
+                # market only has 10 holders", and the caller has already paid.
+                if _n_requested > n:
+                    payload["n_requested"] = _n_requested
+                    payload["n_returned"] = n
+                    payload["note"] = (
+                        f"capped at {n}: the upstream holders feed serves at most "
+                        f"{_N_CAP} per market"
+                    )
                 _log_request("x402-paid", f"pm-screen {condition_id[:10]} n={n}",
                              "polymarket-screen", "high", "polymarket-token-api",
                              response=payload)
@@ -9278,8 +9305,10 @@ def build_app():
             """$0.05 — top N traders of a coin with per-trader skill scores."""
             data = await _pm_read_body(request)
             coin = hl_normalize_coin(data.get("coin"))
-            try: n = max(1, min(10, int(data.get("n") or 10)))  # Pinax free-tier caps at 10
-            except (TypeError, ValueError): n = 10
+            _N_CAP = 10  # Pinax free-tier caps top-traders at 10
+            try: _n_requested = int(data.get("n") or _N_CAP)
+            except (TypeError, ValueError): _n_requested = _N_CAP
+            n = max(1, min(_N_CAP, _n_requested))
             if not coin:
                 return _RouteJSON({"error": "invalid_coin"}, status_code=400)
             try:
@@ -9311,6 +9340,16 @@ def build_app():
                     "traders": list(holders),
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                 }
+                # Same reasoning as pm-screen: a smaller answer than the one
+                # asked for has to announce itself, or it reads as "this coin
+                # only has 10 traders" to someone who has already paid.
+                if _n_requested > n:
+                    payload["n_requested"] = _n_requested
+                    payload["n_returned"] = n
+                    payload["note"] = (
+                        f"capped at {n}: the upstream top-traders feed serves at "
+                        f"most {_N_CAP} per coin"
+                    )
                 _log_request("x402-paid", f"hl-screen {coin} n={n}",
                              "hyperliquid-token-api", "high", "hyperliquid-token-api",
                              response=payload)
@@ -10207,7 +10246,7 @@ def build_app():
                             extra={"name": "USD Coin", "version": "2"})],
                         description=(
                             "Size-the-room for a Hyperliquid market. POST {coin, n?}. Returns the "
-                            "top N (default 10, max 25) traders on a coin ranked by volume, each "
+                            "top N (default 10, max 10) traders on a coin ranked by volume, each "
                             "with skill_score + classification + liquidation_count. Pre-trade check "
                             "for MM agents: 'who am I about to be against on this perp, and have "
                             "they been liquidated before?' Coin format: BTC, @107 (spot), xyz:SILVER."
