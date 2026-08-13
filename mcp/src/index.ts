@@ -190,7 +190,7 @@ const TOOLS = [
 ] as const;
 
 const server = new Server(
-  { name: "graph-advocate-mcp", version: "2.11.0" },
+  { name: "graph-advocate-mcp", version: "2.11.1" },
   { capabilities: { tools: {} } },
 );
 

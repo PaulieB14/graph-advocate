@@ -1,7 +1,7 @@
 {
   "name": "graph-advocate-mcp",
-  "version": "2.11.0",
-  "description": "Ask any blockchain data question in plain English and get live data back — 15,500+ subgraphs, Token API, Polymarket and Hyperliquid trader intelligence. Paid calls settle in USDC on Base over x402, or hand the 402 to your own wallet.",
+  "version": "2.11.1",
+  "description": "Ask any blockchain data question in plain English and get live data back \u2014 15,500+ subgraphs, Token API, Polymarket and Hyperliquid trader intelligence. Paid calls settle in USDC on Base over x402, or hand the 402 to your own wallet.",
   "type": "module",
   "bin": {
     "graph-advocate-mcp": "dist/index.js"
