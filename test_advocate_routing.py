@@ -837,6 +837,46 @@ class TestPublishedPricesMatchTheCatalog(unittest.TestCase):
                 f"{entry['path']} renders a price other than the catalog's {price}",
             )
 
+    def test_every_paid_endpoint_appears_on_the_agent_card(self):
+        """A2A directories read the skills list to learn what GA sells.
+
+        Four priced endpoints — /polymarket/leaders and all three /kalshi/*
+        routes — were live and absent from it, so 8004scan, Agentverse and the
+        A2A registry all under-reported the catalogue. An endpoint nobody can
+        discover earns nothing.
+        """
+        import a2a_server as srv
+        src = open("a2a_server.py", encoding="utf-8").read()
+        start = src.find("AgentSkill(")
+        block = src[start:src.find("\ndef ", start)]
+        missing = [
+            v["path"] for v in srv._PAID_CATALOG.values()
+            if v.get("price") and v["path"] not in block
+        ]
+        self.assertEqual([], missing, f"priced but undiscoverable on the agent card: {missing}")
+
+    def test_revenue_case_prices_match_the_catalog(self):
+        """Reported revenue must use the prices actually charged.
+
+        The hand-typed SQL ladders counted pm-pnl-quick at $0.02 (charges $0.01)
+        and onchain-x402-address at $0.05 (charges $0.01, so five times over),
+        and omitted uniswap/*, narrative, predmarket and agent/score entirely.
+        Also pins the ordering trap: `pm-pnl%` matches `pm-pnl-quick…`, and SQL
+        takes the first matching WHEN, so the longer prefix must come first.
+        """
+        import a2a_server as srv
+        sql = srv._revenue_case_sql()
+        for key, entry in srv._PAID_CATALOG.items():
+            prefix, price = entry.get("log_prefix"), entry.get("price")
+            if not (prefix and price):
+                continue
+            expected = f"WHEN request LIKE '{prefix}%' THEN {float(price.lstrip('$')):.2f}"
+            self.assertIn(expected, sql, f"{key} priced wrongly in the revenue CASE")
+        lines = [l.strip() for l in sql.split("\n")]
+        quick = next(i for i, l in enumerate(lines) if "'pm-pnl-quick%'" in l)
+        full = next(i for i, l in enumerate(lines) if "'pm-pnl%'" in l)
+        self.assertLess(quick, full, "pm-pnl% would shadow pm-pnl-quick%")
+
     def test_no_markdown_surface_contradicts_the_catalog(self):
         """README, SKILL.md and docs/*.mdx must not quote a different price."""
         import a2a_server as srv

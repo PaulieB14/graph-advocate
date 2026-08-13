@@ -43,6 +43,7 @@ jobs:
       # skill.json disagrees with it, two registries would advertise different
       # versions of the same tool — which is exactly what happened to payql.
       - name: Versions must agree with the tag
+        id: versions
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           PKG=$(node -p "require('./mcp/package.json').version")
@@ -84,7 +85,19 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
 
+      # Runs even when npm fails. The two artefacts are independent, and the
+      # v2.11.0 release proved the coupling costs something real: npm rejected
+      # the token for 2FA, this step was skipped, and the skill stayed on a
+      # version whose price table quoted $0.05 for an endpoint charging $0.02 —
+      # shipping wrong prices to every runtime that had installed it. A blocked
+      # npm publish should not hold correct documentation hostage.
+      #
+      # The version check above still guarantees both manifests match the tag,
+      # so the registries cannot advertise *different* versions; the worst case
+      # is one being briefly behind, which is what already happens between any
+      # two publish steps.
       - name: Publish the skill to ClawHub
+        if: always() && steps.versions.conclusion == 'success'
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |

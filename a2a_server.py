@@ -373,26 +373,58 @@ _USDC_BASE_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC on Base 
 #   a2a       -> offered as an auto-payable signpost from the A2A 402
 #   openapi   -> documented in /openapi.json for x402scan & OpenAPI crawlers
 #   wellknown -> advertised in /.well-known/x402
-def _render_paid_price_rows() -> str:
-    """The llms.txt price table, priced from `_PAID_CATALOG`.
+# Short human notes for the paid endpoints, keyed by catalog key. Kept beside
+# `_PAID_CATALOG` and shared by every surface that describes an endpoint, so a
+# price and its blurb are never typed twice. Prices themselves always come from
+# the catalog - never from here.
+def _revenue_case_sql(indent: str = "                    ") -> str:
+    """The SQL `CASE` that prices a logged paid request, built from the catalog.
 
-    The prices here used to be typed by hand, and by the 2026-08-12 audit four
-    of them were 2x-2.5x what the x402 middleware actually charges - /llms.txt
-    is named `start_here` in /agents/index.json, so it is the first document an
-    autonomous agent reads to decide whether it can afford GA. Quoting $0.05 and
-    charging $0.02 is not a rounding error to an agent budgeting a run; it is a
-    reason to distrust every other number on the page.
+    This was three hand-maintained ladders of `WHEN request LIKE 'pm-pnl%' THEN
+    0.05`, and by the 2026-08-12 audit they had drifted from the prices actually
+    charged: pm-pnl-quick counted at $0.02 against a real $0.01, and
+    onchain-x402-address counted at $0.05 against a real $0.01 — five times the
+    revenue it earns. Endpoints added later (uniswap/*, narrative, predmarket,
+    agent/score) appeared in no ladder at all and fell through to the $0.01
+    catch-all. Every reported revenue number inherited the error.
 
-    `_PAID_CATALOG` already feeds openapi.json and /.well-known/x402, and the
-    audit found it accurate against all nine live 402 challenges. So the price
-    column is rendered from it and can no longer disagree. The notes stay prose,
-    because they are the one part a generator cannot write.
-
-    An endpoint present in the catalog but missing a note renders with its
-    catalog `desc`; an endpoint with no price renders as `(unpriced)` rather
-    than being silently dropped - a gap should be visible, not invisible.
+    Longest prefix first, because `pm-pnl%` also matches `pm-pnl-quick…` and SQL
+    takes the first matching WHEN. That ordering bug is latent in any hand-typed
+    version of this list and is the reason it is generated rather than written.
     """
-    notes = {
+    rows = []
+    for key in sorted(_PAID_CATALOG, key=lambda k: -len(_PAID_CATALOG[k].get("log_prefix") or "")):
+        entry = _PAID_CATALOG[key]
+        prefix, price = entry.get("log_prefix"), entry.get("price") or ""
+        if not prefix or not price:
+            continue
+        rows.append(f"{indent}WHEN request LIKE '{prefix}%' THEN {float(price.lstrip('$')):.2f}")
+    # The generic paid marker stays last: anything logged as x402-paid that no
+    # prefix claimed is a $0.01 /route call.
+    rows.append(f"{indent}WHEN task_id = 'x402-paid' THEN 0.01")
+    return "\n".join(rows)
+
+
+def _paid_endpoint_blurbs(keys: list[str]) -> dict:
+    """`{"POST /path": "$price — note"}` for a curated set of catalog keys.
+
+    The A2A first-contact intro used to carry this as a hand-typed literal, and
+    it quoted /polymarket/pnl-quick at $0.02 while the middleware charged $0.01.
+    That is the single payload whose job is converting a brand-new peer into a
+    customer, so a wrong number there is the most expensive wrong number on the
+    service. Prices come from `_PAID_CATALOG`; only the ordering is editorial.
+    """
+    out = {}
+    for key in keys:
+        entry = _PAID_CATALOG.get(key)
+        if not entry or not entry.get("price"):
+            continue
+        note = _PAID_NOTES.get(key) or entry.get("desc") or ""
+        out[f"POST {entry['path']}"] = f"{entry['price']} — {note}"
+    return out
+
+
+_PAID_NOTES = {
         'hyperliquid/score': 'Skill score for an HL trader',
         'hyperliquid/pnl': 'Per-coin PnL breakdown',
         'hyperliquid/screen': 'Top N (≤10) HL traders by coin',
@@ -415,7 +447,30 @@ def _render_paid_price_rows() -> str:
         'uniswap/basis': 'Uniswap spot vs Hyperliquid perp basis (cross-venue JOIN)',
         'uniswap/traders': 'Uniswap per-wallet flow: accumulators vs distributors',
         'agent/score': '0-100 reputation: ERC-8004 + USDC settlement + on-chain feedback',
-    }
+}
+
+
+def _render_paid_price_rows() -> str:
+    """The llms.txt price table, priced from `_PAID_CATALOG`.
+
+    The prices here used to be typed by hand, and by the 2026-08-12 audit four
+    of them were 2x-2.5x what the x402 middleware actually charges - /llms.txt
+    is named `start_here` in /agents/index.json, so it is the first document an
+    autonomous agent reads to decide whether it can afford GA. Quoting $0.05 and
+    charging $0.02 is not a rounding error to an agent budgeting a run; it is a
+    reason to distrust every other number on the page.
+
+    `_PAID_CATALOG` already feeds openapi.json and /.well-known/x402, and the
+    audit found it accurate against all nine live 402 challenges. So the price
+    column is rendered from it and can no longer disagree. The notes stay prose,
+    because they are the one part a generator cannot write.
+
+    An endpoint present in the catalog but missing a note renders with its
+    catalog `desc`; an endpoint with no price renders as `(unpriced)` rather
+    than being silently dropped - a gap should be visible, not invisible.
+    """
+    notes = _PAID_NOTES
+    notes = _PAID_NOTES
     rows = []
     for key in sorted(_PAID_CATALOG):
         entry = _PAID_CATALOG[key]
@@ -437,64 +492,76 @@ _PAID_CATALOG = {
         # endpoint was absent from openapi.json entirely, which is the surface
         # x402scan and the OpenAPI crawlers index first. Verified against the
         # live 402: amount 20000 = $0.02 USDC on Base.
-        "path": "/agent/score", "price": '$0.02', "amount": '20000',
+        "path": "/agent/score",
+        "log_prefix": 'agent-score', "price": '$0.02', "amount": '20000',
         "body": {'wallet': '0x…40hex', 'days': 30},
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'ask': {
-        "path": "/ask", "price": '$0.05', "amount": '50000', "body": {'question': 'When did x402 settlement volume on Base inflect upward?'},
+        "path": "/ask",
+        "log_prefix": 'ask', "price": '$0.05', "amount": '50000', "body": {'question': 'When did x402 settlement volume on Base inflect upward?'},
         "op_id": 'askSettlements',
         "desc": 'Natural-language Q&A over the x402 Base settlements warehouse: 132M EIP-3009 settlement rows on R2 plus pre-aggregated daily_stats, answered as JSON with the SQL trace.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'hyperliquid/fills': {
-        "path": "/hyperliquid/fills", "price": '$0.02', "amount": '20000', "body": {'coin': 'SOL', 'n': 10},
+        "path": "/hyperliquid/fills",
+        "log_prefix": 'hl-fills', "price": '$0.02', "amount": '20000', "body": {'coin': 'SOL', 'n': 10},
         "op_id": 'hyperliquidFills',
         "desc": 'Recent Hyperliquid perp fill stream: the last N fills with direction, price, size, notional, fee and trader address, plus an aggregate buy/sell notional split and a whale-fill count for fills over $10k.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'hyperliquid/pnl': {
-        "path": "/hyperliquid/pnl", "price": '$0.05', "amount": '50000', "body": {'user': '0x...'},
+        "path": "/hyperliquid/pnl",
+        "log_prefix": 'hl-pnl', "price": '$0.05', "amount": '50000', "body": {'user': '0x...'},
         "op_id": 'hyperliquidPnl', "desc": 'Full Hyperliquid trader dossier: skill metrics plus open positions and recent fills.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'hyperliquid/risk': {
-        "path": "/hyperliquid/risk", "price": '$0.02', "amount": '20000', "body": {'user': '0x...'},
+        "path": "/hyperliquid/risk",
+        "log_prefix": 'hl-risk', "price": '$0.02', "amount": '20000', "body": {'user': '0x...'},
         "op_id": 'hyperliquidRisk', "desc": 'Hyperliquid counterparty risk: liquidation rate, funding burn, recent-outflow flag.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'hyperliquid/score': {
-        "path": "/hyperliquid/score", "price": '$0.02', "amount": '20000', "body": {'user': '0x...'},
+        "path": "/hyperliquid/score",
+        "log_prefix": 'hl-score', "price": '$0.02', "amount": '20000', "body": {'user': '0x...'},
         "op_id": 'hyperliquidScore', "desc": 'Composite skill_score 0-100 for a Hyperliquid perps trader: classification, liquidation rate, funding burn, profit factor.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'hyperliquid/screen': {
-        "path": "/hyperliquid/screen", "price": '$0.05', "amount": '50000', "body": {'coin': 'SOL', 'n': 20},
+        "path": "/hyperliquid/screen",
+        "log_prefix": 'hl-screen', "price": '$0.05', "amount": '50000', "body": {'coin': 'SOL', 'n': 20},
         "op_id": 'hyperliquidScreen', "desc": 'Top N traders of a Hyperliquid coin, each scored sharp/neutral/retail.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'hyperliquid/vault': {
-        "path": "/hyperliquid/vault", "price": '$0.10', "amount": '100000', "body": {'vault': '0x...'},
+        "path": "/hyperliquid/vault",
+        "log_prefix": 'hl-vault', "price": '$0.10', "amount": '100000', "body": {'vault': '0x...'},
         "op_id": 'hyperliquidVault', "desc": 'Hyperliquid vault evaluator: leader skill, depositor concentration, redemption pressure.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'kalshi-polymarket/spread': {
-        "path": "/kalshi-polymarket/spread", "price": '$0.05', "amount": '50000', "body": {},
+        "path": "/kalshi-polymarket/spread",
+        "log_prefix": 'kalshi-poly-spread', "price": '$0.05', "amount": '50000', "body": {},
         "op_id": 'kalshiPolymarketSpread', "desc": 'Kalshi vs Polymarket cross-source spread on a topic — JOIN that single-source APIs cannot return; arbitrage direction included.',
         "a2a": False, "openapi": True, "wellknown": True,
     },
     'kalshi/consensus-trend': {
-        "path": "/kalshi/consensus-trend", "price": '$0.05', "amount": '50000', "body": {},
+        "path": "/kalshi/consensus-trend",
+        "log_prefix": 'kalshi-consensus', "price": '$0.05', "amount": '50000', "body": {},
         "op_id": 'kalshiConsensusTrend', "desc": 'Kalshi consensus-probability trajectory: slope, acceleration, volatility band derived from Kalshi-unique forecast_history.',
         "a2a": False, "openapi": True, "wellknown": True,
     },
     'kalshi/sports-live-edge': {
-        "path": "/kalshi/sports-live-edge", "price": '$0.05', "amount": '50000', "body": {},
+        "path": "/kalshi/sports-live-edge",
+        "log_prefix": 'kalshi-sports', "price": '$0.05', "amount": '50000', "body": {},
         "op_id": 'kalshiSportsLiveEdge', "desc": 'Live sports mispricing detector: play-by-play momentum vs market candlestick reaction; flags latency-arb windows.',
         "a2a": False, "openapi": True, "wellknown": True,
     },
     'onchain-x402/address': {
-        "path": "/onchain-x402/address", "price": '$0.01', "amount": '10000', "body": {'address': '0x...'},
+        "path": "/onchain-x402/address",
+        "log_prefix": 'onchain-x402-addr', "price": '$0.01', "amount": '10000', "body": {'address': '0x...'},
         "op_id": 'onchainX402Address',
         "desc": 'On-chain x402 settlement profile for an address: lifetime totals as payer and recipient, volume, first and last seen, recent payments in both directions and facilitator metadata, read from the x402 Base subgraph on The Graph Network.',
         "a2a": True, "openapi": True, "wellknown": True,
@@ -502,38 +569,45 @@ _PAID_CATALOG = {
     'polymarket/pnl': {
         # No `method`: the handler never read it, so advertising it invited a
         # body that silently did nothing.
-        "path": "/polymarket/pnl", "price": '$0.05', "amount": '50000', "body": {'wallet': '0x...'},
+        "path": "/polymarket/pnl",
+        "log_prefix": 'pm-pnl', "price": '$0.05', "amount": '50000', "body": {'wallet': '0x...'},
         "op_id": 'polymarketPnl', "desc": 'Full Polymarket trader dossier: skill scores plus per-position aggregates with mark-to-market unrealized PnL.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'polymarket/pnl-quick': {
-        "path": "/polymarket/pnl-quick", "price": '$0.01', "amount": '10000', "body": {'wallet': '0x...'},
+        "path": "/polymarket/pnl-quick",
+        "log_prefix": 'pm-pnl-quick', "price": '$0.01', "amount": '10000', "body": {'wallet': '0x...'},
         "op_id": 'polymarketPnlQuick', "desc": 'Fast derived skill metrics for a Polymarket wallet: skill score, classification, realized PnL, win rate.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'polymarket/risk': {
-        "path": "/polymarket/risk", "price": '$0.02', "amount": '20000', "body": {'wallet': '0x...'},
+        "path": "/polymarket/risk",
+        "log_prefix": 'pm-risk', "price": '$0.02', "amount": '20000', "body": {'wallet': '0x...'},
         "op_id": 'polymarketRisk', "desc": 'Polymarket ghost-fill risk: wallet-type detection plus risk score for counterparty assessment.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'polymarket/screen': {
-        "path": "/polymarket/screen", "price": '$0.02', "amount": '20000', "body": {},
+        "path": "/polymarket/screen",
+        "log_prefix": 'pm-screen', "price": '$0.02', "amount": '20000', "body": {},
         "op_id": 'polymarketScreen', "desc": 'Top holders of a Polymarket market, each with skill score and ghost-fill risk.',
         "a2a": False, "openapi": True, "wellknown": True,
     },
     'polymarket/leaders': {
-        "path": "/polymarket/leaders", "price": '$0.02', "amount": '20000',
+        "path": "/polymarket/leaders",
+        "log_prefix": 'pm-leaders', "price": '$0.02', "amount": '20000',
         "body": {'sort_by': 'total_pnl', 'interval': '1d', 'limit': 10},
         "op_id": 'polymarketLeaders', "desc": 'Top Polymarket traders leaderboard ranked by PnL or volume over a window — the discovery/copy-trade counterpart to the per-wallet skill endpoints.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'predmarket/spread': {
-        "path": "/predmarket/spread", "price": '$0.05', "amount": '50000', "body": {},
+        "path": "/predmarket/spread",
+        "log_prefix": 'predmarket-spread', "price": '$0.05', "amount": '50000', "body": {},
         "op_id": 'predmarketSpread', "desc": 'Polymarket vs Limitless cross-venue spread on a topic — JOIN that single-venue APIs cannot return; arbitrage direction included.',
         "a2a": False, "openapi": True, "wellknown": True,
     },
     'narrative/divergence': {
-        "path": "/narrative/divergence", "price": '$0.05', "amount": '50000', "body": {},
+        "path": "/narrative/divergence",
+        "log_prefix": 'narrative-divergence', "price": '$0.05', "amount": '50000', "body": {},
         "op_id": 'narrativeDivergence', "desc": 'Narrative-vs-flow divergence: social momentum (Cambrian deep42) JOINed with on-chain flow acceleration from a Uniswap subgraph. Finds tokens loud on social but quiet on-chain, and the reverse — a JOIN neither a social feed nor a chain indexer can return alone.',
         "a2a": False, "openapi": True, "wellknown": True,
     },
@@ -546,17 +620,20 @@ _PAID_CATALOG = {
         "a2a": False, "openapi": False, "wellknown": True,
     },
     'uniswap/basis': {
-        "path": "/uniswap/basis", "price": '$0.05', "amount": '50000', "body": {'coin': 'ETH', 'chain': 'ethereum'},
+        "path": "/uniswap/basis",
+        "log_prefix": 'uniswap-basis', "price": '$0.05', "amount": '50000', "body": {'coin': 'ETH', 'chain': 'ethereum'},
         "op_id": 'uniswapBasis', "desc": 'Uniswap spot vs Hyperliquid perp basis for one asset — a cross-venue JOIN returning basis_pct and a perp_premium/perp_discount/aligned signal.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'uniswap/pretrade': {
-        "path": "/uniswap/pretrade", "price": '$0.02', "amount": '20000', "body": {'token': 'WETH', 'chain': 'ethereum'},
+        "path": "/uniswap/pretrade",
+        "log_prefix": 'uniswap-pretrade', "price": '$0.02', "amount": '20000', "body": {'token': 'WETH', 'chain': 'ethereum'},
         "op_id": 'uniswapPretrade', "desc": 'Uniswap pre-trade due-diligence for a token: real liquidity, deepest venue ranked by volume (not TVL), honeypot two-way-flow check, daily volume trend, and a tradeable/risk verdict.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'uniswap/traders': {
-        "path": "/uniswap/traders", "price": '$0.02', "amount": '20000', "body": {'token': 'WETH', 'chain': 'ethereum'},
+        "path": "/uniswap/traders",
+        "log_prefix": 'uniswap-traders', "price": '$0.02', "amount": '20000', "body": {'token': 'WETH', 'chain': 'ethereum'},
         "op_id": 'uniswapTraders', "desc": "Per-wallet Uniswap flow on a token's deepest venue: accumulators vs distributors with trader EOAs, buys/sells and volume_usd.",
         "a2a": True, "openapi": True, "wellknown": True,
     },
@@ -2125,10 +2202,82 @@ SKILLS = [
             "that need position-level detail — audit, debug, or feed into a deeper "
             "reputation signal. $0.05 USDC per call on Base."
         ),
-        tags=["polymarket", "pnl", "tax-lots", "fifo", "lifo", "hifo", "x402"],
+        # No fifo/lifo/hifo tags or examples: lot matching was dropped in v0.1
+        # and the handler has never accepted `method`. Tags and examples are
+        # discovery surfaces too — an agent searching "hifo" and landing here
+        # would pay $0.05 for something this endpoint does not do.
+        tags=["polymarket", "pnl", "positions", "mark-to-market", "x402"],
         examples=[
-            "Full Polymarket PnL with FIFO accounting for 0x38e598...",
-            "Per-lot realized PnL HIFO for Polymarket trader 0xac5a...",
+            "Full Polymarket PnL for 0x38e598...",
+            "Per-position realized and unrealized PnL for Polymarket trader 0xac5a...",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    # ── The four priced endpoints the agent card omitted ──────────────────
+    # A2A directories (8004scan, Agentverse, the A2A registry) read this list
+    # to learn what an agent sells. These four were live, priced and absent, so
+    # every directory under-reported GA's catalogue.
+    AgentSkill(
+        id="polymarket_leaders",
+        name="Polymarket leaderboard (derived skill metrics)",
+        description=(
+            "POST /polymarket/leaders. Top Polymarket traders with derived skill "
+            "metrics per trader — score, classification, sample size — rather than "
+            "raw volume alone. $0.02 USDC per call on Base."
+        ),
+        tags=["polymarket", "leaderboard", "traders", "skill-score", "x402"],
+        examples=[
+            "Top Polymarket traders right now with skill scores",
+            "Who are the sharpest wallets on Polymarket this week?",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="kalshi_consensus_trend",
+        name="Kalshi consensus trend (slope + acceleration)",
+        description=(
+            "POST /kalshi/consensus-trend. Consensus slope and acceleration for a "
+            "Kalshi market from its forecast history — is the crowd moving, and is "
+            "the move speeding up. $0.05 USDC per call on Base."
+        ),
+        tags=["kalshi", "prediction-markets", "consensus", "trend", "x402"],
+        examples=[
+            "Is Kalshi consensus accelerating on the Fed decision market?",
+            "Consensus slope for a Kalshi market over its forecast history",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="kalshi_polymarket_spread",
+        name="Kalshi ↔ Polymarket cross-source spread",
+        description=(
+            "POST /kalshi-polymarket/spread. Pairs the same question across Kalshi "
+            "and Polymarket and returns the per-pair spread and direction — a JOIN "
+            "neither venue can answer alone. $0.05 USDC per call on Base."
+        ),
+        tags=["kalshi", "polymarket", "spread", "arbitrage", "cross-venue", "x402"],
+        examples=[
+            "Spread between Kalshi and Polymarket on the same election market",
+            "Where do Kalshi and Polymarket disagree most right now?",
+        ],
+        input_modes=["text"],
+        output_modes=["text"],
+    ),
+    AgentSkill(
+        id="kalshi_sports_live_edge",
+        name="Kalshi live sports edge (play-by-play vs candles)",
+        description=(
+            "POST /kalshi/sports-live-edge. Live sports mispricing: play-by-play "
+            "state against the market's own candles, surfacing where the price has "
+            "not caught up with the game. $0.05 USDC per call on Base."
+        ),
+        tags=["kalshi", "sports", "live", "mispricing", "x402"],
+        examples=[
+            "Live edge on Kalshi sports markets right now",
+            "Which in-play Kalshi market is furthest from the game state?",
         ],
         input_modes=["text"],
         output_modes=["text"],
@@ -2930,17 +3079,17 @@ class GraphAdvocateExecutor(AgentExecutor):
                     "Score Hyperliquid trader 0x... (paid /hyperliquid/score)",
                     "Find ERC-8004 agents on Base by capability",
                 ],
-                "paid_endpoints": {
-                    "POST /predmarket/spread": "$0.05 — Polymarket↔Limitless cross-venue spread on a topic",
-                    "POST /narrative/divergence": "$0.05 — social momentum vs on-chain flow divergence (Cambrian↔Graph JOIN)",
-                    "POST /polymarket/pnl-quick": "$0.02 — derived skill metrics for a Polymarket wallet",
-                    "POST /hyperliquid/score": "$0.02 — Hyperliquid perps trader skill score",
-                    "POST /uniswap/pretrade": "$0.02 — Uniswap pre-trade check (real liquidity, deepest venue, honeypot flow, volume trend)",
-                    "POST /uniswap/basis": "$0.05 — Uniswap spot vs Hyperliquid perp basis (cross-venue JOIN)",
-                    "POST /uniswap/traders": "$0.02 — Uniswap per-wallet flow (accumulators vs distributors)",
-                    "POST /kalshi-polymarket/spread": "$0.05 — Kalshi↔Polymarket cross-source spread",
-                    "POST /ask": "$0.05 — natural-language Q&A over 132M+ x402 settlements on Base",
-                },
+                "paid_endpoints": _paid_endpoint_blurbs([
+                    "predmarket/spread",
+                    "narrative/divergence",
+                    "polymarket/pnl-quick",
+                    "hyperliquid/score",
+                    "uniswap/pretrade",
+                    "uniswap/basis",
+                    "uniswap/traders",
+                    "kalshi-polymarket/spread",
+                    "ask",
+                ]),
                 "query_ready": {
                     "tool": "execute_query_by_subgraph_id",
                     "args": {
@@ -3635,9 +3784,39 @@ async def feedback_endpoint(request: Request):
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+
     agent_id = body.get("agent_id", "")
     if not agent_id:
         return JSONResponse({"error": "agent_id required"}, status_code=400)
+
+    # Bound every field before it reaches the table. This route is
+    # unauthenticated by design — feedback from an anonymous agent is still
+    # worth having — but "unauthenticated" and "unvalidated" are different
+    # things, and only the first was intended. An oversized `comment` is an
+    # unbounded write to the operator's disk from anyone with curl.
+    _LIMITS = {
+        "agent_id": 128, "request": 2000, "service_recommended": 128,
+        "tool_executed": 128, "actual_result": 2000, "comment": 2000,
+    }
+    _clean = {}
+    for field, cap in _LIMITS.items():
+        val = body.get(field, "")
+        if val is None:
+            val = ""
+        if not isinstance(val, str):
+            val = str(val)
+        _clean[field] = val[:cap]
+    agent_id = _clean["agent_id"]
+
+    # `was_useful` is the one field the quality metric reads, so it must be a
+    # boolean or absent - not the string "yes", not 47.
+    _useful = body.get("was_useful")
+    if _useful is not None and not isinstance(_useful, bool):
+        return JSONResponse(
+            {"error": "was_useful must be true, false, or omitted"}, status_code=400
+        )
 
     try:
         import sqlite3 as _sq
@@ -3648,12 +3827,12 @@ async def feedback_endpoint(request: Request):
             (
                 datetime.now(timezone.utc).isoformat(),
                 agent_id,
-                body.get("request", ""),
-                body.get("service_recommended", ""),
-                body.get("was_useful"),
-                body.get("tool_executed", ""),
-                body.get("actual_result", ""),
-                body.get("comment", ""),
+                _clean["request"],
+                _clean["service_recommended"],
+                _useful,
+                _clean["tool_executed"],
+                _clean["actual_result"],
+                _clean["comment"],
             ),
         )
         conn.commit()
@@ -3667,8 +3846,11 @@ async def feedback_endpoint(request: Request):
             "useful_rate": round(useful / total * 100, 1) if total > 0 else 0,
         })
     except Exception as e:
+        # Log the detail, return a generic message: the raw exception text of a
+        # failed INSERT can carry schema and path detail, and this route answers
+        # anyone.
         log.error(f"Feedback write error: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "could not record feedback"}, status_code=500)
 
 
 _BAZAAR_ACTIVE_CACHE: dict = {}
@@ -4009,8 +4191,8 @@ Repository: https://github.com/PaulieB14/graph-advocate
                                    how to get your own Token API JWT - never the data itself.
 - GET  /dashboard                  Live monitoring dashboard
 - POST /feedback                   Agent feedback submission
-- GET  /quality                    Response quality metrics
-- GET  /export/stats               Summary stats
+- GET  /quality                    Response quality metrics (operator only — 401 without ADMIN_TOKEN)
+- GET  /export/stats               Summary stats (operator only — 401 without ADMIN_TOKEN)
 - GET  /copytrade/data             Hyperliquid vault leaderboard JSON (free)
 - GET  /copytrade/vault/{addr}     Per-vault deep dive: HL live (APR, TVL, sparkline,
                                    positions, last 10 trades, top followers) +
@@ -4027,7 +4209,7 @@ requests (no sender metadata) are not eligible and pay $0.01 USDC from call 1.
 |--------------------------------|--------------|-------|
 | POST /                         | free 3/day   | Then $0.01 USDC via x402 |
 | POST /route                    | free 3/day   | Then $0.01 USDC via x402 |
-| GET  /chat                     | free 3/day   | Routing-only; doesn't answer with data |
+| GET  /chat                     | free         | Routing-only; doesn't answer with data |
 | POST /tip                      | optional tip | Any amount |
 __PAID_PRICE_ROWS__
 
@@ -4096,7 +4278,38 @@ async def capabilities_endpoint(request: Request):
     _SERVICE_CURL_EXAMPLES — single source of truth.
     """
     from advocate import build_capabilities
-    return JSONResponse(build_capabilities())
+    caps = build_capabilities()
+    # Advertise what GA actually sells. `build_capabilities` lists *routed
+    # services* and described only the free tier and the $0.01 /route call, so
+    # the machine-readable capability file — the one other agents parse to
+    # decide what they can buy — showed zero of the 22 priced endpoints and none
+    # of the $0.01-$0.10 prices. An endpoint absent from here is invisible to
+    # exactly the audience that would pay for it.
+    #
+    # Injected here rather than in `build_capabilities` because `_PAID_CATALOG`
+    # lives in this module and advocate.py must not import it back (a2a_server
+    # already imports advocate; the reverse would be a cycle).
+    caps["paid_endpoints"] = [
+        {
+            "path": entry["path"],
+            "method": "POST",
+            "price_usdc": entry["price"],
+            "amount_base_units": entry.get("amount", ""),
+            "description": _PAID_NOTES.get(key) or entry.get("desc", ""),
+            "body": entry.get("body", {}),
+        }
+        for key, entry in sorted(_PAID_CATALOG.items())
+        if entry.get("price")
+    ]
+    caps["paid_endpoint_count"] = len(caps["paid_endpoints"])
+    caps["settlement"] = {
+        "protocol": "x402 v2",
+        "network": "eip155:8453",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "pay_to": X402_WALLET,
+        "note": "Always pay the payTo in the live 402 challenge, never an address copied from this file.",
+    }
+    return JSONResponse(caps)
 
 
 async def mcp_catalog_endpoint(request: Request):
@@ -4790,25 +5003,10 @@ def _get_onchain_stats() -> dict:
         # USDC total via SQL CASE on the request prefix.
         # Tip amounts are variable, intentionally excluded (the tip flow
         # logs task_id='x402-tip' or 'tip' with no fixed price).
-        row = conn.execute("""
+        row = conn.execute(f"""
             SELECT COALESCE(SUM(
                 CASE
-                    WHEN request LIKE 'pm-pnl-quick%' THEN 0.02
-                    WHEN request LIKE 'pm-pnl%'      THEN 0.05
-                    WHEN request LIKE 'pm-screen%'   THEN 0.02
-                    WHEN request LIKE 'pm-risk%'     THEN 0.02
-                    WHEN request LIKE 'hl-score%'    THEN 0.02
-                    WHEN request LIKE 'hl-pnl%'      THEN 0.05
-                    WHEN request LIKE 'hl-screen%'   THEN 0.05
-                    WHEN request LIKE 'hl-vault%'    THEN 0.10
-                    WHEN request LIKE 'hl-risk%'     THEN 0.02
-                    WHEN request LIKE 'hl-fills%'    THEN 0.02
-                    WHEN request LIKE 'kalshi-consensus%'   THEN 0.05
-                    WHEN request LIKE 'kalshi-poly-spread%' THEN 0.05
-                    WHEN request LIKE 'kalshi-sports%'      THEN 0.05
-                    WHEN service = 'ask'                    THEN 0.05
-                    WHEN service = 'onchain-x402-address'   THEN 0.05
-                    WHEN task_id = 'x402-paid'              THEN 0.01
+{_revenue_case_sql()}
                     ELSE 0
                 END
             ), 0)
@@ -5432,7 +5630,7 @@ def _build_dashboard_data() -> dict:
     repeat_payers = []
     try:
         conn = _sq.connect(str(DB_PATH))
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT
                 paid_by_wallet,
                 COUNT(*) AS call_count,
@@ -5440,22 +5638,7 @@ def _build_dashboard_data() -> dict:
                 MAX(timestamp) AS last_seen,
                 COALESCE(SUM(
                     CASE
-                        WHEN request LIKE 'pm-pnl-quick%' THEN 0.02
-                        WHEN request LIKE 'pm-pnl%'      THEN 0.05
-                        WHEN request LIKE 'pm-screen%'   THEN 0.02
-                        WHEN request LIKE 'pm-risk%'     THEN 0.02
-                        WHEN request LIKE 'hl-score%'    THEN 0.02
-                        WHEN request LIKE 'hl-pnl%'      THEN 0.05
-                        WHEN request LIKE 'hl-screen%'   THEN 0.05
-                        WHEN request LIKE 'hl-vault%'    THEN 0.10
-                        WHEN request LIKE 'hl-risk%'     THEN 0.02
-                        WHEN request LIKE 'hl-fills%'    THEN 0.02
-                        WHEN request LIKE 'kalshi-consensus%'   THEN 0.05
-                        WHEN request LIKE 'kalshi-spread%'      THEN 0.05
-                        WHEN request LIKE 'kalshi-sports%'      THEN 0.05
-                        WHEN request LIKE 'predmarket-spread%'  THEN 0.05
-                        WHEN request LIKE 'ask%'                THEN 0.05
-                        WHEN request LIKE 'onchain-x402-addr%'  THEN 0.05
+{_revenue_case_sql(indent="                        ")}
                         WHEN service = 'subgraph-registry'      THEN 0.01
                         WHEN service = 'token-api'              THEN 0.01
                         ELSE 0

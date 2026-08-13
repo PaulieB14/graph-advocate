@@ -1052,10 +1052,16 @@ def build_capabilities() -> dict:
         "pricing": {
             "free_tier": "3 requests/day per identified sender",
             "free_tier_how": (
-                "Include a `sender` (wallet address) or `name` field in the A2A "
-                "message `metadata` to be counted as an identified sender and claim "
-                "the 3 free /route queries/day. Send it on the first call to skip the "
-                "402 round-trip."
+                "Include a `sender` (or `address`) field holding an EVM wallet address "
+                "in the A2A message `metadata` to be counted as an identified sender and "
+                "claim the 3 free queries/day. Send it on the first call to skip the 402 "
+                "round-trip. A bare agent `name` does not qualify: any string minted a "
+                "fresh daily bucket, so rotating one gave unlimited free access."
+            ),
+            "free_tier_scope": (
+                "The free tier applies to the A2A endpoint (POST / with message/send). "
+                "HTTP POST /route is x402-gated for every caller and is charged even "
+                "while free quota remains."
             ),
             "anonymous": (
                 "Requests with no sender metadata are not eligible for the free tier — "
@@ -1101,9 +1107,15 @@ def build_mcp_catalog() -> dict:
     Unlike capabilities.json (all services), this focuses only on the MCP npm
     packages so agents can auto-discover installable tools.
     """
+    # `graph-uniswap-mcp` was published to npm and named in the routing prompt
+    # for months while this list omitted it — CLAUDE.md records an outside agent
+    # finding that inconsistency before we did. `mcp8004` is dropped because it
+    # is ERC-8004 auth *middleware*, a library, not a runnable MCP server: this
+    # endpoint's whole contract is "servers an agent can install and speak
+    # stdio to", and llms.txt already labels it "Library".
     MCP_SERVICES = [
         "graph-aave-mcp", "graph-polymarket-mcp", "graph-lending-mcp",
-        "graph-limitless-mcp", "predictfun-mcp", "mcp8004",
+        "graph-limitless-mcp", "graph-uniswap-mcp", "predictfun-mcp",
     ]
     servers = []
     for service in MCP_SERVICES:
