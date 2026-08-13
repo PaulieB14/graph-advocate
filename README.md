@@ -98,9 +98,9 @@ Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x40
 | `POST /hyperliquid/vault` | $0.10 | Vault evaluator: leader skill + depositor concentration + redemption pressure |
 | `POST /hyperliquid/risk` | $0.02 | Counterparty risk: liquidation rate + funding burn + outflow flag |
 | `POST /hyperliquid/fills` | $0.02 | Recent fill stream for a coin with bid/ask flow summary (N capped at 10) |
-| `POST /polymarket/pnl-quick` | $0.02 | Skill score + classification for a wallet |
+| `POST /polymarket/pnl-quick` | $0.01 | Skill score + classification for a wallet |
 | `POST /polymarket/pnl` | $0.05 | Full PnL: scores + per-position records |
-| `POST /polymarket/screen` | $0.05 | Top wagerers on a market with ghost-fill risk (N capped at 10) |
+| `POST /polymarket/screen` | $0.02 | Top wagerers on a market with ghost-fill risk (N capped at 10) |
 | `POST /polymarket/risk` | $0.02 | Wallet-type detection + ghost-fill risk classification |
 | `POST /kalshi/consensus-trend` | $0.05 | Kalshi consensus-probability slope + acceleration (uses Kalshi-unique forecast_history) |
 | `POST /kalshi-polymarket/spread` | $0.05 | Cross-source arbitrage spread between Kalshi and Polymarket on a topic — JOIN passthrough APIs can't return |
@@ -110,8 +110,8 @@ Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x40
 | `POST /uniswap/pretrade` | $0.02 | Pre-trade check: real liquidity, deepest venue, honeypot flow, volume trend |
 | `POST /uniswap/basis` | $0.05 | Uniswap spot vs Hyperliquid perp basis — cross-venue JOIN |
 | `POST /uniswap/traders` | $0.02 | Per-wallet Uniswap flow: accumulators vs distributors |
-| `POST /polymarket/leaders` | $0.05 | Polymarket leaderboard with derived skill metrics |
-| `POST /onchain-x402/address` | $0.02 | On-chain x402 activity for an address (Base settlements) |
+| `POST /polymarket/leaders` | $0.02 | Polymarket leaderboard with derived skill metrics |
+| `POST /onchain-x402/address` | $0.01 | On-chain x402 activity for an address (Base settlements) |
 | `POST /ask` | $0.05 | Natural-language Q&A over 132M+ x402 settlements on Base |
 | `POST /agent/score` | $0.02 | 0–100 agent reputation (ERC-8004 + USDC settlements + feedback registry) |
 

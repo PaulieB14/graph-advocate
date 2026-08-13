@@ -807,6 +807,64 @@ class TestUniswapTvlOverride(unittest.TestCase):
         self.assertIn("orderBy: volumeUSD", hint[0])
 
 
+class TestPublishedPricesMatchTheCatalog(unittest.TestCase):
+    """Every document that quotes a price must quote the one that is charged.
+
+    The 2026-08-12 audit found four endpoints whose advertised price was 2x-2.5x
+    what the x402 middleware actually takes, spread across llms.txt, SKILL.md,
+    the README and the Mintlify docs. /llms.txt is `start_here` in
+    /agents/index.json, so it is the first thing an autonomous agent reads to
+    budget a run; quoting $0.05 and charging $0.02 is not a rounding error to a
+    caller deciding whether it can afford you.
+
+    `_PAID_CATALOG` is the single source - openapi.json and /.well-known/x402
+    already derive from it, and it was verified against all 22 live 402
+    challenges. These tests hold the hand-written surfaces to it.
+    """
+
+    def test_llms_txt_price_table_is_generated_not_typed(self):
+        """The price column must come from the catalog, not from a literal."""
+        import a2a_server as srv
+        rows = srv._render_paid_price_rows()
+        for key, entry in srv._PAID_CATALOG.items():
+            price = entry.get("price")
+            if not price or key in ("route", "tip"):
+                continue
+            match = [r for r in rows.split("\n") if f"POST {entry['path']} " in r]
+            self.assertTrue(match, f"{entry['path']} missing from the rendered table")
+            self.assertIn(
+                price, match[0],
+                f"{entry['path']} renders a price other than the catalog's {price}",
+            )
+
+    def test_no_markdown_surface_contradicts_the_catalog(self):
+        """README, SKILL.md and docs/*.mdx must not quote a different price."""
+        import a2a_server as srv
+        import glob, os, re
+        catalog = {v["path"]: v.get("price") for v in srv._PAID_CATALOG.values()}
+        targets = (
+            glob.glob("docs/**/*.mdx", recursive=True)
+            + glob.glob("docs/**/*.md", recursive=True)
+            + ["README.md", "openclaw-skill/graph-advocate/SKILL.md"]
+        )
+        offenders = []
+        path_re = re.compile(
+            r"(/(?:polymarket|hyperliquid|kalshi[\w-]*|uniswap|predmarket|narrative|onchain-x402|agent)/[a-z-]+)"
+        )
+        for f in targets:
+            if not os.path.exists(f):
+                continue
+            for i, line in enumerate(open(f, encoding="utf-8"), 1):
+                p = path_re.search(line)
+                money = re.search(r"\$0\.\d\d", line)
+                if not (p and money):
+                    continue
+                real = catalog.get(p.group(1))
+                if real and money.group(0) != real:
+                    offenders.append(f"{f}:{i} {p.group(1)} says {money.group(0)}, charges {real}")
+        self.assertEqual([], offenders, "published prices disagree with the catalog:\n" + "\n".join(offenders))
+
+
 class TestRefusalScoring(unittest.TestCase):
     def test_headline_filter_is_a_superset_of_the_write_skip(self):
         """The read-side filter must cover everything the write-side skips.
@@ -897,6 +955,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestSubgraphExecExtraction))
     suite.addTests(loader.loadTestsFromTestCase(TestUniswapTvlOverride))
     suite.addTests(loader.loadTestsFromTestCase(TestRefusalScoring))
+    suite.addTests(loader.loadTestsFromTestCase(TestPublishedPricesMatchTheCatalog))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

@@ -31,14 +31,14 @@ Match the user's intent to the right service. Load only the reference you need.
 | **Uniswap pre-trade check** | `/uniswap/pretrade` (paid) | `graph-uniswap-mcp` | Real liquidity, deepest venue, honeypot flow, volume trend. $0.02 USDC. |
 | **Uniswap spot vs perp basis** | `/uniswap/basis` (paid) | — | Uniswap spot against the Hyperliquid perp — cross-venue JOIN. $0.05 USDC. |
 | **Uniswap per-wallet flow** | `/uniswap/traders` (paid) | `graph-uniswap-mcp` | Accumulators vs distributors for a token. $0.02 USDC. |
-| **Polymarket leaderboard** | `/polymarket/leaders` (paid) | `graph-polymarket-mcp` | Top traders with derived skill metrics. $0.05 USDC. |
+| **Polymarket leaderboard** | `/polymarket/leaders` (paid) | `graph-polymarket-mcp` | Top traders with derived skill metrics. $0.02 USDC. |
 | **Hyperliquid fill stream** | `/hyperliquid/fills` (paid) | — | Recent perp fills for a coin with bid/ask flow summary. $0.02 USDC. |
 | **Hyperliquid trader skill score** | `/hyperliquid/score` (paid) | — | Composite skill metrics for one HL trader. $0.02 USDC. |
 | **Hyperliquid per-coin PnL** | `/hyperliquid/pnl` (paid) | — | Scores + open positions + recent activity. $0.05 USDC. |
 | **Hyperliquid counterparty risk** | `/hyperliquid/risk` (paid) | — | Liquidation rate, funding burn, outflow flag. $0.02 USDC. |
-| **Polymarket wallet skill score** | `/polymarket/pnl-quick` (paid) | `graph-polymarket-mcp` | Skill score + classification for a wallet. $0.02 USDC. |
+| **Polymarket wallet skill score** | `/polymarket/pnl-quick` (paid) | `graph-polymarket-mcp` | Skill score + classification for a wallet. $0.01 USDC. |
 | **Polymarket full PnL** | `/polymarket/pnl` (paid) | `graph-polymarket-mcp` | Scores + per-position records. $0.05 USDC. |
-| **Polymarket market screen** | `/polymarket/screen` (paid) | — | Top wagerers on a market with ghost-fill risk per holder. $0.05 USDC. |
+| **Polymarket market screen** | `/polymarket/screen` (paid) | — | Top wagerers on a market with ghost-fill risk per holder (N capped at 10). $0.02 USDC. |
 | **Polymarket ghost-fill risk** | `/polymarket/risk` (paid) | — | Wallet-type detection + ghost-fill classification. $0.02 USDC. |
 | **Cross-source prediction-market spread (Kalshi ↔ Polymarket)** | `/kalshi-polymarket/spread` (paid) | — | Same-topic markets across Kalshi + Polymarket with mid-spread and arbitrage direction. $0.05 USDC. |
 | **Agent reputation score (0-100)** | `/agent/score` (paid) | — | Composite from ERC-8004 registration + USDC settlement velocity + on-chain feedback registry, aggregated across all of owner's agents. Hard 8004 gate filters burns/CEX. Buyer-agent's "should I trust this peer" call. Response includes counterparty-ref-v1 conformant SHA-256 + preimage + canonical JCS string so a verifier can re-derive byte-exact without callback. $0.02 USDC. |

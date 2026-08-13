@@ -271,11 +271,24 @@ _A2A_OUTPUT_EXAMPLES = {
         "unrealized_pnl_usdc": 220.1, "total_pnl_usdc": 2040.5,
         "open_positions_count": 14,
     },
+    # This example is what a paying agent is promised: the 402's own hint says
+    # "POST the same body again with an X-PAYMENT header to receive a payload
+    # matching output_example". It previously showed `method`, `realized[]` and
+    # `open[]` — a per-lot FIFO/LIFO/HIFO shape the handler has never returned.
+    # Lot reconstruction was dropped in v0.1 (the upstream activity feed carries
+    # no buy/sell side), so the example described a product that does not exist
+    # and the buyer found out after paying. It now mirrors `_pm_pnl_handler`'s
+    # actual per-position aggregate.
     "polymarket/pnl": {
-        "wallet": "0x38e5...", "method": "hifo",
+        "wallet": "0x38e5...",
         "scores": {"skill_score": 71.4, "classification": "sharp", "sample_size": 213},
-        "realized": [{"market_slug": "btc-updown-5m-1771359600", "outcome": "Up", "qty": 100, "buy_price": 0.42, "sell_price": 0.91, "pnl_usdc": 49.0}],
-        "open": [{"market_slug": "will-x-happen-by-eoy", "outcome": "Yes", "qty": 500, "avg_buy_price": 0.31}],
+        "positions": [{
+            "market_slug": "will-x-happen-by-eoy", "condition_id": "0xabc…",
+            "outcome": "Yes", "active": True, "buys": 4, "sells": 1,
+            "net_position": 500.0, "avg_buy_price": 0.31, "current_price": 0.44,
+            "realized_pnl_usdc": 12.5, "unrealized_pnl_usdc": 65.0,
+            "total_pnl_usdc": 77.5, "pnl_pct": 41.9,
+        }],
     },
     "polymarket/risk": {
         "wallet": "0x38e5...", "wallet_type": "smart_account_erc1967",
@@ -360,10 +373,73 @@ _USDC_BASE_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC on Base 
 #   a2a       -> offered as an auto-payable signpost from the A2A 402
 #   openapi   -> documented in /openapi.json for x402scan & OpenAPI crawlers
 #   wellknown -> advertised in /.well-known/x402
+def _render_paid_price_rows() -> str:
+    """The llms.txt price table, priced from `_PAID_CATALOG`.
+
+    The prices here used to be typed by hand, and by the 2026-08-12 audit four
+    of them were 2x-2.5x what the x402 middleware actually charges - /llms.txt
+    is named `start_here` in /agents/index.json, so it is the first document an
+    autonomous agent reads to decide whether it can afford GA. Quoting $0.05 and
+    charging $0.02 is not a rounding error to an agent budgeting a run; it is a
+    reason to distrust every other number on the page.
+
+    `_PAID_CATALOG` already feeds openapi.json and /.well-known/x402, and the
+    audit found it accurate against all nine live 402 challenges. So the price
+    column is rendered from it and can no longer disagree. The notes stay prose,
+    because they are the one part a generator cannot write.
+
+    An endpoint present in the catalog but missing a note renders with its
+    catalog `desc`; an endpoint with no price renders as `(unpriced)` rather
+    than being silently dropped - a gap should be visible, not invisible.
+    """
+    notes = {
+        'hyperliquid/score': 'Skill score for an HL trader',
+        'hyperliquid/pnl': 'Per-coin PnL breakdown',
+        'hyperliquid/screen': 'Top N (≤10) HL traders by coin',
+        'hyperliquid/vault': 'Vault evaluator (leader + concentration)',
+        'hyperliquid/risk': 'Liquidation + funding burn risk',
+        'hyperliquid/fills': 'Recent perp fill stream + flow summary',
+        'polymarket/pnl-quick': 'Skill score for a PM wallet',
+        'polymarket/pnl': 'Full PM PnL: scores + per-position mark-to-market',
+        'polymarket/screen': 'Top wagerers on a PM market (≤10)',
+        'polymarket/risk': 'Wallet-type + ghost-fill risk',
+        'polymarket/leaders': 'PM leaderboard with derived skill metrics',
+        'kalshi/consensus-trend': 'Kalshi consensus slope+acceleration (forecast_history)',
+        'kalshi-polymarket/spread': 'Cross-source spread Kalshi↔Polymarket (JOIN)',
+        'kalshi/sports-live-edge': 'Live sports mispricing (play-by-play vs candles)',
+        'predmarket/spread': 'Cross-venue Polymarket↔Limitless spread (JOIN)',
+        'narrative/divergence': 'Social momentum vs on-chain flow divergence (Cambrian↔Graph JOIN)',
+        'onchain-x402/address': 'On-chain x402 activity for an address (Base)',
+        'ask': 'NL Q&A over 132M+ x402 settlements on Base',
+        'uniswap/pretrade': 'Uniswap pre-trade check: liquidity, deepest venue, honeypot flow',
+        'uniswap/basis': 'Uniswap spot vs Hyperliquid perp basis (cross-venue JOIN)',
+        'uniswap/traders': 'Uniswap per-wallet flow: accumulators vs distributors',
+        'agent/score': '0-100 reputation: ERC-8004 + USDC settlement + on-chain feedback',
+    }
+    rows = []
+    for key in sorted(_PAID_CATALOG):
+        entry = _PAID_CATALOG[key]
+        price = entry.get("price") or ""
+        if not price:
+            # `/route` and `/tip` are described in the free-tier rows above;
+            # anything else unpriced is a catalog gap worth seeing.
+            if key in ("route", "tip"):
+                continue
+            price = "(unpriced)"
+        note = notes.get(key) or (entry.get("desc") or "")
+        rows.append(f"| POST {entry['path']:<26} | {price:<12} | {note} |")
+    return "\n".join(rows)
+
+
 _PAID_CATALOG = {
     'agent/score': {
-        "path": "/agent/score", "price": '', "amount": '', "body": {},
-        "a2a": False, "openapi": False, "wellknown": True,
+        # Was price:'' amount:'' openapi:False — so a live, priced flagship
+        # endpoint was absent from openapi.json entirely, which is the surface
+        # x402scan and the OpenAPI crawlers index first. Verified against the
+        # live 402: amount 20000 = $0.02 USDC on Base.
+        "path": "/agent/score", "price": '$0.02', "amount": '20000',
+        "body": {'wallet': '0x…40hex', 'days': 30},
+        "a2a": True, "openapi": True, "wellknown": True,
     },
     'ask': {
         "path": "/ask", "price": '$0.05', "amount": '50000', "body": {'question': 'When did x402 settlement volume on Base inflect upward?'},
@@ -424,8 +500,10 @@ _PAID_CATALOG = {
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'polymarket/pnl': {
-        "path": "/polymarket/pnl", "price": '$0.05', "amount": '50000', "body": {'wallet': '0x...', 'method': 'hifo'},
-        "op_id": 'polymarketPnl', "desc": 'Full Polymarket trader dossier: scores plus per-market PnL records and open positions.',
+        # No `method`: the handler never read it, so advertising it invited a
+        # body that silently did nothing.
+        "path": "/polymarket/pnl", "price": '$0.05', "amount": '50000', "body": {'wallet': '0x...'},
+        "op_id": 'polymarketPnl', "desc": 'Full Polymarket trader dossier: skill scores plus per-position aggregates with mark-to-market unrealized PnL.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'polymarket/pnl-quick': {
@@ -2039,13 +2117,13 @@ SKILLS = [
     ),
     AgentSkill(
         id="polymarket_pnl_full",
-        name="Polymarket full PnL (per-lot, FIFO/LIFO/HIFO)",
+        name="Polymarket full PnL (per-position, mark-to-market)",
         description=(
-            "POST /polymarket/pnl {wallet, method?}. Full PnL report: derived skill "
-            "metrics + per-lot realized PnL with FIFO/LIFO/HIFO matching + open positions "
-            "with mark-to-market unrealized. For agents that need to inspect specific "
-            "trades — audit, debug, or feed into a deeper reputation signal. "
-            "$0.05 USDC per call on Base."
+            "POST /polymarket/pnl {wallet}. Full PnL report: derived skill metrics "
+            "plus per-position aggregates — net position, average buy price, current "
+            "price, realized and mark-to-market unrealized PnL per market. For agents "
+            "that need position-level detail — audit, debug, or feed into a deeper "
+            "reputation signal. $0.05 USDC per call on Base."
         ),
         tags=["polymarket", "pnl", "tax-lots", "fifo", "lifo", "hifo", "x402"],
         examples=[
@@ -2300,7 +2378,7 @@ SKILLS = [
         id="agent_score",
         name="Agent reputation score (0-100, on-chain derived)",
         description=(
-            "POST /agent/score {wallet, days?=90}. Composite 0-100 reputation score "
+            "POST /agent/score {wallet, days?=30}. Composite 0-100 reputation score "
             "for any Base wallet. Combines three on-chain ground-truth axes: identity "
             "(ERC-8004 registration on Base + IPFS metadata), activity (USDC settlement "
             "velocity), and reputation (ERC-8004 feedback + validation registry events, "
@@ -3951,28 +4029,7 @@ requests (no sender metadata) are not eligible and pay $0.01 USDC from call 1.
 | POST /route                    | free 3/day   | Then $0.01 USDC via x402 |
 | GET  /chat                     | free 3/day   | Routing-only; doesn't answer with data |
 | POST /tip                      | optional tip | Any amount |
-| POST /hyperliquid/score        | $0.02        | Skill score for an HL trader |
-| POST /hyperliquid/pnl          | $0.05        | Per-coin PnL breakdown |
-| POST /hyperliquid/screen       | $0.05        | Top N (≤10) HL traders by coin |
-| POST /hyperliquid/vault        | $0.10        | Vault evaluator (leader + concentration) |
-| POST /hyperliquid/risk         | $0.02        | Liquidation + funding burn risk |
-| POST /hyperliquid/fills        | $0.02        | Recent perp fill stream + flow summary |
-| POST /polymarket/pnl-quick     | $0.02        | Skill score for a PM wallet |
-| POST /polymarket/pnl           | $0.05        | Full PM PnL: scores + positions |
-| POST /polymarket/screen        | $0.05        | Top wagerers on a PM market |
-| POST /polymarket/risk          | $0.02        | Wallet-type + ghost-fill risk |
-| POST /kalshi/consensus-trend   | $0.05        | Kalshi consensus slope+acceleration (forecast_history) |
-| POST /kalshi-polymarket/spread | $0.05        | Cross-source spread Kalshi↔Polymarket (JOIN) |
-| POST /kalshi/sports-live-edge  | $0.05        | Live sports mispricing (play-by-play vs candles) |
-| POST /predmarket/spread        | $0.05        | Cross-venue Polymarket↔Limitless spread (JOIN) |
-| POST /narrative/divergence     | $0.05        | Social momentum vs on-chain flow divergence (Cambrian↔Graph JOIN) |
-| POST /polymarket/leaders       | $0.05        | PM leaderboard with derived skill metrics |
-| POST /onchain-x402/address     | $0.02        | On-chain x402 activity for an address (Base) |
-| POST /ask                      | $0.05        | NL Q&A over 132M+ x402 settlements on Base |
-| POST /uniswap/pretrade         | $0.02        | Uniswap pre-trade check: real liquidity, deepest venue, honeypot flow, volume trend |
-| POST /uniswap/basis            | $0.05        | Uniswap spot vs Hyperliquid perp basis (cross-venue JOIN) |
-| POST /uniswap/traders          | $0.02        | Uniswap per-wallet flow: accumulators vs distributors |
-| POST /agent/score              | $0.02        | 0-100 reputation score: ERC-8004 + USDC settlement + on-chain feedback |
+__PAID_PRICE_ROWS__
 
 All paid endpoints settle in USDC on Base via x402. Paid endpoints have no
 free tier — payment is required from call 1 regardless of sender metadata.
@@ -4019,8 +4076,14 @@ curl -X POST https://graphadvocate.com \\
 
 - ERC-8004 agent #734 on Arbitrum, #41034 on Base
 - ENS: graphadvocate.eth
-- Wallet: 0x575267eEd09c338FAE5716A486A7B58A5749A292
+- Identity wallet (ERC-8004 / ENS): 0x575267eEd09c338FAE5716A486A7B58A5749A292
+- Payments are made to the `payTo` in the 402 challenge, NOT to the identity
+  wallet above. Never pay an address read from this file.
 """
+    # Prices come from `_PAID_CATALOG` - the same source openapi.json and
+    # /.well-known/x402 derive from - so this table cannot quote a price the
+    # middleware does not charge. See `_render_paid_price_rows`.
+    body = body.replace("__PAID_PRICE_ROWS__", _render_paid_price_rows())
     return PlainTextResponse(body)
 
 
@@ -9084,13 +9147,17 @@ def build_app():
             if not (wallet.startswith("0x") and len(wallet) == 42):
                 return _RouteJSON({"error": "invalid_wallet",
                                    "message": "POST {wallet: '0x…40hex'} required",
-                                   "expected_body": {"wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292", "days": 90}},
+                                   "expected_body": {"wallet": "0x575267eED09c338FAE5716A486A7B58A5749A292", "days": 30}},
                                   status_code=400)
             days_raw = body.get("days", 30)
             try:
                 days = int(days_raw)
             except (TypeError, ValueError):
-                days = 90
+                # The documented default, not a wider scan nobody asked for.
+                # This branch used to fall back to 90 while the happy path
+                # defaulted to 30, so a garbage `days` bought a 3x deeper scan
+                # than a missing one.
+                days = 30
             if days < 1 or days > 365:
                 return _RouteJSON({"error": "invalid_days",
                                    "message": "days must be an integer 1-365"},
@@ -10058,34 +10125,32 @@ def build_app():
                             ),
                         ],
                         description=(
-                            "Polymarket full PnL report. POST {wallet, method?}. "
-                            "Returns derived skill metrics + per-lot realized PnL "
-                            "(FIFO/LIFO/HIFO matching, default fifo) + open positions "
-                            "with mark-to-market unrealized. For agents that need to "
-                            "inspect specific trades, audit, or feed into a deeper "
-                            "reputation signal."
+                            "Polymarket full PnL report. POST {wallet}. "
+                            "Returns derived skill metrics plus per-position "
+                            "aggregates: net position, average buy price, current "
+                            "price, realized and mark-to-market unrealized PnL per "
+                            "market. For agents that need position-level detail to "
+                            "audit, debug, or feed into a deeper reputation signal."
                         ),
                         mime_type="application/json",
                         extensions={
                             **declare_discovery_extension(
-                                input={"wallet": "0x38e598961dd0456a7fb2e758bd433d3e59fb8a4a", "method": "fifo"},
+                                input={"wallet": "0x38e598961dd0456a7fb2e758bd433d3e59fb8a4a"},
                                 input_schema={
                                     "type": "object",
-                                    "properties": {
-                                        "wallet": {"type": "string"},
-                                        "method": {"type": "string", "enum": ["fifo", "lifo", "hifo"]},
-                                    },
+                                    "properties": {"wallet": {"type": "string"}},
                                     "required": ["wallet"],
                                 },
                                 body_type="json",
                                 output=OutputConfig(
-                                    example={
-                                        "wallet": "0x38e5...",
-                                        "method": "fifo",
-                                        "scores": {"skill_score": 71.4, "classification": "sharp", "sample_size": 213},
-                                        "realized": [{"market_slug": "btc-updown-5m-1771359600", "outcome": "Up", "qty": 100, "buy_price": 0.42, "sell_price": 0.91, "pnl_usdc": 49.0}],
-                                        "open": [{"market_slug": "will-x-happen-by-eoy", "outcome": "Yes", "qty": 500, "avg_buy_price": 0.31}],
-                                    },
+                                    # Reference the canonical example rather than
+                                    # keeping a second copy here. The duplicate is
+                                    # how this drifted: `_A2A_OUTPUT_EXAMPLES` and
+                                    # this literal described the same endpoint and
+                                    # only one of them was ever true. One source,
+                                    # so the 402 and the A2A signpost cannot
+                                    # disagree again.
+                                    example=_A2A_OUTPUT_EXAMPLES["polymarket/pnl"],
                                     schema={"type": "object"},
                                 ),
                             ),
