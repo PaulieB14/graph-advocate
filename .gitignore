@@ -26,3 +26,7 @@ data/
 # large Dune analysis exports (27MB+5MB) — not runtime deps
 dune/bazaar_merchants.csv
 dune/agent0_base_agents.csv
+
+# npm package (mcp/)
+node_modules/
+mcp/dist/

@@ -5041,16 +5041,31 @@ async def quota_endpoint(request: Request):
             "used_today": count_today,
             "remaining_today": remaining,
             "free_tier_exhausted": exhausted,
+            # Scoped deliberately. `next_call_paid` describes the **A2A** path
+            # (POST / with method message/send) and nothing else: HTTP POST
+            # /route sits behind the x402 middleware and is charged for every
+            # caller, every time, free quota or not.
+            #
+            # Unscoped, these two fields actively misled. An agent read
+            # "remaining_today: 3, next_call_paid: false", called POST /route,
+            # and got a 402 — so the pre-flight route whose entire purpose is
+            # avoiding a surprise 402 was itself the cause of one.
+            "next_call_paid_on_a2a": exhausted,
             "next_call_paid": exhausted,
+            "applies_to": "A2A POST / (message/send)",
+            "http_route_always_paid": True,
             "price_usdc_per_paid_call": round(X402_PRICE_CENTS / 100.0, 2),
             "payment_required_when_exhausted": True,
             "settlement_chain": "base",
             "settlement_token": "USDC",
             "anonymous_senders_pay_from_call_1": True,
             "notes": (
-                "Free tier requires sender metadata (`name` / `sender` in the A2A "
-                "envelope, or `X-Agent-Id` header). Anonymous calls pay from the "
-                "first request. Quota resets at UTC midnight."
+                "Free tier applies to the A2A endpoint (POST / with "
+                "message/send) and requires a wallet address in the message "
+                "metadata (`sender` or `address`); a bare agent name no longer "
+                "qualifies. HTTP POST /route is x402-gated for everyone and is "
+                "charged even while free quota remains. Anonymous callers pay "
+                "from the first request. Quota resets at UTC midnight."
             ),
         }
     )

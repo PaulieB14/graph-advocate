@@ -1,0 +1,53 @@
+{
+  "name": "graph-advocate-mcp",
+  "version": "2.11.0",
+  "description": "Ask any blockchain data question in plain English and get live data back — 15,500+ subgraphs, Token API, Polymarket and Hyperliquid trader intelligence. Paid calls settle in USDC on Base over x402, or hand the 402 to your own wallet.",
+  "type": "module",
+  "bin": {
+    "graph-advocate-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    ".env.example"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js",
+    "test": "npm run build && node --test test/*.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "the-graph",
+    "subgraph",
+    "onchain-data",
+    "x402",
+    "polymarket",
+    "hyperliquid",
+    "blockchain",
+    "defi",
+    "agent"
+  ],
+  "author": "paulieb14",
+  "license": "MIT",
+  "homepage": "https://github.com/PaulieB14/graph-advocate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PaulieB14/graph-advocate.git",
+    "directory": "mcp"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

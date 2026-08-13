@@ -1,0 +1,105 @@
+name: Release
+
+# Tag-driven on purpose. Publishing on every push to main means a docs typo
+# that touches a version string ships a release, and republishing a version
+# that already exists fails the build after the fact. A tag is a deliberate act.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      # Fail loudly, not silently. A missing secret used to mean the publish
+      # step quietly did nothing and the job went green, which is the worst of
+      # both worlds: no release, and no signal that there was no release.
+      - name: Check required secrets are present
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          missing=""
+          [ -z "$NPM_TOKEN" ] && missing="$missing NPM_TOKEN"
+          [ -z "$CLAWHUB_TOKEN" ] && missing="$missing CLAWHUB_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secret(s):$missing — add them in Settings → Secrets → Actions"
+            exit 1
+          fi
+          echo "both secrets present"
+
+      # The tag is the source of truth for the version. If package.json or
+      # skill.json disagrees with it, two registries would advertise different
+      # versions of the same tool — which is exactly what happened to payql.
+      - name: Versions must agree with the tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./mcp/package.json').version")
+          SKILL=$(node -p "require('./openclaw-skill/graph-advocate/skill.json').version")
+          echo "tag=$TAG  mcp/package.json=$PKG  skill.json=$SKILL"
+          if [ "$TAG" != "$PKG" ] || [ "$TAG" != "$SKILL" ]; then
+            echo "::error::version mismatch — tag $TAG, package.json $PKG, skill.json $SKILL. Align all three and re-tag."
+            exit 1
+          fi
+
+      - name: Install and build the MCP server
+        working-directory: mcp
+        run: |
+          npm ci
+          npm run build
+
+      - name: Smoke-test the built server
+        working-directory: mcp
+        run: |
+          # It must at least start, list its tools, and exit cleanly. Publishing
+          # a package whose bin crashes on load is worse than not publishing.
+          node -e "
+            const { spawn } = require('node:child_process');
+            const p = spawn('node', ['dist/index.js'], { stdio: ['pipe','pipe','inherit'] });
+            let out = '';
+            p.stdout.on('data', d => out += d);
+            p.stdin.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'ci',version:'1'}}})+'\n');
+            setTimeout(() => p.stdin.write(JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/list'})+'\n'), 300);
+            setTimeout(() => {
+              p.kill();
+              if (!out.includes('route_data_request')) { console.error('tools/list did not return route_data_request'); process.exit(1); }
+              console.log('smoke test passed');
+            }, 3000);
+          "
+
+      - name: Publish to npm
+        working-directory: mcp
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+      - name: Publish the skill to ClawHub
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          npm i -g clawhub
+          clawhub auth login --token "$CLAWHUB_TOKEN" --no-browser
+          # --slug explicitly: `graph-advocate` is ambiguous in the registry
+          # (@thcjp holds the same slug), and a bare slug fails to resolve.
+          clawhub publish ./openclaw-skill/graph-advocate \
+            --slug graph-advocate \
+            --owner paulieb14 \
+            --version "${GITHUB_REF_NAME#v}" \
+            --changelog "Release ${GITHUB_REF_NAME}"
+
+      - name: Summary
+        run: |
+          echo "### Released ${GITHUB_REF_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "- npm: graph-advocate-mcp@${GITHUB_REF_NAME#v}" >> $GITHUB_STEP_SUMMARY
+          echo "- ClawHub: @paulieb14/graph-advocate@${GITHUB_REF_NAME#v}" >> $GITHUB_STEP_SUMMARY
