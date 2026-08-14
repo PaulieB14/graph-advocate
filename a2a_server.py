@@ -495,6 +495,11 @@ _PAID_CATALOG = {
         "path": "/agent/score",
         "log_prefix": 'agent-score', "price": '$0.02', "amount": '20000',
         "body": {'wallet': '0x…40hex', 'days': 30},
+        # op_id and desc are REQUIRED whenever openapi is True — the spec builder
+        # reads both. Flipping openapi to True without them is what 500'd the
+        # whole document.
+        "op_id": 'agentScore',
+        "desc": 'Composite 0-100 reputation score for any Base wallet: ERC-8004 identity, USDC settlement history and on-chain feedback, blended into one figure with the component breakdown.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'ask': {
@@ -7746,10 +7751,27 @@ def build_app():
         # so x402scan and other OpenAPI crawlers discover the full surface,
         # not just /route. Prices mirror /.well-known/x402 and the catalogs.
         # Derived from _PAID_CATALOG — do not hand-maintain.
-        _paid_endpoints = [
-            (c["path"], c["op_id"], c["price"].lstrip("$"), c["desc"])
-            for c in _PAID_CATALOG.values() if c.get("openapi")
-        ]
+        # Skip-and-log rather than index-and-crash. A catalog entry marked
+        # `openapi: True` without `op_id`/`desc` used to raise KeyError out of
+        # this comprehension and return 500 for the *entire* document — so one
+        # incomplete entry made every other endpoint undiscoverable to the
+        # crawlers this file exists to serve. Losing one path is recoverable;
+        # losing the spec is not.
+        _paid_endpoints = []
+        for _k, c in _PAID_CATALOG.items():
+            if not c.get("openapi"):
+                continue
+            if not (c.get("op_id") and c.get("desc") and c.get("price")):
+                log.error(
+                    "openapi: skipping %s — openapi=True but missing %s. Add them to "
+                    "_PAID_CATALOG; the endpoint is live but undiscoverable until you do.",
+                    _k,
+                    ", ".join(f for f in ("op_id", "desc", "price") if not c.get(f)),
+                )
+                continue
+            _paid_endpoints.append(
+                (c["path"], c["op_id"], c["price"].lstrip("$"), c["desc"])
+            )
         for _path, _opid, _price, _desc in _paid_endpoints:
             spec["paths"][_path] = {
                 "post": {

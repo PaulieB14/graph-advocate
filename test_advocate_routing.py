@@ -837,6 +837,25 @@ class TestPublishedPricesMatchTheCatalog(unittest.TestCase):
                 f"{entry['path']} renders a price other than the catalog's {price}",
             )
 
+    def test_openapi_entries_carry_what_the_spec_builder_reads(self):
+        """`openapi: True` without `op_id`/`desc` returns 500 for the whole spec.
+
+        Setting agent/score to `openapi: True` — to fix it being *absent* from
+        openapi.json — shipped an entry with neither key, and the builder read
+        `c["op_id"]` unguarded. The result was a KeyError out of a list
+        comprehension and a 500 on the entire document, so one incomplete entry
+        made all 22 endpoints undiscoverable to exactly the crawlers that file
+        exists to serve. It stayed broken for a day.
+        """
+        import a2a_server as srv
+        offenders = {
+            key: [f for f in ("op_id", "desc", "price") if not entry.get(f)]
+            for key, entry in srv._PAID_CATALOG.items()
+            if entry.get("openapi")
+        }
+        offenders = {k: v for k, v in offenders.items() if v}
+        self.assertEqual({}, offenders, f"openapi=True but missing required keys: {offenders}")
+
     def test_every_paid_endpoint_appears_on_the_agent_card(self):
         """A2A directories read the skills list to learn what GA sells.
 
