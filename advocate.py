@@ -602,10 +602,23 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
         "curl_example": (
             "# Run the MCP server\n"
             "npx predictfun-mcp\n\n"
-            "# Or query Predict.fun REST API directly\n"
-            "curl 'https://predict.fun/api/markets?limit=5'"
+            "# Or query Predict.fun REST API directly.\n"
+            "# Testnet needs no key — use it to check the shape first:\n"
+            "curl 'https://api-testnet.predict.fun/v1/markets?first=5'\n\n"
+            "# Production requires a key (x-api-key header):\n"
+            "curl 'https://api.predict.fun/v1/markets?first=5' \\\n"
+            "  -H 'x-api-key: YOUR_API_KEY'"
         ),
-        "get_started": "No API key required for Predict.fun REST API.",
+        # Was 'https://predict.fun/api/markets?limit=5' + "No API key required",
+        # and every part of that was wrong: the host has no /api prefix (404), the
+        # page param is `first` not `limit`, and production now 401s without a
+        # key. An agent handed this burned a call to learn nothing. Testnet is the
+        # keyless surface, so it leads. Verified 2026-08-15: testnet 200,
+        # production 401.
+        "get_started": (
+            "Testnet (https://api-testnet.predict.fun) needs no key. "
+            "Production keys: request via Predict.fun Discord. Docs: https://dev.predict.fun/"
+        ),
     },
     "substreams": {
         "install": "npx substreams-search-mcp",
@@ -673,11 +686,16 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
         "get_started": "Free JWT: https://thegraph.market/auth/tokenapi-env",
     },
     "8004scan": {
+        # Browse leads because it works. /agents/search has returned 502 on every
+        # attempt (checked 3x, 2026-08-15) while /agents and the site itself are
+        # 200 — so the example that ran first was the one that always failed.
+        # `_search_8004_agents` already falls back search -> browse -> subgraph, so
+        # this only realigns the copy an agent is handed with what actually answers.
         "curl_example": (
-            "# Search agents on 8004scan\n"
-            "curl 'https://8004scan.io/api/v1/public/agents/search?q=mcp&limit=10'\n\n"
-            "# Browse all agents\n"
-            "curl 'https://8004scan.io/api/v1/public/agents?limit=10&sort=score&order=desc'"
+            "# Browse agents by on-chain reputation score\n"
+            "curl 'https://8004scan.io/api/v1/public/agents?limit=10&sort=score&order=desc'\n\n"
+            "# Keyword search (upstream has been returning 502 — fall back to browse)\n"
+            "curl 'https://8004scan.io/api/v1/public/agents/search?q=mcp&limit=10'"
         ),
         "get_started": "Register your agent at https://8004scan.io",
     },
