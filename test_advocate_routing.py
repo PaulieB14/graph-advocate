@@ -896,6 +896,34 @@ class TestPublishedPricesMatchTheCatalog(unittest.TestCase):
         full = next(i for i, l in enumerate(lines) if "'pm-pnl%'" in l)
         self.assertLess(quick, full, "pm-pnl% would shadow pm-pnl-quick%")
 
+    def test_get_signpost_can_quote_a_price_for_every_paid_path(self):
+        """A GET on a paid path must be able to name its price.
+
+        Paid routes are POST-only (a GET used to hang ~10s on `request.body()`),
+        so Starlette answered every GET with 18 bytes of text/plain "Method Not
+        Allowed". Discovery bots GET a URL before they POST one, and that reply
+        carries no price, no verb and no body shape — a working priced endpoint
+        reads as broken to the exact crawlers that would send it customers.
+
+        The 405 handler now renders the catalog entry instead. It resolves the
+        two deliberately-blank entries — `/route` bills the flat
+        `X402_PRICE_CENTS` query price, `/tip` takes any amount — and this test
+        pins that list closed: a NEW blank-price endpoint would otherwise
+        silently emit `"price": ""` and a message quoting no price at all, which
+        is worse than the bare 405 it replaced.
+        """
+        import a2a_server as srv
+        dynamic = {"/route", "/tip"}
+        blank = [
+            v["path"] for v in srv._PAID_CATALOG.values()
+            if not v.get("price") and v["path"] not in dynamic
+        ]
+        self.assertEqual(
+            [], blank,
+            f"priced-endpoint GET would quote an empty price for: {blank}. "
+            "Give it a catalog price, or teach the 405 handler how to resolve it.",
+        )
+
     def test_no_markdown_surface_contradicts_the_catalog(self):
         """README, SKILL.md and docs/*.mdx must not quote a different price."""
         import a2a_server as srv

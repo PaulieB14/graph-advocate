@@ -10141,6 +10141,91 @@ def build_app():
         # the payment middleware only registers POST routes (per RouteConfig keys),
         # so GETs bypass payment and fall through to the inner handler which blocks
         # waiting for a body that never arrives. Starlette returns 405 fast instead.
+        #
+        # ...but Starlette's stock 405 is 18 bytes of `text/plain` ("Method Not
+        # Allowed"), which is a dead end for the crawlers that find this service.
+        # A discovery bot GETs an endpoint URL first; on a bare 405 it learns
+        # neither the price, nor that POST is the verb, nor the body shape — so a
+        # priced, working endpoint reads as broken. The 402 challenge (rich, with
+        # `accepts` + `output_example`) is only reachable by someone who already
+        # knew to POST, i.e. the caller who needed no help.
+        #
+        # So: keep the 405 (correct HTTP, and it keeps GETs off the body-read path
+        # that caused the hang above — this handler never touches `request.body()`)
+        # but answer it in JSON built from `_PAID_CATALOG`, the same source of
+        # truth openapi.json and /.well-known/x402 derive from. Nothing here is
+        # typed twice, and a GET now signposts the exact paid call to make.
+        async def _paid_method_not_allowed(request, exc):
+            path = request.url.path
+            entry = next((c for c in _PAID_CATALOG.values()
+                          if c.get("path") == path), None)
+            base = "https://graphadvocate.com"
+            common = {
+                "discovery": f"{base}/.well-known/x402",
+                "openapi": f"{base}/openapi.json",
+                "agent_card": f"{base}/.well-known/agent-card.json",
+                "docs": f"{base}/llms.txt",
+            }
+            if not entry:
+                return _RouteJSON(
+                    {"error": "method_not_allowed",
+                     "message": "This endpoint takes POST.",
+                     "method": "POST", **common},
+                    status_code=405, headers={"Allow": "POST"})
+            # `/route` and `/tip` are deliberately blank in the catalog — /route is
+            # the flat post-free-tier query price (X402_PRICE_CENTS, so it tracks
+            # the env var rather than a second hardcoded literal) and /tip takes
+            # any amount. Emitting their empty strings verbatim produced a "( USDC
+            # on Base)" message quoting no price at all, which is worse than the
+            # bare 405 it replaced. Resolve both, and never emit an empty field.
+            price, amount = entry.get("price"), entry.get("amount")
+            if path == "/route" and not price:
+                price = f"${X402_PRICE_CENTS / 100:.2f}"
+                amount = str(X402_PRICE_CENTS * 10000)
+            if path == "/tip":
+                price, amount = "any", None
+
+            if price == "any":
+                lede = (f"GET carries no payload here — POST {path} instead. This "
+                        "endpoint accepts a tip of any amount over x402.")
+            elif price:
+                lede = (f"GET carries no payload here — POST {path} instead. This is "
+                        f"a paid x402 endpoint ({price} USDC on Base); POST without "
+                        "payment returns a full 402 challenge you can auto-pay.")
+            else:
+                lede = (f"GET carries no payload here — POST {path} instead. POST "
+                        "without payment returns a 402 challenge with the price.")
+
+            accepts = {
+                "scheme": "exact",
+                "network": "eip155:8453",
+                "asset": _USDC_BASE_ASSET,
+                "amount": amount,
+                "payTo": X402_WALLET,
+                "maxTimeoutSeconds": 300,
+                "extra": {"name": "USD Coin", "version": "2"},
+            }
+            payload = {
+                "error": "method_not_allowed",
+                "message": lede,
+                "method": "POST",
+                "resource": f"{base}{path}",
+                "price": price,
+                "description": entry.get("desc"),
+                "body": entry.get("body"),
+                "accepts": [{k: v for k, v in accepts.items() if v}],
+                "hint": (
+                    "POST the `body` above with an x402 `X-PAYMENT` header. Most "
+                    "x402 SDKs sign and retry automatically — POST once with no "
+                    "header to get the machine-readable 402 challenge first."
+                ),
+                **common,
+            }
+            # Drop empties, not just Nones: a blank price or `{}` body reads as a
+            # broken field to a crawler, where an absent key reads as "n/a".
+            return _RouteJSON({k: v for k, v in payload.items() if v not in (None, "", {}, [])},
+                              status_code=405, headers={"Allow": "POST"})
+
         _inner_route_app = _RouteStarlette(routes=[
             _RouteRoute("/route", _route_handler, methods=["POST"]),
             _RouteRoute("/tip", _tip_handler, methods=["POST"]),
@@ -10166,7 +10251,7 @@ def build_app():
             _RouteRoute("/uniswap/basis", _uniswap_basis_handler, methods=["POST"]),
             _RouteRoute("/uniswap/traders", _uniswap_traders_handler, methods=["POST"]),
             _RouteRoute("/agent/score", _agent_score_handler, methods=["POST"]),
-        ])
+        ], exception_handlers={405: _paid_method_not_allowed})
 
         x402_server = _get_x402_server()
         if x402_server:
