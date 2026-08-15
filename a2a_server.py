@@ -11524,8 +11524,24 @@ def build_app():
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
+    # /health did not exist, so every uptime and trust oracle pointed at GA was
+    # scoring a 404 as "down" — ~20 named x402 monitor/census bots probe it, and
+    # their verdicts feed the reputation surfaces agents shop on. GET and HEAD
+    # both, because half of them use HEAD (which was also 405ing on `/`).
+    # Deliberately cheap: no DB read, no upstream call, so a health probe can
+    # never be the thing that makes GA look slow.
+    async def health_endpoint(request):
+        return JSONResponse(
+            {"status": "ok", "service": "graph-advocate",
+             "agent_card": "/.well-known/agent-card.json",
+             "discovery": "/.well-known/x402"},
+            headers={"Cache-Control": "no-store"},
+        )
+
     # Mount /logs, /dashboard, /chat on top of the A2A app
     extra = Starlette(routes=[
+        Route("/health", health_endpoint, methods=["GET", "HEAD"]),
+        Route("/healthz", health_endpoint, methods=["GET", "HEAD"]),
         Route("/admin/prune-activity", prune_activity_endpoint, methods=["POST"]),
         Route("/webhook/agent-exchange", webhook_agent_exchange, methods=["POST"]),
         Route("/logs", logs_endpoint),
@@ -11852,7 +11868,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/quota", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/health", "/healthz", "/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/quota", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip", "/ask")
