@@ -4718,10 +4718,17 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
     # ?safe_only=false to also write ambiguous matches (NOT recommended
     # without a follow-on confidence column or tx-hash provenance store).
     safe_only = (request.query_params.get("safe_only", "true").lower() not in ("0", "false", "no"))
-    try:
-        max_blocks_back = int(request.query_params.get("max_blocks_back", "200000"))
-    except ValueError:
-        max_blocks_back = 200000
+    # Absent → the scan window is derived from the oldest candidate row (see
+    # the coverage block below). Only an explicit value overrides that.
+    _mbb_raw = request.query_params.get("max_blocks_back")
+    max_blocks_back_explicit = False
+    max_blocks_back = 200000
+    if _mbb_raw:
+        try:
+            max_blocks_back = int(_mbb_raw)
+            max_blocks_back_explicit = True
+        except ValueError:
+            pass
     # ±N seconds window for matching activity_ts → onchain_ts. 60s covers
     # x402 facilitator settle latency + clock drift between Railway and Base.
     try:
@@ -4785,7 +4792,35 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
             # Walk back in 9999-block chunks (Base public RPC limit is 10000)
             CHUNK = 9999
             transfers = []  # list of {block, ts, sender, amount_atomic, tx}
-            chunks = max(1, max_blocks_back // CHUNK)
+
+            # COVERAGE, not just a chunk count. The old default of 200_000
+            # blocks was chosen as if blocks were slow; Base mines every ~2s, so
+            # it reached back 4.6 DAYS while the candidate rows span months. On
+            # 2026-08-18 the scan window started ~10k blocks AFTER the most
+            # recent payment, saw 0 transfers, and reported all 284 unmatched
+            # rows as "no_amount_match" — a coverage failure dressed up as a
+            # matching failure, which is the worst kind of clean-looking report.
+            #
+            # Default now derives from the OLDEST row we're trying to attribute
+            # instead of a magic constant. An explicit ?max_blocks_back= still
+            # wins, and MAX_CHUNKS bounds the RPC bill either way.
+            BASE_BLOCK_SECS = 2.0
+            MAX_CHUNKS = 400  # ~4M blocks ≈ 92 days of Base, ~400 eth_getLogs
+            if max_blocks_back_explicit:
+                blocks_back = max_blocks_back
+            elif candidates:
+                _oldest = min(c["ts_epoch"] for c in candidates)
+                _span_s = max(0, int(_dt.now(_tz.utc).timestamp()) - _oldest)
+                # +2h of slack absorbs block-time drift over long spans.
+                blocks_back = int((_span_s + 7200) / BASE_BLOCK_SECS)
+            else:
+                blocks_back = 200000
+            chunks = min(MAX_CHUNKS, max(1, blocks_back // CHUNK))
+            scan_from_block = max(0, head - chunks * CHUNK)
+            # The wall-clock floor of what we actually looked at. Any candidate
+            # older than this was NEVER SCANNED, and must not be reported as if
+            # its Transfer was missing from the chain.
+            scan_floor_epoch = int(_dt.now(_tz.utc).timestamp()) - int(chunks * CHUNK * BASE_BLOCK_SECS)
             for i in range(chunks):
                 to_b = head - i * CHUNK
                 fr_b = max(0, to_b - CHUNK + 1)
@@ -4834,6 +4869,18 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
             # ── 3. Match each candidate to a Transfer ─────────────────────
             matches = []  # {activity_id, paid_by_wallet, evidence, status}
             for c in candidates:
+                # Say "we didn't look" when we didn't look. Distinguishing this
+                # from no_amount_match is the difference between "this row's
+                # payment isn't on chain" and "widen the window and try again".
+                if c["ts_epoch"] < scan_floor_epoch:
+                    matches.append({
+                        "activity_id": c["id"],
+                        "status": "outside_scan_window",
+                        "expected_atomic": c["expected_atomic"],
+                        "ts": c["ts"].isoformat(),
+                        "request": c["request"],
+                    })
+                    continue
                 possible = by_amount.get(c["expected_atomic"], [])
                 if not possible:
                     matches.append({
@@ -4932,11 +4979,24 @@ async def backfill_paid_by_wallet_endpoint(request: Request):
             "sample_no_amount_match": sample_no_amt,
             "rpc_chunks_scanned": chunks,
             "transfers_seen_total": len(transfers),
+            # What the scan actually covered, so a zero-match report can be told
+            # apart from a zero-coverage one without reading the source.
+            "scan_coverage": {
+                "head_block": head,
+                "from_block": scan_from_block,
+                "blocks_scanned": chunks * CHUNK,
+                "approx_days": round(chunks * CHUNK * BASE_BLOCK_SECS / 86400, 1),
+                "window_source": "explicit max_blocks_back" if max_blocks_back_explicit
+                                 else "derived from oldest candidate row",
+                "capped_at_max_chunks": chunks == MAX_CHUNKS,
+                "candidates_outside_window": status_counts.get("outside_scan_window", 0),
+            },
             "hint": (
                 "POST /admin/backfill-paid-by-wallet?token=...&apply=true to write "
                 "the matched paid_by_wallet values. safe_only=true (default) skips "
                 "the ambiguous_took_closest bucket. Idempotent — only NULL rows are "
-                "updated."
+                "updated. outside_scan_window rows need a bigger ?max_blocks_back "
+                "(Base mines ~2s/block, so 1 day ≈ 43,200 blocks)."
             ) if not apply else (
                 "Refresh /dashboard/data — repeat_payers[] should populate."
             ),
