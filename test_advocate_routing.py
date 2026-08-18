@@ -657,6 +657,59 @@ class TestPayerCapture(unittest.TestCase):
             )
 
 
+class TestPaymentPayloadFromScope(unittest.TestCase):
+    """_payment_payload_from_scope must find the payload the way Starlette
+    ACTUALLY stores it.
+
+    Regression test for the 2026-08-18 finding: TestPayerCapture above passed
+    the whole time while production attribution was dead, because it tested
+    _extract_payer_addr in isolation and never exercised the scope read. The
+    middleware did getattr() on scope["state"], which Starlette makes a plain
+    dict — so payment_payload was invisible on every paid request for two
+    months. Assert against real Starlette, not a hand-built stand-in."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("ACTIVITY_DB_PATH", "/tmp/test_paid_payer.db")
+        import a2a_server as _srv
+        self._srv = _srv
+
+    def test_reads_payload_written_via_real_starlette_request_state(self):
+        # The exact mechanism x402 2.8.0 uses: request.state.payment_payload = X
+        from starlette.requests import Request
+        scope = {"type": "http", "headers": [], "method": "POST", "path": "/route"}
+        req = Request(scope)
+        class _PP:
+            payload = {"authorization": {"from": "0xAaBbCc11223344556677889900AaBbCc11223344"}}
+        req.state.payment_payload = _PP()
+        got = self._srv._payment_payload_from_scope(scope)
+        self.assertIsNotNone(
+            got, "payload written via request.state must be readable from the raw scope",
+        )
+        # And it must survive the full path into an address.
+        self.assertEqual(
+            self._srv._extract_payer_addr(got),
+            "0xaabbcc11223344556677889900aabbcc11223344",
+        )
+
+    def test_reads_object_style_state_too(self):
+        # A State instance (or any future object-shaped state) still works.
+        class _State:
+            payment_payload = "SENTINEL"
+        self.assertEqual(
+            self._srv._payment_payload_from_scope({"state": _State()}), "SENTINEL",
+        )
+
+    def test_returns_none_on_free_traffic(self):
+        # No payment → None, never a raise. Free traffic is the common case.
+        for scope in ({}, {"state": None}, {"state": {}}, {"state": "nonsense"},
+                      {"state": {"other_key": 1}}):
+            self.assertIsNone(
+                self._srv._payment_payload_from_scope(scope),
+                f"expected None for unpaid scope {scope!r}",
+            )
+
+
 class TestLogPaidFailureNormalization(unittest.TestCase):
     """_log_paid_failure should normalize non-Exception args so the row never
     silently shows exception_type='str' (bug observed 2026-06-18T05:33Z on the

@@ -1753,13 +1753,11 @@ class _PayerCaptureASGI:
             return
         token = None
         try:
-            state = scope.get("state")
-            if state is not None:
-                pp = getattr(state, "payment_payload", None)
-                if pp is not None:
-                    addr = _extract_payer_addr(pp)
-                    if addr:
-                        token = _current_payer_addr.set(addr)
+            pp = _payment_payload_from_scope(scope)
+            if pp is not None:
+                addr = _extract_payer_addr(pp)
+                if addr:
+                    token = _current_payer_addr.set(addr)
             await self.app(scope, receive, send)
         finally:
             if token is not None:
@@ -1767,6 +1765,33 @@ class _PayerCaptureASGI:
                     _current_payer_addr.reset(token)
                 except Exception:
                     pass
+
+
+def _payment_payload_from_scope(scope) -> object | None:
+    """Read the verified PaymentPayload that PaymentMiddlewareASGI stashed on
+    request.state, out of the raw ASGI scope.
+
+    THE SUBTLETY THAT COST TWO MONTHS OF ATTRIBUTION (fixed 2026-08-18):
+    x402 2.8.0 does `request.state.payment_payload = ...`. Starlette's
+    Request.state is a `State` *wrapper* around a plain dict living at
+    scope["state"] — the attribute write lands as a dict KEY. So the obvious
+    `getattr(scope["state"], "payment_payload", None)` returns None forever,
+    silently, on every paid request. Every activity.paid_by_wallet value in
+    the DB came from /admin/backfill-paid-by-wallet, never from live capture.
+
+    Handle both shapes: dict (Starlette today) and object-with-attribute (a
+    State instance, or whatever a future x402/Starlette hands us). Returns
+    None when there is no payment — free traffic is the common case.
+    """
+    try:
+        state = scope.get("state")
+        if state is None:
+            return None
+        if isinstance(state, dict):
+            return state.get("payment_payload")
+        return getattr(state, "payment_payload", None)
+    except Exception:
+        return None
 
 
 def _extract_payer_addr(payment_payload) -> str | None:
@@ -2829,10 +2854,11 @@ class GraphAdvocateExecutor(AgentExecutor):
                     # Continue to normal processing with priority flag
                 else:
                     log.info(f"X402-FAIL task={task_id} | payment verification failed")
-                    _log_request(task_id, user_text, "x402-failed", "high", "invalid")
                     _pf = _x402_payment_required_response(user_text=user_text)
                     _pf["recommendation"] = "payment-failed"
                     _pf["reason"] = "x402 payment verification failed. Please retry with a valid payment."
+                    _log_request(task_id, user_text, "x402-failed", "high", "invalid",
+                                 response=_pf)
                     await event_queue.enqueue_event(
                         new_agent_text_message(json.dumps(_pf))
                     )
@@ -2840,11 +2866,19 @@ class GraphAdvocateExecutor(AgentExecutor):
             else:
                 _why = "anonymous (no sender metadata)" if sender_is_anonymous else "daily limit exceeded"
                 log.info(f"X402     task={task_id} | {_why}, payment required")
-                _log_request(task_id, user_text, "payment-required", "high", "x402")
+                # Build the challenge FIRST, then log the exact bytes we send.
+                # Until 2026-08-18 this logged no response at all: 762 of 762
+                # payment-required rows had response_json NULL, so there was no
+                # way to audit which reason variant, price or output_example a
+                # buyer was quoted before walking away. The 402 IS the sales
+                # pitch — it has to be as inspectable as an answer.
+                _pr = _x402_payment_required_response(
+                    anonymous=sender_is_anonymous, user_text=user_text,
+                )
+                _log_request(task_id, user_text, "payment-required", "high", "x402",
+                             response=_pr)
                 await event_queue.enqueue_event(
-                    new_agent_text_message(json.dumps(
-                        _x402_payment_required_response(anonymous=sender_is_anonymous, user_text=user_text)
-                    ))
+                    new_agent_text_message(json.dumps(_pr))
                 )
                 return
 
@@ -3204,7 +3238,8 @@ class GraphAdvocateExecutor(AgentExecutor):
                 f"answer - re-applying payment gate (anon={sender_is_anonymous})"
             )
             _pf = _x402_payment_required_response(user_text=user_text)
-            _log_request(task_id, user_text, "payment-required", "high", "probe-fallthrough")
+            _log_request(task_id, user_text, "payment-required", "high", "probe-fallthrough",
+                         response=_pf)
             await event_queue.enqueue_event(new_agent_text_message(json.dumps(_pf)))
             return
 
@@ -5324,10 +5359,20 @@ def _build_dashboard_data() -> dict:
     import json as _json
     import sqlite3 as _sq
 
-    NOISE = {"out-of-scope", "introduction", "awaiting-request", "unknown", "chat",
-             "rate-limited", "payment-required", "x402-paid", "x402-failed",
-             "operational-confirmation", "registry-info", "conformance",
-             "clarification-needed", "no-match", "unclear-request"}
+    # DERIVED, not re-typed. This was a fourth hand-maintained copy of the
+    # non-routing list and it had already drifted: it lacked `blocked` (16 rows
+    # in the 14 days before 2026-08-18) and every `agent-exchange-*` variant, so
+    # spam rejections and bot chatter were being stacked into by_service["other"]
+    # and read as delivered work on the chart. Same drift the comment above
+    # _META_SERVICES_EXCLUDED_FROM_HEADLINE warns about — so obey it here too.
+    #
+    # `cached` and both tip spellings are deliberately NOT noise: a cached answer
+    # is work that was delivered, and a tip is revenue. They sit in
+    # _NON_ROUTING_SERVICES only because the 5-point quality rubric can't grade
+    # them — which is a scoring concern, not a "did anything happen" concern.
+    NOISE = ((_NON_ROUTING_SERVICES | {"awaiting-request", "unknown"})
+             - {"cached", "tip", "x402-tip"})
+    _NOISE_PREFIXES = ("agent-exchange",)
     SERVICE_COLORS = {
         "token-api":            "#10b981",
         "subgraph-registry":    "#6366f1",
@@ -5439,7 +5484,11 @@ def _build_dashboard_data() -> dict:
             break
 
     # ── Donut chart ───────────────────────────────────────────────────────
-    donut_labels = [k for k in service_counts if k not in NOISE]
+    # Same NOISE contract as the stacked chart, prefixes included — the donut
+    # answers "what did GA actually route to", and agent-exchange-job-skipped
+    # is not a service GA routed anyone to.
+    donut_labels = [k for k in service_counts
+                    if k not in NOISE and not str(k or "").startswith(_NOISE_PREFIXES)]
     donut_values = [service_counts[k] for k in donut_labels]
     donut_colors = [SERVICE_COLORS.get(k, "#64748b") for k in donut_labels]
     if not donut_labels:
@@ -5580,7 +5629,7 @@ def _build_dashboard_data() -> dict:
                     bucket_total[idx] += 1
                     if svc in bucket_svc:
                         bucket_svc[svc][idx] += 1
-                    elif svc not in NOISE:
+                    elif svc not in NOISE and not str(svc or "").startswith(_NOISE_PREFIXES):
                         bucket_svc["other"][idx] += 1
             except Exception:
                 pass
