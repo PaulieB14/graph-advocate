@@ -96,6 +96,17 @@ CRITICAL — Token API parameter names (use EXACTLY these, never alias):
   - "contract" (REQUIRED for holders/tokens): the token contract address
   - "address" (REQUIRED for balances): the wallet address
   - DO NOT use "chain", "token_address", "token", or "network_id" — these are WRONG
+  PAGE SIZE IS 10, AND ON THE FREE PLAN YOU CANNOT RAISE IT. Verified 2026-08-19 against
+  /v1/evm/balances: no `limit` returns 10 rows; `limit=100` and `limit=500` return HTTP 403
+  Forbidden on a free-tier key. A wallet like 0xd8dA…6045 holds hundreds of tokens, so a
+  bare call shows roughly 1% of the portfolio.
+  NEVER describe a single unpaginated call as "all balances", "the full portfolio", or
+  "every token" — that is the caller's most likely follow-on action (summing to a net worth)
+  and it will be silently, badly wrong. Say what it returns: "the first 10, newest first".
+  To actually enumerate a wallet, PAGINATE: add `&page=N` (10 per page) and keep going until
+  a page returns fewer than 10 rows. The response carries `pagination.current_page` and
+  `results` (rows in THIS page) but no total, so looping until short is the only stop
+  condition. Give the caller the loop, not just the first call, whenever they ask for "all".
   Full reference: https://api.pinax.network/SKILL.md
   Common contracts:
     USDC: mainnet=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, base=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
@@ -148,9 +159,11 @@ Use when: the agent needs entities, relationships, or aggregations a subgraph tr
 Key tools: search_subgraphs_by_keyword, get_schema_by_subgraph_id, execute_query_by_subgraph_id
 IMPORTANT — Common subgraph entity names (do NOT guess, use these):
   - Uniswap V2: pairs(orderBy: volumeUSD) { token0 { symbol } token1 { symbol } reserveUSD volumeUSD }
-  - Uniswap V3: pools(orderBy: volumeUSD) { token0 { symbol } token1 { symbol } totalValueLockedUSD volumeUSD feeTier }
+  - Uniswap V3: pools(orderBy: volumeUSD) { token0 { symbol } token1 { symbol } volumeUSD feeTier }
     (Uniswap ONLY: rank by volumeUSD even when the caller says "by TVL" — see the anti-TVL rule
-     below — and say in `reason` that you did, so they know what they are looking at.)
+     below — and say in `reason` that you did, so they know what they are looking at.
+     Note the absence of totalValueLockedUSD: on native V3 deployments that number is wrong by
+     an order of magnitude, so do not select it. TVL comes from the Messari fork instead.)
   - Aave V2/V3: markets(orderBy: totalDepositBalanceUSD) { name inputToken { symbol } totalDepositBalanceUSD totalBorrowBalanceUSD }
   - Compound: markets(orderBy: totalDepositBalanceUSD) { name inputToken { symbol } totalDepositBalanceUSD }
   - ENS: registrations(orderBy: registrationDate) { domain { name } registrant { id } registrationDate }
@@ -193,6 +206,10 @@ pre-built tooling. Install via: npx <package-name>
   Powered by Graph subgraphs addressed by SUBGRAPH ID, so they auto-follow the publisher's latest published version
   IMPORTANT — rank Uniswap pools by volumeUSD, NEVER by TVL: Uniswap subgraph TVL/liquidity is inflated by illiquid spam-token pools (a single fake pool can report trillions). This applies whether or not you recommend the MCP.
   This rule OVERRIDES the caller's wording. If they ask for "top pools by TVL", still order by volumeUSD — but you MUST say so in `reason` ("ranked by volumeUSD rather than TVL because …"). Silently substituting the metric gives them numbers they did not ask for and cannot spot; the query now runs for real, so what comes back is what they will act on.
+  SEPARATE AND WORSE — the native V3 subgraph's TVL NUMBERS ARE THEMSELVES WRONG, not merely spam-inflated. The rule above is about RANKING; this one is about the value. `totalValueLockedUSD` / `totalValueLockedToken0` / `totalValueLockedToken1` on the native deployments (e.g. 5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV) are accumulated from per-event deltas and drift upward without bound. Measured 2026-08-19 on the canonical USDC/WETH 0.3% pool 0x8ad599c3a0ff1de082011efddc58f1908eb6e6d8: the native subgraph reported 138,939,548 USDC and 61,692 WETH ($267.2M TVL); the actual on-chain balances of that contract were 6,110,083 USDC and 5,337 WETH — the subgraph is 22.7x and 11.6x high. This is a blue-chip pool, so "spam pools" does NOT explain it.
+  THEREFORE: never return `totalValueLockedUSD` from a native V3 deployment as an answer column, and NEVER vouch for it in `reason` (saying "the query still returns totalValueLockedUSD so you can see both metrics" hands the caller a number that is wrong by an order of magnitude with your endorsement on it). Volume, fee tier, swap counts and prices from these deployments are fine — it is specifically the TVL/locked-balance fields that are broken.
+  If the caller genuinely needs Uniswap TVL for a SPECIFIC pool, use the Messari-standardized fork 4cKy6QQMc5tpfdx8yxfYeb9TLZmgLQe44ddW1G7NwkA6 and look the pool up BY ID: `liquidityPool(id: "0x…")` exposes `inputTokenBalances`, which tracks real balances (same pool, same day: 6,350,287 USDC / 5,455 WETH — within a few percent of chain). Say which source you used and why.
+  BUT the two rules stack, they do not cancel: the Messari fork is accurate PER POOL and still useless for RANKING, because ordering it by totalValueLockedUSD surfaces the same spam pools (a fake Wrapped Ether/Yescoin pair reports $94 BILLION there today). So: rank by volumeUSD on any Uniswap subgraph; read TVL only for a pool the caller already named, and only from the Messari fork.
   Schema note: V2 is Pair-based (`pairs`, reserveUSD); V3/V4 are Pool-based (`pools`, feeTier, totalValueLockedUSD). Some deployments price via nativePriceUSD/derivedNative instead of ethPriceUSD/derivedETH.
   Install: npx -y graph-uniswap-mcp (needs GRAPH_API_KEY)
 - graph-polymarket-mcp (v2.0.0): Polymarket prediction markets — 31 tools combining The Graph subgraphs + Polymarket REST APIs (Gamma + CLOB)
@@ -710,12 +727,36 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
             "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV' \\\n"
             "  -H 'Authorization: Bearer YOUR_API_KEY' \\\n"
             "  -H 'Content-Type: application/json' \\\n"
-            "  -d '{\"query\": \"{ pools(first: 10, orderBy: volumeUSD, orderDirection: desc) { id token0 { symbol } token1 { symbol } feeTier totalValueLockedUSD volumeUSD } }\"}'"
+            "  -d '{\"query\": \"{ pools(first: 10, orderBy: volumeUSD, orderDirection: desc) { id token0 { symbol } token1 { symbol } feeTier volumeUSD } }\"}'\n\n"
+            "# NOTE: totalValueLockedUSD is deliberately not selected. On the native V3\n"
+            "# deployment it accumulates from per-event deltas and drifts — measured\n"
+            "# 22.7x above real on-chain balances on USDC/WETH 0.3% (2026-08-19).\n"
+            "# For the real TVL of a SPECIFIC pool, use the Messari fork, which tracks\n"
+            "# actual balances. Look it up BY ID — do not orderBy totalValueLockedUSD,\n"
+            "# because ranking by TVL surfaces spam pools on any Uniswap subgraph\n"
+            "# (a fake WETH pair currently reports $94B). Accurate per pool, not for ranking.\n"
+            "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/4cKy6QQMc5tpfdx8yxfYeb9TLZmgLQe44ddW1G7NwkA6' \\\n"
+            "  -H 'Authorization: Bearer YOUR_API_KEY' \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -d '{\"query\": \"{ liquidityPool(id: \\\"0x8ad599c3a0ff1de082011efddc58f1908eb6e6d8\\\") { name totalValueLockedUSD inputTokenBalances inputTokens { symbol decimals } } }\"}'"
         ),
         "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
     },
     "token-api": {
         "curl_example": (
+            "# Wallet balances — NOTE: 10 per page, and limit>10 is 403 on the free plan.\n"
+            "# A single call is the first 10 tokens, NOT the whole portfolio.\n"
+            "curl 'https://api.pinax.network/v1/evm/balances?address=0xADDRESS&network=mainnet' \\\n"
+            "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
+            "# To enumerate every token, page until a page returns fewer than 10 rows.\n"
+            "# There is no total in the response, so 'short page' is the stop condition:\n"
+            "page=1\n"
+            "while :; do\n"
+            "  n=$(curl -s \"https://api.pinax.network/v1/evm/balances?address=0xADDRESS&network=mainnet&page=$page\" \\\n"
+            "        -H 'Authorization: Bearer YOUR_JWT' | jq '.data | length')\n"
+            "  [ \"$n\" -lt 10 ] && break\n"
+            "  page=$((page+1))\n"
+            "done\n\n"
             "# Get USDC holders on Ethereum (replace TOKEN with your JWT)\n"
             "curl 'https://api.pinax.network/v1/evm/holders?contract=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&network=mainnet&limit=10' \\\n"
             "  -H 'Authorization: Bearer YOUR_JWT'\n\n"
@@ -1499,7 +1540,11 @@ def _template_query(request: str) -> dict | None:
         if version == "v2":
             entity, extra = "pairs", "reserveUSD"
         else:
-            entity, extra = "pools", "feeTier\n    totalValueLockedUSD"
+            # No totalValueLockedUSD: on native V3/V4 deployments it is cumulative
+            # drift, measured 22.7x above real on-chain balances on the canonical
+            # USDC/WETH 0.3% pool (2026-08-19). Selecting it here put a wrong
+            # number in the machine-readable query_ready every caller runs.
+            entity, extra = "pools", "feeTier"
         query = (
             "{\n"
             f"  {entity}(first: 20, orderBy: volumeUSD, orderDirection: desc) {{\n"

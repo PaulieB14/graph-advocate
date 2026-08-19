@@ -223,12 +223,26 @@ class TestFallbackRoute(unittest.TestCase):
         self.assertIn("amountUSD_gt", q)
 
     def test_uniswap_v3_pool_template(self):
+        """The template must rank by volumeUSD and must NOT select TVL.
+
+        This assertion was inverted on 2026-08-19. It previously required
+        totalValueLockedUSD in the generated query, encoding the very behaviour
+        that shipped wrong numbers: on the native V3 deployment that field is
+        accumulated from per-event deltas and measured 22.7x above real on-chain
+        balances (USDC/WETH 0.3%, 6.1M USDC on chain vs 138.9M reported). The
+        caller runs query_ready verbatim, so selecting it put an order-of-
+        magnitude error into the machine-readable payload.
+
+        Note the request still says "by TVL" — the anti-TVL rule deliberately
+        overrides the caller's wording and the answer explains the substitution.
+        """
         result = self.fn("Write a GraphQL query for Uniswap V3 pools by TVL")
         qr = result.get("query_ready") or {}
         q = qr.get("args", {}).get("query", "")
         self.assertEqual(result["recommendation"], "subgraph-registry")
         self.assertIn("pools", q)
-        self.assertIn("totalValueLockedUSD", q)
+        self.assertIn("orderBy: volumeUSD", q)
+        self.assertNotIn("totalValueLockedUSD", q)
 
     def test_query_template_skipped_when_not_asking_for_query(self):
         """Plain 'aave liquidations' without 'write a query' should route normally, not hit template."""
@@ -1240,6 +1254,98 @@ class TestSubstreamsInjectorMirrorsUpstream(unittest.TestCase):
         for bad in ('"results":', '"spkg_url"', '"has_more"'):
             self.assertNotIn(bad, self.src,
                              f"injector still emits {bad}, which the model will copy into jq")
+
+
+class TestNativeUniswapTvlNeverEmitted(unittest.TestCase):
+    """Never select totalValueLockedUSD from a native Uniswap V3 deployment.
+
+    Measured 2026-08-19 on the canonical USDC/WETH 0.3% pool
+    0x8ad599c3a0ff1de082011efddc58f1908eb6e6d8:
+        native 5zvR82…  138,939,548 USDC / 61,692 WETH  ($267.2M)
+        Messari 4cKy6QQ…  6,350,287 USDC /  5,455 WETH  ($17.7M)
+        on-chain          6,110,083 USDC /  5,337 WETH
+    The native deployment accumulates locked balances from per-event deltas and
+    drifts — 22.7x and 11.6x high on a blue-chip pool, so the pre-existing
+    "spam pools" rule does not explain it and did not prevent it. GA was
+    returning that column AND vouching for it in `reason`.
+
+    Note the two rules stack rather than cancel: the Messari fork is accurate
+    per-pool but still must not be ranked by TVL (a fake Wrapped Ether/Yescoin
+    pair reports $94B there), which is why the anti-ranking rule stays."""
+
+    NATIVE_V3 = "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV"
+    MESSARI = "4cKy6QQMc5tpfdx8yxfYeb9TLZmgLQe44ddW1G7NwkA6"
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        import advocate
+        self.advocate = advocate
+
+    def test_uniswap_curl_example_does_not_select_native_tvl(self):
+        ex = (self.advocate._SERVICE_CURL_EXAMPLES.get("subgraph-registry") or {}).get("curl_example") or ""
+        self.assertIn(self.NATIVE_V3, ex, "example should still show the native deployment")
+        # Assert on the GraphQL PAYLOAD, not the surrounding prose — the comments
+        # deliberately name the field in order to explain why it is absent.
+        native_section = ex.split(self.MESSARI)[0]
+        queries = [ln for ln in native_section.splitlines()
+                   if '-d ' in ln and '"query"' in ln]
+        self.assertTrue(queries, "no runnable query found in the native example")
+        for q in queries:
+            self.assertNotIn("totalValueLockedUSD", q,
+                             f"native-deployment query still selects TVL: {q[:120]}")
+
+    def test_messari_alternative_is_offered_and_looked_up_by_id(self):
+        ex = (self.advocate._SERVICE_CURL_EXAMPLES.get("subgraph-registry") or {}).get("curl_example") or ""
+        self.assertIn(self.MESSARI, ex, "no accurate TVL source offered")
+        self.assertIn("liquidityPool(id:", ex,
+                      "must look the pool up BY ID — ranking the Messari fork by TVL "
+                      "surfaces the same spam pools")
+
+    def test_prompt_states_the_value_is_wrong_not_just_the_ranking(self):
+        s = self.advocate.SYSTEM
+        self.assertIn("22.7x", s, "prompt should carry the measured magnitude")
+        self.assertIn(self.MESSARI, s, "prompt should name the accurate source")
+
+    def test_generated_pool_query_omits_tvl(self):
+        # The query builder feeds query_ready, which callers execute verbatim.
+        import inspect
+        src = inspect.getsource(self.advocate)
+        marker = 'entity, extra = "pools", "feeTier"'
+        self.assertIn(marker, src,
+                      "the V3/V4 query builder must not append totalValueLockedUSD")
+
+
+class TestTokenApiBalancesPagination(unittest.TestCase):
+    """Never call one /v1/evm/balances request "all balances".
+
+    Verified 2026-08-19 against the live API with a free-tier JWT: no `limit`
+    returns 10 rows; `limit=100` and `limit=500` return HTTP 403. Vitalik's
+    wallet holds hundreds of tokens, so a bare call is ~1% of the portfolio —
+    returned with HTTP 200 and no error. The caller's next move is summing it
+    into a net worth, which is then silently wrong. `&page=N` works at 10/page
+    and the response carries no total, so 'page until short' is the only stop
+    condition."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        import advocate
+        self.advocate = advocate
+
+    def test_prompt_states_the_page_size_and_the_403(self):
+        s = self.advocate.SYSTEM
+        self.assertIn("403", s, "prompt must warn that raising limit is forbidden on free tier")
+        for token in ("page", "10"):
+            self.assertIn(token, s)
+
+    def test_prompt_forbids_calling_it_all_balances(self):
+        s = self.advocate.SYSTEM
+        self.assertIn('"all balances"', s,
+                      "prompt should explicitly forbid the phrase that misleads callers")
+
+    def test_curl_example_shows_the_pagination_loop(self):
+        ex = (self.advocate._SERVICE_CURL_EXAMPLES.get("token-api") or {}).get("curl_example") or ""
+        self.assertIn("/v1/evm/balances", ex, "balances call missing from the example")
+        self.assertIn("page=", ex, "example must demonstrate pagination, not a single call")
 
 
 class TestRefusalScoring(unittest.TestCase):
