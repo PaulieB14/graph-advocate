@@ -869,8 +869,16 @@ _GREETING_PHRASES = (
     # Catching them at the greeting fast-path saves a Claude call and
     # leaves a friendly impression on the Agentverse / ERC-8004 ecosystem
     # that's discovering us through registry probes.
-    "ai agent",
-    "ai agents",
+    # NOT the bare "ai agent"/"ai agents" — those matched ANY sentence
+    # mentioning AI agents, including real data questions. Verified 2026-08-19:
+    # "Which subgraph tracks USDC transfers for AI agent wallets on Base?"
+    # returned the canned intro; deleting the two characters "AI " routed it
+    # correctly. Worse, _is_greeting feeds is_canned_path, which gates the x402
+    # check — so every such question was ALSO served free. GA sells to the agent
+    # economy; "ai agent" is the most common noun in its market's vocabulary.
+    "i am an ai agent",
+    "we are ai agents",
+    "another ai agent",
     "fellow agent",
     "another agent",
     "we are a community",
@@ -894,14 +902,31 @@ def _is_global_greeting_spam() -> bool:
     return len(_global_greeting_times) > GLOBAL_GREETING_LIMIT
 
 
+# A message carrying any of these is asking for DATA, whatever pleasantries it
+# also contains. A greeting phrase must never win over real intent: the canned
+# intro both answers the wrong question and (via is_canned_path) skips the x402
+# gate, so a false positive costs an answer AND the fee.
+_DATA_INTENT_MARKERS = (
+    "subgraph", "graphql", "query", "curl", "endpoint", "8004", "how do i",
+    "how can i", "which service", "what service", "token api", "substreams",
+    "wallet", "balance", "price", "give me", "return all", "api call",
+)
+
+
 def _is_greeting(text: str) -> bool:
     """Return True for trivial greeting messages and intro questions."""
     t = text.strip().lower().rstrip("!?.")
+    # Exact single-word/exact-phrase greetings are unambiguous — "hi", "ping".
     if t in _GREETING_WORDS or text.strip().lower() in _GREETING_WORDS:
         return True
+    t_full = text.strip().lower()
+    # Substring phrase matching is the risky path: it fires on a phrase buried
+    # anywhere in a long sentence. Anything with data intent is not a greeting,
+    # no matter how it opens.
+    if any(m in t_full for m in _DATA_INTENT_MARKERS):
+        return False
     # Check longer intro phrases — use word boundary matching to avoid
     # false positives like "attestations" matching "test"
-    t_full = text.strip().lower()
     import re
     for p in _GREETING_PHRASES:
         if re.search(r'\b' + re.escape(p) + r'\b', t_full):
@@ -1392,14 +1417,27 @@ def _get_cached_response(text: str) -> dict | None:
         conn = _sq.connect(str(DB_PATH))
         # Candidate query: pull recent entries with a response, filter in-app
         # by normalized match. Limited to 200 rows to keep the scan cheap.
+        # 'payment-required' / 'x402-failed' / 'blocked' MUST be excluded here.
+        # They were not, and it was only ever masked by `response_json IS NOT
+        # NULL`: until 2026-08-18 every payment-required row had a NULL body, so
+        # a 402 could never win the cache. Logging the challenge body that day
+        # (for auditability) armed the latent bug — within hours 13 live 402s
+        # were sitting in this 200-row window inside the 1h TTL, ready to be
+        # replayed as the answer to anyone asking the same question, INCLUDING
+        # a caller who had just paid. Taking money and returning a paywall
+        # notice is the worst failure this service can have.
         rows = conn.execute(
-            "SELECT request, response_json, timestamp FROM activity "
-            "WHERE service NOT IN ('introduction', 'out-of-scope', 'rate-limited', 'conformance', 'cached', 'benchmark-static') "
+            "SELECT request, response_json, timestamp, service FROM activity "
+            "WHERE service NOT IN ('introduction', 'out-of-scope', 'rate-limited', 'conformance', 'cached', 'benchmark-static', "
+            "                      'payment-required', 'x402-failed', 'blocked') "
             "AND response_json IS NOT NULL "
             "ORDER BY timestamp DESC LIMIT 200"
         ).fetchall()
         conn.close()
-        for raw_req, resp_json, ts in rows:
+        # Rows written before this fix are already in the table, so filter on
+        # CONTENT too — a service-name allowlist alone cannot retract them.
+        _NEVER_CACHE_RECS = {"payment-required", "payment-failed", "blocked", "rate-limited"}
+        for raw_req, resp_json, ts, _svc in rows:
             if _normalize_cache_key(raw_req) != norm:
                 continue
             from datetime import datetime as _dt
@@ -1408,6 +1446,8 @@ def _get_cached_response(text: str) -> dict | None:
                 age = (datetime.now(timezone.utc) - cached_time).total_seconds()
                 if age < _CACHE_TTL_SECONDS:
                     resp = json.loads(resp_json)
+                    if isinstance(resp, dict) and resp.get("recommendation") in _NEVER_CACHE_RECS:
+                        continue        # a billing event, not an answer
                     resp["_cached"] = True
                     resp["_cached_age_seconds"] = int(age)
                     return resp
@@ -3061,7 +3101,11 @@ class GraphAdvocateExecutor(AgentExecutor):
             return
 
         # ── Fix 2: Persistent cache — SQLite-backed, survives restarts ────────
-        _cached_resp = _get_cached_response(user_text)
+        # Never serve a PAID call from cache. Third layer of defence behind the
+        # service filter and the content filter in _get_cached_response: someone
+        # who just settled USDC is the one caller who must get a freshly routed
+        # answer, and the one for whom a stale or wrong hit is unrecoverable.
+        _cached_resp = None if _is_paid_request else _get_cached_response(user_text)
         if _cached_resp is not None:
             log.info(f"CACHED   task={task_id} | serving persistent cached response")
             _log_request(task_id, user_text, _cached_resp.get("recommendation", "cached"), "high", "cached", response=_cached_resp)

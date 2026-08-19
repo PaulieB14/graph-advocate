@@ -164,7 +164,8 @@ npm: subgraph-mcp-skills (AI agent skills for querying subgraphs via MCP tools)
 Best for: raw block data, traces, logs, anything not yet in a subgraph, high-throughput streaming
 Use when: the agent needs highly specific or real-time block-level data, custom transformations, or data not covered by existing subgraphs
 Key tools: search_substreams, stream_data
-Search the registry with NO auth at all: GET https://substreams.dev/v1/registry/packages?query=<term> (public REST, spec at https://substreams.dev/v1/registry/openapi.yaml). Parameter is `query`, not `q` — a wrong name returns HTTP 500. Each result gives `spkg` (full URL — use when RUNNING: `substreams gui <spkg> <module>`) and `reference` (`<slug>@<version>` — use when SHOWING a human).
+Search the registry with NO auth at all: GET https://substreams.dev/v1/registry/packages?query=<term>&pageSize=5 (public REST, spec at https://substreams.dev/v1/registry/openapi.yaml). Parameter is `query`, not `q` — a wrong name returns HTTP 500.
+EXACT RESPONSE SHAPE — use these names verbatim, do not guess: the envelope is `{"hasMore": bool, "packages": [...]}` (the array is `packages`, NOT `results`/`items`/`data`), and each package has exactly: `name`, `slug`, `repository`, `downloads`, `releaseCount`, `latestVersion` (NOT `version`), `network`, `spkg` (NOT `spkg_url` — full URL, use when RUNNING: `substreams gui <spkg> <module>`), `reference` (`<slug>@<version>` — use when SHOWING a human). A jq filter over `.results[]` or a field called `version`/`spkg_url` silently returns NOTHING, which is worse than an error because the caller thinks the registry is empty. Always write `jq '.packages[] | {name, network, latestVersion, spkg}'`.
 Auth: only needed to *run* a package, not to search. JWT (not a plain API key): sign up at https://thegraph.market → create an API key → generate a JWT → `substreams auth`. Docs: https://docs.substreams.dev
 HOSTED SINKS — route here when the ask is "get this chain data into MY database" rather than "answer this query now". Managed Substreams-sink-as-a-service on The Graph Market: supply a .spkg with a `db_out` module, a start block and DB credentials, and StreamingFast runs the sink into your own Postgres or ClickHouse. Reorg-aware (applies the right upserts on a fork) and cursor-checkpointed (a restart resumes at the last confirmed block, no re-index). Postgres for app-facing reads, ClickHouse for analytics/dashboards. Free to operate until end of 2026; you pay for Substreams data either way. Docs: https://docs.substreams.dev/how-to-guides/sinks/hosted-sinks
 Hosted Sinks connection gotchas (cause most first-deploy failures): the sink dials out from StreamingFast (us-central1, Iowa) so the DB must be reachable from there. Supabase → use the DIRECT host db.<project-ref>.supabase.co, NOT the pooler (PgBouncer breaks the sink's prepared statements), SSL require or higher. Neon → free endpoints suspend on inactivity, use a paid plan for anything continuous. ClickHouse Cloud → native TLS port is 9440 not 9000, enable Secure and add StreamingFast to the IP Access List. All three: a dedicated user scoped to one schema, write access only.
@@ -479,7 +480,47 @@ _STOP_WORDS = frozenset({
 
 
 def _extract_json(raw: str) -> dict:
-    """Robustly extract a JSON object from Claude's response.
+    """Extract a JSON OBJECT from Claude's response — always a dict.
+
+    Thin coercing wrapper. The annotation on the parsing body says `-> dict`,
+    but four of its `json.loads` paths return whatever JSON was there, and a
+    top-level ARRAY is what the model produces for questions like "give me
+    runnable calls for both" (it answers with a list of recommendations).
+    Callers then do `rec.get(...)` and get
+    `AttributeError: 'list' object has no attribute 'get'`.
+
+    On the paid /route path that lands in the catch-all whose own text reads
+    "The paid handler crashed AFTER payment was settled" — the caller is
+    charged and gets a 500. On the free A2A path the daily counter has already
+    been incremented, so a free caller burns a query on the crash too.
+
+    Coercing HERE rather than at each return site means a future parsing branch
+    cannot reintroduce it.
+    """
+    obj = _extract_json_inner(raw)
+    if isinstance(obj, dict):
+        return obj
+    # A bare list of recommendations is a real, recoverable model output: keep
+    # the first object so the caller still gets an answer, and record that we
+    # unwrapped it. Anything else (str/int/null) is unusable.
+    if isinstance(obj, list) and obj and isinstance(obj[0], dict):
+        first = dict(obj[0])
+        first.setdefault("alternatives", [])
+        for extra in obj[1:]:
+            if isinstance(extra, dict) and extra.get("recommendation"):
+                first["alternatives"].append({
+                    "service": extra.get("recommendation"),
+                    "reason": extra.get("reason") or "",
+                    "confidence": extra.get("confidence") or "medium",
+                })
+        first["_unwrapped_from_list"] = True
+        return first
+    return {"raw": raw, "parse_error": True}
+
+
+def _extract_json_inner(raw: str):
+    """Robustly extract JSON from Claude's response. May return any JSON type;
+    `_extract_json` is the dict-guaranteeing entry point — call that.
 
     Tries in order:
       1. Markdown code fence with closing marker (```json ... ``` or ``` ... ```)
@@ -630,7 +671,12 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
         "curl_example": (
             "# 1. Search the registry — public REST API, no auth, no key, no JWT.\n"
             "#    NOTE: the parameter is `query`, not `q`; a wrong name returns HTTP 500.\n"
-            "curl -s 'https://substreams.dev/v1/registry/packages?query=uniswap&pageSize=5'\n\n"
+            "curl -s 'https://substreams.dev/v1/registry/packages?query=uniswap&pageSize=5' \\\n"
+            "  | jq '.packages[] | {name, network, latestVersion, spkg}'\n\n"
+            "# Envelope: {\"hasMore\": bool, \"packages\": [...]}. The array key is\n"
+            "# `packages`; the version field is `latestVersion`; the URL field is\n"
+            "# `spkg`. Guessing any of those three wrong makes jq print nothing at\n"
+            "# all, which reads as an empty registry rather than a bad filter.\n"
             "# Each result carries two references for the same package:\n"
             "#   spkg      — full URL, use when RUNNING:  substreams gui <spkg> <module>\n"
             "#   reference — <slug>@<version>, use when SHOWING a command to a human\n"
@@ -2727,7 +2773,10 @@ def _auto_search(request: str) -> str:
             ss_data = json.loads(ss_results)
             # Pass context whether we got hits OR the registry-search-unavailable
             # signal — the latter tells Claude not to claim "no package exists".
-            if ss_data.get("results") or ss_data.get("registry_search_unavailable"):
+            # `packages` since 2026-08-19 — the injector now mirrors the upstream
+            # envelope verbatim. `results` kept so a cached/older shape still hits.
+            if (ss_data.get("packages") or ss_data.get("results")
+                    or ss_data.get("registry_search_unavailable")):
                 results.append(f"[LIVE SUBSTREAMS SEARCH for '{search_term}']\n{ss_results}")
 
         if run_token_api:
@@ -3948,17 +3997,30 @@ def _search_substreams(keyword: str) -> str:
         packages = None  # network/parse failure - distinct from "no matches"
 
     if packages:
-        results = []
+        # MIRROR THE UPSTREAM VOCABULARY EXACTLY — do not rename fields here.
+        #
+        # This block used to read `latestVersion`/`spkg`/`hasMore` correctly and
+        # then re-emit them as `version`/`spkg_url`/`results`. That JSON goes
+        # straight into the model's context, so when the model wrote
+        # `jq '.results[] | {version, spkg_url}'` it was not hallucinating — it
+        # was faithfully describing the shape GA handed it. Against the real API
+        # (`{"hasMore":…, "packages":[{… latestVersion, spkg …}]}`) that filter
+        # matches nothing and prints nothing, which reads as an empty registry.
+        #
+        # A prompt rule saying "the array is `packages`, not `results`" cannot
+        # win this argument: concrete JSON in the same context beats abstract
+        # prose. The renaming had to stop for the prompt fix to mean anything.
+        out = []
         for p in packages:
             org = (p.get("organization") or {}).get("slug") or ""
-            results.append({
+            out.append({
                 "name": p.get("slug") or p.get("name"),
                 "organization": org,
-                "version": p.get("latestVersion") or "",
+                "latestVersion": p.get("latestVersion") or "",
                 "network": p.get("network") or "",
                 "downloads": p.get("downloads"),
                 # For running it programmatically.
-                "spkg_url": p.get("spkg") or "",
+                "spkg": p.get("spkg") or "",
                 # For showing a human - same package, readable form.
                 "reference": p.get("reference") or "",
                 "run_command": (
@@ -3966,9 +4028,9 @@ def _search_substreams(keyword: str) -> str:
                 ),
             })
         return json.dumps({
-            "results": results,
-            "total_found": len(results),
-            "has_more": bool(data.get("hasMore")),
+            "packages": out,
+            "total_found": len(out),
+            "hasMore": bool(data.get("hasMore")),
             "source": "substreams.dev/v1/registry (public REST API, no auth)",
             "browse_url": browse_url,
         })
@@ -3976,7 +4038,7 @@ def _search_substreams(keyword: str) -> str:
     if packages == []:
         # A real, authoritative empty result - the API answered and matched nothing.
         return json.dumps({
-            "results": [],
+            "packages": [],
             "total_found": 0,
             "message": (
                 f"The substreams.dev registry returned no packages matching '{kw}'. "
@@ -3988,7 +4050,7 @@ def _search_substreams(keyword: str) -> str:
 
     # The request itself failed. Never report "no packages" from an error.
     return json.dumps({
-        "results": [],
+        "packages": [],
         "registry_search_unavailable": True,
         "message": (
             f"Could not reach the substreams.dev registry API just now, so this is "

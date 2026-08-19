@@ -1065,6 +1065,183 @@ class TestNoUnpublishedPackagesRecommended(unittest.TestCase):
                     )
 
 
+class TestSubstreamsRegistryFieldNames(unittest.TestCase):
+    """The Substreams registry response shape must be stated, not guessed.
+
+    Observed live 2026-08-19: GA answered a substreams question with the right
+    tool and the right install command, then a jq filter of
+    `.results[] | {name, network, version, spkg_url}` — three wrong names. The
+    API returns {"hasMore":…, "packages":[{name, slug, repository, downloads,
+    releaseCount, latestVersion, network, spkg, reference}]}, so that filter
+    returns NOTHING. Silent-empty is worse than an error: the caller concludes
+    the registry has no Uniswap packages.
+
+    Root cause was omission, not misstatement — the prompt named `spkg` and
+    `reference` and said nothing about the envelope, so the model filled the gap
+    with plausible names. The fix is stating the shape; this test guards it."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        import advocate
+        self.advocate = advocate
+        self.haystack = advocate.SYSTEM + (
+            (advocate._SERVICE_CURL_EXAMPLES.get("substreams") or {}).get("curl_example") or "")
+
+    def test_prompt_states_the_real_envelope_and_field_names(self):
+        for token in ("packages", "latestVersion", "spkg"):
+            self.assertIn(token, self.haystack,
+                          f"routing prompt never names `{token}`, so the model has to guess it")
+
+    def test_prompt_warns_off_the_names_the_model_invented(self):
+        # Naming the wrong forms explicitly is what stops them recurring — the
+        # model reached for these exact three when left to improvise.
+        for wrong in ("results", "spkg_url"):
+            self.assertIn(wrong, self.haystack,
+                          f"prompt should explicitly warn that `{wrong}` is NOT the right name")
+
+    def test_static_example_uses_a_filter_that_would_actually_match(self):
+        ex = (self.advocate._SERVICE_CURL_EXAMPLES.get("substreams") or {}).get("curl_example") or ""
+        self.assertIn(".packages[]", ex,
+                      "the canned example is the template the model copies — it must use .packages[]")
+        self.assertNotIn(".results[]", ex)
+
+
+class TestExtractJsonAlwaysReturnsDict(unittest.TestCase):
+    """_extract_json must return a dict for ANY model output.
+
+    Reproduced live 2026-08-19: a question ending "give me runnable calls for
+    both" makes the model answer with a top-level ARRAY. Four json.loads paths
+    passed it straight through, callers did rec.get(...), and the paid /route
+    handler raised AttributeError AFTER payment settled — the caller was charged
+    and got a 500."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        import advocate
+        self.advocate = advocate
+
+    def test_every_shape_coerces_to_dict(self):
+        cases = [
+            '[{"recommendation":"comparison"}]',
+            '```json\n[{"a":1}]\n```',
+            '{"recommendation":"token-api"}',
+            'not json at all',
+            '"a bare string"',
+            '42',
+            '[]',
+            '[1,2,3]',
+            '```\n[{"recommendation":"x"}]\n```',
+        ]
+        for raw in cases:
+            out = self.advocate._extract_json(raw)
+            self.assertIsInstance(
+                out, dict, f"_extract_json({raw[:40]!r}) returned {type(out).__name__}")
+            out.get("parse_error")   # must not raise
+
+    def test_list_answer_keeps_the_first_and_demotes_the_rest(self):
+        out = self.advocate._extract_json(
+            '[{"recommendation":"token-api","reason":"a"},'
+            ' {"recommendation":"subgraph-registry","reason":"b"}]')
+        self.assertEqual(out["recommendation"], "token-api")
+        self.assertTrue(out.get("_unwrapped_from_list"))
+        self.assertIn("subgraph-registry", [a["service"] for a in out["alternatives"]])
+
+
+class TestGreetingDoesNotSwallowDataQuestions(unittest.TestCase):
+    """A data question is never a greeting.
+
+    `"ai agent"` was a bare greeting phrase, so "Which subgraph tracks USDC
+    transfers for AI agent wallets on Base?" returned the canned intro — and
+    because _is_greeting feeds is_canned_path, which gates the x402 check, it
+    was served free as well. GA sells to the agent economy; that phrase is the
+    most common noun in its market's vocabulary."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("ACTIVITY_DB_PATH", "/tmp/test_greeting.db")
+        import a2a_server
+        self.srv = a2a_server
+
+    def test_data_questions_mentioning_ai_agents_are_not_greetings(self):
+        for q in [
+            "Which subgraph tracks USDC transfers for AI agent wallets on Base? Give me the subgraph id and a GraphQL query.",
+            "How do I look up an AI agent registered under ERC-8004? Give me a runnable API call.",
+            "What service should I use to get wallet balances for an AI agent?",
+        ]:
+            self.assertFalse(self.srv._is_greeting(q), f"treated as a greeting: {q[:60]}")
+
+    def test_real_greetings_still_classified(self):
+        for q in ["hi", "ping", "hello", "Hello! What can you do?",
+                  "I am an AI agent exploring the ecosystem",
+                  "We are a community of agents saying hello"]:
+            self.assertTrue(self.srv._is_greeting(q), f"missed greeting: {q[:60]}")
+
+    def test_bare_ai_agent_is_not_a_greeting_phrase(self):
+        self.assertNotIn("ai agent", self.srv._GREETING_PHRASES)
+        self.assertNotIn("ai agents", self.srv._GREETING_PHRASES)
+
+
+class TestBillingEventsNeverCached(unittest.TestCase):
+    """402 bodies must never be servable as answers.
+
+    Logging the 402 challenge (2026-08-18, for auditability) armed a latent bug:
+    the cache SELECT excluded several services but not 'payment-required', and
+    was protected only by `response_json IS NOT NULL` — which had been true of
+    all 762 such rows until that day. Within hours 13 live 402s sat in the
+    200-row cache window inside the 1h TTL, replayable to a PAYING caller."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("ACTIVITY_DB_PATH", "/tmp/test_cache.db")
+        import a2a_server
+        self.srv = a2a_server
+        import inspect
+        self.src = inspect.getsource(a2a_server._get_cached_response)
+
+    def test_billing_services_excluded_from_the_cache_query(self):
+        for svc in ("payment-required", "x402-failed", "blocked"):
+            self.assertIn(f"'{svc}'", self.src,
+                          f"cache SELECT does not exclude {svc}")
+
+    def test_content_filter_backstops_rows_already_written(self):
+        # A service-name filter cannot retract rows already in the table, so the
+        # loop must also reject on the parsed recommendation.
+        self.assertIn("_NEVER_CACHE_RECS", self.src)
+        for rec in ("payment-required", "payment-failed"):
+            self.assertIn(f'"{rec}"', self.src)
+
+    def test_paid_requests_bypass_the_cache_entirely(self):
+        import inspect
+        exec_src = inspect.getsource(self.srv.GraphAdvocateExecutor)
+        self.assertIn("None if _is_paid_request else _get_cached_response", exec_src,
+                      "a paid call must never be answered from cache")
+
+
+class TestSubstreamsInjectorMirrorsUpstream(unittest.TestCase):
+    """GA's own search injection must not rename upstream fields.
+
+    _search_substreams read `latestVersion`/`spkg`/`hasMore` correctly and
+    re-emitted them as `version`/`spkg_url`/`results`. That JSON goes into the
+    model's context, so the model's `jq '.results[] | {version, spkg_url}'` was
+    an accurate description of what GA handed it — and matched nothing against
+    the real API. Concrete JSON beats prompt prose, so the prompt rule alone
+    would have looked landed and stayed broken."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        import advocate, inspect
+        self.src = inspect.getsource(advocate._search_substreams)
+
+    def test_emits_upstream_names(self):
+        for good in ('"packages"', '"latestVersion"', '"spkg"', '"hasMore"'):
+            self.assertIn(good, self.src, f"injector no longer emits {good}")
+
+    def test_does_not_emit_the_renamed_vocabulary(self):
+        for bad in ('"results":', '"spkg_url"', '"has_more"'):
+            self.assertNotIn(bad, self.src,
+                             f"injector still emits {bad}, which the model will copy into jq")
+
+
 class TestRefusalScoring(unittest.TestCase):
     def test_headline_filter_is_a_superset_of_the_write_skip(self):
         """The read-side filter must cover everything the write-side skips.
