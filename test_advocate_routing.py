@@ -1005,6 +1005,45 @@ class TestPublishedPricesMatchTheCatalog(unittest.TestCase):
         self.assertEqual([], offenders, "published prices disagree with the catalog:\n" + "\n".join(offenders))
 
 
+class TestNoUnpublishedPackagesRecommended(unittest.TestCase):
+    """GA must never hand an agent an install command that 404s.
+
+    Three packages GA recommended were unpublished from npm inside two weeks —
+    predictfun-mcp (2026-08-05), substreams-search-mcp (2026-08-11) and
+    create-substreams-sink-sql (2026-08-17) — and GA kept emitting `npx <name>`
+    for all three. GA's entire value is "the right tool, and how to run it";
+    an uninstallable recommendation burns the caller's call and teaches them
+    the answers are stale.
+
+    Offline by design: this is a denylist, not a live npm probe, so the suite
+    stays hermetic. When a package is unpublished, add it here — the test then
+    points at every surface still advertising it."""
+
+    UNPUBLISHED = {
+        "predictfun-mcp": "2026-08-05",
+        "substreams-search-mcp": "2026-08-11",
+        "create-substreams-sink-sql": "2026-08-17",
+    }
+
+    def test_no_npx_install_line_for_an_unpublished_package(self):
+        import advocate
+        haystacks = {"SYSTEM prompt": advocate.SYSTEM,
+                     "CHAT_SYSTEM prompt": advocate.CHAT_SYSTEM}
+        for name, meta in (getattr(advocate, "_SERVICE_CURL_EXAMPLES", {}) or {}).items():
+            for key in ("install", "curl_example", "get_started"):
+                val = (meta or {}).get(key)
+                if isinstance(val, str):
+                    haystacks[f"_SERVICE_CURL_EXAMPLES[{name}].{key}"] = val
+        for pkg, when in self.UNPUBLISHED.items():
+            for where, text in haystacks.items():
+                for cmd in (f"npx {pkg}", f"npx -y {pkg}", f"npm install {pkg}"):
+                    self.assertNotIn(
+                        cmd, text,
+                        f"{where} still tells agents to run `{cmd}`, but {pkg} was "
+                        f"unpublished from npm on {when} — the command 404s.",
+                    )
+
+
 class TestRefusalScoring(unittest.TestCase):
     def test_headline_filter_is_a_superset_of_the_write_skip(self):
         """The read-side filter must cover everything the write-side skips.
@@ -1079,23 +1118,14 @@ class TestRefusalScoring(unittest.TestCase):
 
 if __name__ == "__main__":
     loader = unittest.TestLoader()
-    suite = unittest.TestSuite()
-    suite.addTests(loader.loadTestsFromTestCase(TestExtractJson))
-    suite.addTests(loader.loadTestsFromTestCase(TestFallbackRoute))
-    suite.addTests(loader.loadTestsFromTestCase(TestInjectMissingFields))
-    suite.addTests(loader.loadTestsFromTestCase(TestAutoSearchKeywords))
-    suite.addTests(loader.loadTestsFromTestCase(TestServiceCurlExamples))
-    suite.addTests(loader.loadTestsFromTestCase(TestGreetingDetection))
-    suite.addTests(loader.loadTestsFromTestCase(TestBenchmarkMatching))
-    suite.addTests(loader.loadTestsFromTestCase(TestPolymarketRouting))
-    suite.addTests(loader.loadTestsFromTestCase(TestHyperliquidRouting))
-    suite.addTests(loader.loadTestsFromTestCase(TestCompareRoute))
-    suite.addTests(loader.loadTestsFromTestCase(TestLogPaidFailureNormalization))
-    suite.addTests(loader.loadTestsFromTestCase(TestPayerCapture))
-    suite.addTests(loader.loadTestsFromTestCase(TestSubgraphExecExtraction))
-    suite.addTests(loader.loadTestsFromTestCase(TestUniswapTvlOverride))
-    suite.addTests(loader.loadTestsFromTestCase(TestRefusalScoring))
-    suite.addTests(loader.loadTestsFromTestCase(TestPublishedPricesMatchTheCatalog))
+    # DISCOVER the module's TestCases instead of listing them by hand.
+    #
+    # This was a hand-maintained roster of 16 classes, and on 2026-08-18 two
+    # newly added classes silently never ran — including the very regression
+    # test written to catch a bug that had survived because its own coverage
+    # was illusory. A test suite whose membership is typed rather than derived
+    # fails exactly like the code it guards: quietly, and looking green.
+    suite = loader.loadTestsFromModule(sys.modules[__name__])
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

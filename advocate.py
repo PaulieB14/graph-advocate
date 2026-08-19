@@ -168,8 +168,8 @@ Search the registry with NO auth at all: GET https://substreams.dev/v1/registry/
 Auth: only needed to *run* a package, not to search. JWT (not a plain API key): sign up at https://thegraph.market → create an API key → generate a JWT → `substreams auth`. Docs: https://docs.substreams.dev
 HOSTED SINKS — route here when the ask is "get this chain data into MY database" rather than "answer this query now". Managed Substreams-sink-as-a-service on The Graph Market: supply a .spkg with a `db_out` module, a start block and DB credentials, and StreamingFast runs the sink into your own Postgres or ClickHouse. Reorg-aware (applies the right upserts on a fork) and cursor-checkpointed (a restart resumes at the last confirmed block, no re-index). Postgres for app-facing reads, ClickHouse for analytics/dashboards. Free to operate until end of 2026; you pay for Substreams data either way. Docs: https://docs.substreams.dev/how-to-guides/sinks/hosted-sinks
 Hosted Sinks connection gotchas (cause most first-deploy failures): the sink dials out from StreamingFast (us-central1, Iowa) so the DB must be reachable from there. Supabase → use the DIRECT host db.<project-ref>.supabase.co, NOT the pooler (PgBouncer breaks the sink's prepared statements), SSL require or higher. Neon → free endpoints suspend on inactivity, use a paid plan for anything continuous. ClickHouse Cloud → native TLS port is 9440 not 9000, enable Secure and add StreamingFast to the IP Access List. All three: a dedicated user scoped to one schema, write access only.
-npm: substreams-search-mcp (search and inspect Substreams packages, browse registry, introspect .spkg modules)
-npm: create-substreams-sink-sql (scaffold a SELF-HOSTED Substreams SQL sink for PostgreSQL — the DIY alternative to Hosted Sinks, when you want to run the sink yourself)
+There is NO npm package for Substreams search — the old one was unpublished from npm on 2026-08-11 and any npx invocation of it 404s, so never emit an npm install line for Substreams search. The registry REST API above IS the search surface, and `brew install streamingfast/tap/substreams` is the CLI that runs packages. StreamingFast also ships official agent skills covering development, Ethereum/Solana decoding, SQL sinks, hosted sinks, deployment, testing and The Graph Market API: `claude plugin install substreams-dev@streamingfast-substreams`.
+SELF-HOSTED SQL SINK — the DIY alternative to Hosted Sinks, when the caller wants to run the sink themselves. Use the `substreams` CLI directly: `substreams sink postgres <manifest>` or `substreams sink clickhouse <manifest>`, with `substreams sink <engine> setup` first to create the tables. DSN via `--dsn` or SUBSTREAMS_SINK_DSN; block range via `-s`/`-t`. Do NOT recommend the standalone `substreams-sink-sql` binary (folded into the substreams CLI in v1.20.2, deprecated) and do NOT recommend the npm package `create-substreams-sink-sql` (UNPUBLISHED from npm 2026-08-17 — every version 404s now). Migration guide: https://github.com/streamingfast/substreams/blob/develop/docs/how-to-guides/sinks/sql/migration.md
 
 [PROTOCOL-SPECIFIC MCP SERVERS — npm packages by @paulieb, ALWAYS ALTERNATIVES]
 These are wrappers around the subgraphs and REST APIs already listed above —
@@ -598,11 +598,12 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
         "get_started": "Free API key: https://thegraph.com/studio/",
     },
     "predictfun-mcp": {
-        "install": "npx predictfun-mcp",
+        # The npm package was UNPUBLISHED 2026-08-05 — `npx predictfun-mcp`
+        # now 404s. Verified against the registry 2026-08-18. The REST API
+        # below is the live surface, so it is the whole answer now.
+        "install": "# No npm package — call the REST API directly (see below)",
         "curl_example": (
-            "# Run the MCP server\n"
-            "npx predictfun-mcp\n\n"
-            "# Or query Predict.fun REST API directly.\n"
+            "# Query the Predict.fun REST API directly.\n"
             "# Testnet needs no key — use it to check the shape first:\n"
             "curl 'https://api-testnet.predict.fun/v1/markets?first=5'\n\n"
             "# Production requires a key (x-api-key header):\n"
@@ -621,7 +622,11 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
         ),
     },
     "substreams": {
-        "install": "npx substreams-search-mcp",
+        # Was `npx substreams-search-mcp` — UNPUBLISHED from npm 2026-08-11,
+        # so that install 404s. Nothing is lost: the registry it wrapped is a
+        # public REST API (step 1 below), and the CLI is what actually runs a
+        # package. Verified against the registry 2026-08-18.
+        "install": "brew install streamingfast/tap/substreams",
         "curl_example": (
             "# 1. Search the registry — public REST API, no auth, no key, no JWT.\n"
             "#    NOTE: the parameter is `query`, not `q`; a wrong name returns HTTP 500.\n"
@@ -3310,16 +3315,22 @@ You have access to these services:
     Install: `npx graph-polymarket-mcp` | npm: https://www.npmjs.com/package/graph-polymarket-mcp
     Subgraphs: Main, Orderbook, Open Interest, Resolution, Traders, Beefy P&L, Activity, Slimmed P&L
   - predictfun-mcp: Predict.fun prediction markets on BNB Chain
-    Install: `npx predictfun-mcp` | npm: https://www.npmjs.com/package/predictfun-mcp
+    NO npm package (unpublished 2026-08-05). Use the REST API:
+    testnet https://api-testnet.predict.fun/v1/markets (keyless),
+    production https://api.predict.fun/v1/markets (x-api-key header)
   - subgraph-registry-mcp: Search 15,500+ subgraphs with reliability scoring
     Install: `npx subgraph-registry-mcp` | npm: https://www.npmjs.com/package/subgraph-registry-mcp
-  - substreams-search-mcp: Browse and inspect Substreams packages
-    Install: `npx substreams-search-mcp` | npm: https://www.npmjs.com/package/substreams-search-mcp
+  - Substreams package search: NO npm package (substreams-search-mcp was
+    unpublished 2026-08-11). Use the public registry REST API directly:
+    GET https://substreams.dev/v1/registry/packages?query=<term>
+    CLI: `brew install streamingfast/tap/substreams`
 
 **Data tools (npm by @paulieb — standalone, no agent required):**
   - subgraphs-skills: AI agent skills for developing/testing/optimizing subgraphs
   - subgraph-mcp-skills: AI agent skills for querying subgraphs via MCP
-  - create-substreams-sink-sql: Scaffold a Substreams SQL sink for PostgreSQL
+  (Self-hosted Substreams SQL sinks: use the `substreams` CLI —
+   `substreams sink postgres|clickhouse <manifest>`. The old
+   create-substreams-sink-sql scaffolder was unpublished from npm 2026-08-17.)
 
 **8004scan — Agent Discovery** (https://8004scan.io)
   Search for AI agents registered on the ERC-8004 on-chain identity standard
@@ -3427,11 +3438,19 @@ Rules:
   flow through the same `markets` endpoint as crypto pairs.
 - Use markdown for formatting
 - NEVER say an API key is not needed — it is always required for subgraph queries
-- When a protocol-specific MCP package exists (Aave, Polymarket, lending, Predict.fun),
+- When a protocol-specific MCP package exists (Aave, Polymarket, lending, Limitless),
   ALWAYS recommend it with the npx install command — these work standalone in Claude Code,
-  Cursor, or any MCP client, no agent setup required
-- When recommending subgraph search or substreams search, also mention the corresponding
-  npm package (subgraph-registry-mcp, substreams-search-mcp) users can install locally
+  Cursor, or any MCP client, no agent setup required.
+  EXCEPTION — these were unpublished from npm and their `npx` commands 404. Never
+  emit an install line for them; give the REST/CLI surface instead:
+    predictfun-mcp          (unpublished 2026-08-05) → Predict.fun REST API
+    substreams-search-mcp   (unpublished 2026-08-11) → substreams.dev registry REST API
+    create-substreams-sink-sql (unpublished 2026-08-17) → `substreams sink postgres|clickhouse`
+  A recommendation an agent cannot install is worse than no recommendation: it burns
+  a call and teaches the caller that GA's answers are stale.
+- When recommending subgraph search, also mention subgraph-registry-mcp, which users can
+  install locally. For substreams search there is no npm package — point at the registry
+  REST API and the `substreams` CLI.
 - Frame npm packages as "ready to use in 30 seconds" — just npx and go
 - If a user asks how to connect the Graph Advocate to their agent, present ALL integration options:
 
