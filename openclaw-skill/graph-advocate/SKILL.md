@@ -44,7 +44,7 @@ Match the user's intent to the right service. Load only the reference you need.
 | **Agent reputation score (0-100)** | `/agent/score` (paid) | — | Composite from ERC-8004 registration + USDC settlement velocity + on-chain feedback registry, aggregated across all of owner's agents. Hard 8004 gate filters burns/CEX. Buyer-agent's "should I trust this peer" call. Response includes counterparty-ref-v1 conformant SHA-256 + preimage + canonical JCS string so a verifier can re-derive byte-exact without callback. $0.02 USDC. |
 | **Kalshi consensus trend** | `/kalshi/consensus-trend` (paid) | — | Slope/acceleration/volatility band from Kalshi forecast_history. $0.05 USDC. |
 | **Kalshi sports live-edge** | `/kalshi/sports-live-edge` (paid) | — | Play-by-play momentum vs market candlesticks; flags latency-arb windows. $0.05 USDC. |
-| **Predict.fun prediction markets** | predictfun-mcp | — | BNB Chain prediction markets |
+| **Predict.fun prediction markets** | Predict.fun REST API | — | BNB Chain prediction markets. Testnet `api-testnet.predict.fun/v1/markets` is keyless; production needs `x-api-key`. (The `predictfun-mcp` npm package was retired 2026-08-05.) |
 | **x402 payment analytics — NL question** | `/ask` (paid) | — | Natural-language Q&A over 132M settlements + daily_stats (May 2025 → Jun 2026). Sonnet + DuckDB. $0.05 USDC. |
 | **x402 address lookup — onchain receipts** | `/onchain-x402/address` (paid) | — | Decentralized lookup via x402 Base subgraph: lifetime stats by role (payer/recipient), recent payments, facilitator, indexed_through_block. $0.01 USDC. |
 | **x402 payment analytics (legacy reference)** | x402-analytics | [x402.md](references/x402.md) | Payment volume, facilitators, daily stats on Base |

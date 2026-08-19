@@ -85,10 +85,16 @@ Complete reference for all endpoints, identity, integrations, and architecture. 
 | `graph-polymarket-mcp` | Polymarket | 31 tools, 8 subgraphs + REST APIs | `npx graph-polymarket-mcp` |
 | `graph-lending-mcp` | Multi-protocol lending | Messari standardized | `npx graph-lending-mcp` |
 | `graph-limitless-mcp` | Limitless (Base) | Prediction markets | `npx graph-limitless-mcp` |
-| `predictfun-mcp` | Predict.fun (BNB) | Prediction markets | `npx predictfun-mcp` |
 | `subgraph-registry-mcp` | Subgraph search | 15,500+ classified | `npx subgraph-registry-mcp` |
-| `substreams-search-mcp` | Substreams browser | Package registry | `npx substreams-search-mcp` |
 | `mcp8004` | ERC-8004 auth | Agent identity middleware | `npm install mcp8004` |
+
+Retired — unpublished from npm, do not recommend. Use the REST/CLI surface instead:
+
+| Package | Retired | Use instead |
+|---|---|---|
+| `predictfun-mcp` | 2026-08-05 | Predict.fun REST API — testnet `api-testnet.predict.fun/v1/markets` (keyless), production `api.predict.fun/v1/markets` (`x-api-key`) |
+| `substreams-search-mcp` | 2026-08-11 | `GET substreams.dev/v1/registry/packages?query=<term>` (public, no auth) |
+| `create-substreams-sink-sql` | 2026-08-17 | `substreams sink postgres\|clickhouse <manifest>` (CLI absorbed it in v1.20.2) |
 
 ### Graph Ecosystem Dashboards (graphtools.pro)
 
@@ -174,7 +180,7 @@ Agent request → A2A / x402 → Graph Advocate
 |------|---------|
 | `advocate.py` | Core routing logic, system prompt, Claude calls, auto-search, SQLite logging |
 | `a2a_server.py` | A2A HTTP server, x402 payments, dashboard, feedback, quality scoring, chat |
-| `test_advocate_routing.py` | 34-case test suite |
+| `test_advocate_routing.py` | offline test suite (run before any advocate.py change) |
 | `erc8004-registration.json` | On-chain agent metadata (IPFS + Arbitrum) |
 | `static/graphadvocate.png` | Bot logo (1024x1024) |
 | `.env.example` | All env vars documented |

@@ -18,9 +18,17 @@ These are alternatives, never the primary answer. Each is a thin wrapper around 
 | `graph-polymarket-mcp` | Polymarket — 35 tools, live CLOB + on-chain analytics + CLOB V2 builder attribution | `npx graph-polymarket-mcp` |
 | `graph-lending-mcp` | Cross-protocol lending via Messari standardized subgraphs | `npx graph-lending-mcp` |
 | `graph-limitless-mcp` | Limitless prediction markets on Base | `npx graph-limitless-mcp` |
-| `predictfun-mcp` | Predict.fun on BNB Chain | `npx predictfun-mcp` |
 
-Most need a free Graph API key from [thegraph.com/studio](https://thegraph.com/studio/) in `GRAPH_API_KEY`. `predictfun-mcp` needs none.
+Most need a free Graph API key from [thegraph.com/studio](https://thegraph.com/studio/) in `GRAPH_API_KEY`.
+
+<Note>
+  **Retired packages.** `predictfun-mcp` (2026-08-05), `substreams-search-mcp` (2026-08-11) and
+  `create-substreams-sink-sql` (2026-08-17) were unpublished from npm — their `npx` commands 404.
+  Use the underlying surfaces instead: the [Predict.fun REST API](https://dev.predict.fun/)
+  (testnet `api-testnet.predict.fun/v1/markets` is keyless), the public Substreams registry
+  `GET substreams.dev/v1/registry/packages?query=<term>`, and `substreams sink postgres|clickhouse`
+  from the Substreams CLI.
+</Note>
 
 ## Uniswap
 

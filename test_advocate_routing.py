@@ -1034,6 +1034,27 @@ class TestNoUnpublishedPackagesRecommended(unittest.TestCase):
                 val = (meta or {}).get(key)
                 if isinstance(val, str):
                     haystacks[f"_SERVICE_CURL_EXAMPLES[{name}].{key}"] = val
+        self._assert_clean(haystacks)
+
+    def test_no_markdown_surface_advertises_an_unpublished_package(self):
+        """README, REFERENCE, SKILL.md and docs/*.mdx are read by humans and
+        crawled by LLM tooling — a dead `npx` line there outlives the prompt fix.
+        Mirrors test_no_markdown_surface_contradicts_the_catalog."""
+        import glob
+        root = os.path.dirname(os.path.abspath(__file__))
+        targets = ["README.md", "REFERENCE.md", "CLAUDE.md",
+                   "openclaw-skill/graph-advocate/SKILL.md"]
+        targets += [os.path.relpath(p, root) for p in glob.glob(os.path.join(root, "docs", "*.mdx"))]
+        haystacks = {}
+        for rel in targets:
+            path = os.path.join(root, rel)
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as fh:
+                    haystacks[rel] = fh.read()
+        self.assertTrue(haystacks, "found no markdown surfaces to check")
+        self._assert_clean(haystacks)
+
+    def _assert_clean(self, haystacks):
         for pkg, when in self.UNPUBLISHED.items():
             for where, text in haystacks.items():
                 for cmd in (f"npx {pkg}", f"npx -y {pkg}", f"npm install {pkg}"):
