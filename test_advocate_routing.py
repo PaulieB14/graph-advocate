@@ -1348,6 +1348,50 @@ class TestTokenApiBalancesPagination(unittest.TestCase):
         self.assertIn("page=", ex, "example must demonstrate pagination, not a single call")
 
 
+class TestQueryReadyUsesToolParameterName(unittest.TestCase):
+    """query_ready.args must key the GraphQL document as `query`, not `gql`.
+
+    execute_query_by_subgraph_id's published schema is
+    {"subgraph_id": str, "query": str}, both required — confirmed against the
+    live tool definition 2026-08-19. query_ready exists so a caller can pass
+    `args` straight to that tool, so a payload keyed `gql` fails validation with
+    "missing required parameter: query" for every MCP consumer.
+
+    It survived because GA's own executor reads
+    `args.get("gql") or args.get("query")` — it worked everywhere except the
+    integration it is published for. Normalizing on the way out (rather than
+    only instructing the model) means a slip can't reach a caller."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        import advocate
+        self.advocate = advocate
+
+    def _norm(self, rec):
+        return self.advocate._inject_missing_fields(rec, "give me a subgraph query")
+
+    def test_gql_key_is_rewritten_to_query(self):
+        rec = {"recommendation": "subgraph-registry",
+               "query_ready": {"tool": "execute_query_by_subgraph_id",
+                               "args": {"subgraph_id": "abc", "gql": "{ pools { id } }"}}}
+        args = self._norm(rec)["query_ready"]["args"]
+        self.assertIn("query", args, "GraphQL document must be published under `query`")
+        self.assertNotIn("gql", args, "`gql` must not survive into the published payload")
+        self.assertIn("pools", args["query"])
+
+    def test_already_correct_payload_is_left_alone(self):
+        rec = {"recommendation": "subgraph-registry",
+               "query_ready": {"tool": "execute_query_by_subgraph_id",
+                               "args": {"subgraph_id": "abc", "query": "{ pools { id } }"}}}
+        args = self._norm(rec)["query_ready"]["args"]
+        self.assertIn("query", args)
+        self.assertNotIn("gql", args)
+
+    def test_prompt_teaches_the_tool_parameter_name(self):
+        s = self.advocate.SYSTEM
+        self.assertIn("The key is `query`, NOT `gql`", s)
+
+
 class TestRefusalScoring(unittest.TestCase):
     def test_headline_filter_is_a_superset_of_the_write_skip(self):
         """The read-side filter must cover everything the write-side skips.

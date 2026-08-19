@@ -283,7 +283,14 @@ For ecosystem questions, use recommendation="ecosystem-overview" with confidence
 Rules:
 - Always respond in valid JSON — other agents parse your output programmatically
 - ALWAYS include query_ready with tool name + args — NEVER return query_ready: null for data requests
-  For subgraph queries: query_ready.args MUST include subgraph_id (from search results) and gql (GraphQL query using entity names from query_hint)
+  For subgraph queries: query_ready.args MUST include subgraph_id (from search results) and `query` — the GraphQL document, using entity names from query_hint.
+    The key is `query`, NOT `gql`. That is the parameter name in the published schema of
+    execute_query_by_subgraph_id ({"subgraph_id": str, "query": str}, both required), and
+    query_ready exists so a caller can hand args straight to that tool. Emitting `gql` makes
+    every subgraph answer fail schema validation for an MCP consumer with "missing required
+    parameter: query" — the answer looks perfect to a human reading it and is unusable to the
+    machine it was built for. GA's own executor accepts either spelling, which is exactly why
+    this went unnoticed: it works everywhere except the integration it is published for.
   For token-api queries: query_ready.args MUST include network and contract (use the exact param names, NOT chain/token_address)
 - For subgraph queries, always include: the subgraph ID, a working GraphQL query, and a note that API keys are free at thegraph.com/studio (100K queries/month free)
 - MCP packages are ALWAYS alternatives, never the primary recommendation. Every MCP package in this routing space (graph-aave-mcp, graph-uniswap-mcp, graph-polymarket-mcp, graph-lending-mcp, graph-limitless-mcp, predictfun-mcp) is a thin wrapper around subgraphs and REST APIs that the agent can call directly without `npm install`. The underlying data — including "advanced" features like Aave V4, Polymarket live orderbook / spreads / disputes / UMA resolution, Limitless whale trades — is reachable via direct subgraph queries or REST endpoints. The MCP just packages those calls with friendly tool names.
@@ -295,7 +302,7 @@ Rules:
   `executed`. Statements like "I am a routing agent and cannot make live HTTP calls myself" are
   false and get stripped before the caller sees them. Write `reason` to explain WHY this subgraph
   and this query answer the question — never to apologise for work the server is already doing.
-  Your job on a data request is to produce a `gql` that RUNS: ground every field name in the
+  Your job on a data request is to produce a `query` that RUNS: ground every field name in the
   injected SCHEMA block, because a query that errors is now a visible failure, not a suggestion.
 - Subgraph schema standard (Messari, protocol-native, custom) is a property of the SPECIFIC subgraph deployment, not of the chain. Any chain can host any schema. NEVER write reasoning like "Ethereum uses Messari, Base uses native" — that's a category error. Instead say "the [name] subgraph for chain X uses [standard]" and ground every field name in the injected SCHEMA block for THAT subgraph_id.
 - If unsure, say so with a confidence score and suggest the closest match
@@ -2494,13 +2501,23 @@ def _validate_and_fix_query(rec: dict) -> dict:
 
     new_gql = _inject_meta_into_query(gql)
     if new_gql != gql:
-        if isinstance(qr.get("args"), dict) and "gql" in qr["args"]:
-            qr["args"]["gql"] = new_gql
-        elif isinstance(qr.get("args"), dict) and "query" in qr["args"]:
-            qr["args"]["query"] = new_gql
-        else:
-            qr["gql"] = new_gql
         gql = new_gql
+
+    # NORMALIZE THE PUBLISHED KEY TO `query`.
+    #
+    # execute_query_by_subgraph_id's schema is {"subgraph_id": str, "query": str},
+    # both required — query_ready exists precisely so a caller can hand `args`
+    # straight to that tool. A payload keyed `gql` fails validation with
+    # "missing required parameter: query". GA's own executor reads
+    # `args.get("gql") or args.get("query")`, so it worked everywhere except the
+    # integration it is published for, which is why it survived this long.
+    # Normalizing on the way out means a model slip can't reach a caller.
+    if isinstance(qr.get("args"), dict):
+        qr["args"]["query"] = gql
+        qr["args"].pop("gql", None)
+    else:
+        qr["query"] = gql
+        qr.pop("gql", None)
     rec["query_ready"] = qr
 
     result = _dry_run_query(subgraph_id, gql, api_key)
@@ -2519,6 +2536,19 @@ def _inject_missing_fields(rec: dict, request: str) -> dict:
     frequently omits so agents always receive a working example to run.
     Also normalizes the service name to a canonical short label.
     """
+    # Publish the GraphQL document under `query`, the parameter name in
+    # execute_query_by_subgraph_id's schema ({"subgraph_id", "query"}, both
+    # required). Done HERE rather than only in _validate_and_fix_query because
+    # that function early-returns without a subgraph_id and is gated behind a
+    # network dry-run — so a `gql` key survived on exactly the paths where no
+    # validation ran. This step always runs.
+    _qr = rec.get("query_ready")
+    if isinstance(_qr, dict):
+        _target = _qr.get("args") if isinstance(_qr.get("args"), dict) else _qr
+        if isinstance(_target, dict) and _target.get("gql") and not _target.get("query"):
+            _target["query"] = _target.pop("gql")
+        elif isinstance(_target, dict) and "gql" in _target:
+            _target.pop("gql", None)      # both present — `query` wins
     # Deterministic correction: when Claude emits a graphadvocate.com/polymarket/*
     # URL in curl_example, the recommendation MUST be polymarket-token-api regardless
     # of what enum value Claude picked. Fixes the observed pattern where Claude
