@@ -695,11 +695,13 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
     """
     if anonymous:
         reason = (
-            "Anonymous requests (no sender metadata) are not eligible for the "
-            f"free tier. Either include a `sender` (wallet address) or `name` "
-            "field in the A2A `metadata` to claim the "
-            f"{DAILY_FREE_QUERIES} free queries/day, or pay $0.01 USDC via x402 "
-            "for this single call."
+            "The free tier requires a WALLET-IDENTIFIED sender. Set "
+            "`metadata.sender` to a 0x EVM address (42 characters) in the A2A "
+            f"request to claim {DAILY_FREE_QUERIES} free queries/day. A `name` "
+            "alone does NOT qualify — the daily allowance is counted per wallet, "
+            "so only an address can hold one. Otherwise pay $0.01 USDC via x402 "
+            "for this single call: see `pay_via_http` below, which any x402 SDK "
+            "can sign and retry automatically."
         )
     else:
         reason = (
@@ -798,9 +800,10 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
         + (", or `direct_service.url` for the exact computed result you asked for. "
            if _svc else ". ")
         + "(2) Over A2A: prefix this message's text with `x402:<signed-payment>` to "
-        "pay $0.01 for the routing recommendation. Identified senders (add a "
-        f"`sender` wallet or `name` to A2A metadata) get {DAILY_FREE_QUERIES} free "
-        "routing queries/day."
+        "pay $0.01 for the routing recommendation. Wallet-identified senders "
+        "(set `metadata.sender` to a 0x EVM address) get "
+        f"{DAILY_FREE_QUERIES} free routing queries/day; a `name` alone does not "
+        "qualify."
     )
     return resp
 
@@ -3413,9 +3416,10 @@ agent_card = AgentCard(
                     "a specialized endpoint, `direct_service` (the endpoint that "
                     "computes the exact result, with its own price/body/output_example). "
                     "You may also pay over A2A by prefixing the message text with "
-                    "`x402:<signed-payment>`. Identified senders (include a `sender` "
-                    f"wallet or `name` in A2A metadata) get {DAILY_FREE_QUERIES} free "
-                    "/route queries/day; anonymous senders pay $0.01 from call 1."
+                    "`x402:<signed-payment>`. Wallet-identified senders (set "
+                    "`metadata.sender` to a 0x EVM address) get "
+                    f"{DAILY_FREE_QUERIES} free /route queries/day; a `name` alone "
+                    "does not qualify. Anonymous senders pay $0.01 from call 1."
                 ),
                 required=False,
                 params={
@@ -4284,9 +4288,10 @@ Repository: https://github.com/PaulieB14/graph-advocate
 
 ## Pricing
 
-Free tier: include a `sender` (wallet address) or `name` in the A2A message
-`metadata` to be counted as an identified sender and claim 3 free /route
-queries/day — send it on the FIRST call to skip the 402 round-trip. Anonymous
+Free tier: set `metadata.sender` to a 0x EVM address (42 chars) in the A2A
+message to be counted as an identified sender and claim 3 free /route
+queries/day — send it on the FIRST call to skip the 402 round-trip. A `name`
+alone does NOT qualify: the allowance is counted per wallet. Anonymous
 requests (no sender metadata) are not eligible and pay $0.01 USDC from call 1.
 
 | Endpoint                       | Price        | Notes |

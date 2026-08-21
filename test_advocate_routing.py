@@ -1392,6 +1392,50 @@ class TestQueryReadyUsesToolParameterName(unittest.TestCase):
         self.assertIn("The key is `query`, NOT `gql`", s)
 
 
+class TestFreeTierCopyMatchesTheGate(unittest.TestCase):
+    """Never tell a caller that a `name` earns the free tier. It does not.
+
+    The gate is wallet-only by construction: a2a_server.py ~2734 accepts a sender
+    only if it is 42 chars starting with 0x, and ~2834 sets
+    `sender_is_anonymous = not sender_wallet`. `name` is never consulted, because
+    the daily allowance is counted per wallet and only an address can hold one.
+
+    Four published surfaces said otherwise, and on 2026-08-21 that cost a real
+    sale: activity row 8427, "Who are the biggest WETH holders on Base right
+    now?" — an answerable question from a live agent — was told to "include a
+    `sender` (wallet address) or `name` field ... to claim the 3 free
+    queries/day". An agent that complies by adding `name` is re-402'd and retries
+    into the same wall forever instead of paying. This is not a monetization
+    question; the gate is correct. The COPY was lying about it."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("ACTIVITY_DB_PATH", "/tmp/test_freetier.db")
+        import a2a_server
+        self.srv = a2a_server
+
+    def test_no_surface_offers_the_free_tier_for_a_name(self):
+        import inspect
+        src = inspect.getsource(self.srv)
+        for bad in ("wallet address) or `name`", "wallet or `name`", "or `name` field"):
+            self.assertNotIn(bad, src,
+                             f"a published surface still claims a `name` earns the free tier: {bad!r}")
+
+    def test_the_402_body_names_the_wallet_requirement(self):
+        body = self.srv._x402_payment_required_response(anonymous=True, user_text="test")
+        reason = body.get("reason") or ""
+        self.assertIn("metadata.sender", reason,
+                      "the 402 must say WHICH field to set")
+        self.assertIn("0x", reason, "the 402 must say it has to be an address")
+        self.assertIn("does NOT qualify", reason,
+                      "the 402 must rule the `name` shortcut out explicitly — an agent that "
+                      "tries it burns a round-trip and may never reach the pay path")
+        # The pay rail itself was never broken; keep it that way.
+        pv = body.get("pay_via_http") or {}
+        self.assertTrue(pv.get("url") and pv.get("payment_header") == "X-PAYMENT",
+                        "the 402 must still hand over a directly payable endpoint")
+
+
 class TestRefusalScoring(unittest.TestCase):
     def test_headline_filter_is_a_superset_of_the_write_skip(self):
         """The read-side filter must cover everything the write-side skips.
