@@ -1056,7 +1056,7 @@ class TestNoUnpublishedPackagesRecommended(unittest.TestCase):
         Mirrors test_no_markdown_surface_contradicts_the_catalog."""
         import glob
         root = os.path.dirname(os.path.abspath(__file__))
-        targets = ["README.md", "REFERENCE.md", "CLAUDE.md",
+        targets = ["README.md", "docs/REFERENCE.md", "CLAUDE.md",
                    "openclaw-skill/graph-advocate/SKILL.md"]
         targets += [os.path.relpath(p, root) for p in glob.glob(os.path.join(root, "docs", "*.mdx"))]
         haystacks = {}
