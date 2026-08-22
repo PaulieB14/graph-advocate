@@ -113,8 +113,37 @@ before the audit.
 alone is insufficient. If a new endpoint 404s in production, check both before checking anything
 else.
 
-**Generated, so leave alone:** `openapi.json`, `/.well-known/x402`. Both derive from #1. CDP Bazaar
-and x402scan crawl `/.well-known/x402`, so they need no manual registration either.
+**Generated, so leave alone:** `openapi.json`, `/.well-known/x402`. Both derive from #1.
+
+**They do NOT auto-register you anywhere.** This file used to claim "CDP Bazaar and x402scan
+crawl `/.well-known/x402`, so they need no manual registration either." Both halves were false,
+and believing it cost four months: when the custom domain replaced the Railway one, x402scan's
+record stayed pinned to `graph-advocate-production.up.railway.app`, which now 404s. Until
+2026-08-22 the listing showed a dead link, a 404 logo, and 1 endpoint out of 24. GA was absent
+from the CDP Bazaar entirely.
+
+x402scan is **manual submission**, but the endpoint is a public tRPC mutation, so re-registering
+is one call — no form, no auth. It fans out from `openapi.json` (its preferred discovery source,
+ahead of `/.well-known/x402`):
+
+```bash
+curl -s -X POST https://www.x402scan.com/api/trpc/public.resources.registerFromOrigin \
+  -H 'content-type: application/json' \
+  -d '{"json":{"origin":"https://graphadvocate.com"}}'
+# => {"success":true,"registered":23,"failed":0,"skipped":0,"source":"openapi", ...}
+```
+
+Re-run that after any change to the paid catalog, and **always after a hostname change**. Verify
+at `x402scan.com/server/<originId>`; the current origin is
+`c6abf980-5e1c-4a87-96a1-8702f8758a72`. Their spec is `docs/DISCOVERY.md` in
+`Merit-Systems/x402scan`.
+
+One thing that took a wrong turn worth recording: their failure list includes
+`parseResponse: Missing input schema`, and GA's 402 JSON **body** has no
+`extensions.bazaar.info`. That looks like the bug and is not — the `Payment-Required` **header**
+carries it, and the spec accepts the header as valid x402 v2 transport. GA's discovery documents
+were conformant the whole time; only the stale record was broken. Check the header before
+"fixing" the body.
 
 **Not a paid-endpoint surface:** `agents/capabilities.json` lists *routed services*, not priced
 paths — see below.
