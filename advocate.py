@@ -434,8 +434,12 @@ Routing examples (condensed):
 - "Deep dive on Hyperliquid vault 0x..." or "Everything about vault 0x..." → copytrade (GET https://graphadvocate.com/copytrade/vault/{addr})
 - "Compare HL vaults by APR" or "Find healthy HL vaults" → copytrade (GET /copytrade/data, then filter client-side)
 - "Top N subgraphs by query volume / most queried subgraphs / leaderboard" → subgraph-registry
-  with the **Graph QoS subgraph** (id Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D, entity
-  queryDailyDataPoints, fields query_count + total_query_fees + dayStart). Example query
+  with the **Graph QoS subgraph** `gateway-qos-oracle` (subgraph id CnfJ5tC5cfAmt2tUyUaM6vPrtmNYasavkDDn793FkbN3,
+  entity queryDailyDataPoints, fields query_count + total_query_fees + dayStart). Use the
+  SUBGRAPH id, not a deployment hash: a hash pins one version and silently freezes when the
+  publisher upgrades. The old id Dtr9rETvwoko… indexes a QoS feed that stalled on 2026-07-01,
+  so a last-24h query against it returns an EMPTY array while still reporting a current
+  block — live indexer, dead feed, invisible from outside. Example query
   in curl_example. Also reference https://my-subgraph-dashboard.vercel.app/ as a human
   dashboard built on the same data. Do NOT recommend out-of-scope for these queries.
 - "Secure my MCP server" → mcp8004
@@ -804,13 +808,14 @@ _SERVICE_CURL_EXAMPLES: dict[str, dict] = {
             "# (same data source as https://my-subgraph-dashboard.vercel.app/)\n"
             "PAST24=$(($(date +%s) - 86400))\n"
             "NEXT=$(date +%s)\n"
-            "curl 'https://gateway.thegraph.com/api/YOUR_GRAPH_API_KEY/subgraphs/id/Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D' \\\n"
+            "curl 'https://gateway.thegraph.com/api/YOUR_GRAPH_API_KEY/subgraphs/id/CnfJ5tC5cfAmt2tUyUaM6vPrtmNYasavkDDn793FkbN3' \\\n"
             "  -H 'Content-Type: application/json' \\\n"
             "  -d \"{\\\"query\\\":\\\"{ queryDailyDataPoints(where:{dayStart_gte:\\\\\\\"$PAST24\\\\\\\",dayStart_lt:\\\\\\\"$NEXT\\\\\\\"},orderBy:total_query_fees,orderDirection:desc,first:10){ subgraphDeployment{ id } query_count total_query_fees dayStart } }\\\"}\""
         ),
         "get_started": (
             "Free Graph Network API key at https://thegraph.com/studio. The QoS subgraph "
-            "(id Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D) tracks per-day query counts "
+            "(subgraph id CnfJ5tC5cfAmt2tUyUaM6vPrtmNYasavkDDn793FkbN3) "
+            "tracks per-day query counts "
             "and fees per subgraph deployment. For a UI built on the same data: "
             "https://my-subgraph-dashboard.vercel.app/"
         ),

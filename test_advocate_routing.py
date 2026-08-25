@@ -1554,6 +1554,46 @@ class TestLivenessProbeClassification(unittest.TestCase):
         self.assertFalse(f(None))
 
 
+
+class TestQosLeaderboardSource(unittest.TestCase):
+    """The QoS source must be the live one.
+
+    GA spent ~55 days handing agents subgraph id Dtr9rETvwoko…, whose feed
+    stalled on 2026-07-01. The failure was invisible from the outside: the
+    indexer kept reporting a current block, so the subgraph looked healthy while
+    a last-24h query returned an empty array. Anyone following GA's own curl
+    example got [] and would reasonably conclude nobody queries anything.
+    """
+
+    STALE = "Dtr9rETvwokot4BSXaD5tECanXfqfJKcvHuaaEgPDD2D"
+    # The SUBGRAPH id, deliberately, not the deployment hash it currently
+    # resolves to. A hash pins one version and freezes on the next upgrade,
+    # which is the same silent-staleness failure this test exists to prevent.
+    LIVE = "CnfJ5tC5cfAmt2tUyUaM6vPrtmNYasavkDDn793FkbN3"
+
+    def _src(self):
+        return open(os.path.join(os.path.dirname(__file__), "advocate.py")).read()
+
+    def test_curl_example_uses_the_live_deployment(self):
+        import advocate
+        ex = advocate._SERVICE_CURL_EXAMPLES["subgraph-registry-qos-leaderboard"]["curl_example"]
+        self.assertIn(self.LIVE, ex)
+        self.assertNotIn(f"/subgraphs/id/{self.STALE}", ex)
+
+    def test_qos_uses_a_subgraph_id_not_a_pinned_deployment(self):
+        """A pinned deployment hash goes stale on the publisher's next upgrade."""
+        import advocate
+        ex = advocate._SERVICE_CURL_EXAMPLES["subgraph-registry-qos-leaderboard"]["curl_example"]
+        self.assertIn("/subgraphs/id/", ex)
+        self.assertNotIn("/deployments/id/Qm", ex)
+
+    def test_the_stale_id_is_only_ever_mentioned_as_a_warning(self):
+        src = self._src()
+        for line in src.splitlines():
+            if self.STALE[:20] in line:
+                self.assertNotIn("curl ", line, f"stale id used as an endpoint: {line.strip()[:80]}")
+
+
 if __name__ == "__main__":
     loader = unittest.TestLoader()
     # DISCOVER the module's TestCases instead of listing them by hand.
