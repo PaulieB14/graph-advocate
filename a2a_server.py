@@ -1907,6 +1907,9 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
     _save_log()
 
     # Persist to SQLite (never capped — keeps full history for grant reporting)
+    # Default so the scorer below still runs if the insert raises; a failed
+    # activity write must not also cost us the quality score.
+    new_activity_id = 0
     try:
         import sqlite3
         sender_type = "unknown"
@@ -1916,6 +1919,15 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         elif task_id == "mcp": sender_type = "mcp-client"
         # Plain UUIDs (xxxxxxxx-xxxx-...) are A2A task IDs
         elif len(task_id) == 36 and task_id.count("-") == 4: sender_type = "a2a"
+
+        # Liveness probes are not customers, and counting them as traffic makes a
+        # dead week look like a busy one. Measured over 60 days: 883 real
+        # questions against 311 ping/hello and 25 conformance probes, and in the
+        # last 7 days the a2a stream was almost entirely probes. Classified here
+        # rather than filtered in each query so every downstream view — dashboard,
+        # exports, quality — agrees on what counts.
+        if _is_liveness_probe(request):
+            sender_type = f"probe:{sender_type}"
 
         reason = ""
         graph_subgraphs = ""
@@ -1932,12 +1944,18 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
             alternatives = "; ".join(alt_strs)
 
         conn = sqlite3.connect(str(DB_PATH))
-        conn.execute(
+        # lastrowid, so the quality score can point back at the request that
+        # produced it. Without this every quality_scores row carried
+        # activity_id = 0 and the two tables could not be joined at all —
+        # 2,223 of 2,223 rows, so every quality question had to be answered by
+        # matching on truncated request text instead.
+        cur = conn.execute(
             "INSERT INTO activity (timestamp, task_id, sender_type, request, service, confidence, tool, response_json, reason, graph_subgraphs, alternatives, paid_by_wallet) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, task_id, sender_type, request, service, confidence, tool,
              json.dumps(response) if response else None,
              reason, graph_subgraphs, alternatives, paid_by_wallet),
         )
+        new_activity_id = cur.lastrowid or 0
         conn.commit()
         conn.close()
     except Exception as e:
@@ -1950,10 +1968,34 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
         rec_for_score = response if isinstance(response, dict) else {"recommendation": service}
         if "recommendation" not in rec_for_score:
             rec_for_score = {**rec_for_score, "recommendation": service}
-        _score_response(request, rec_for_score, task_id=task_id)
+        _score_response(request, rec_for_score, activity_id=new_activity_id, task_id=task_id)
     except Exception as e:
         log.warning(f"Auto-score failed: {e}")
 
+
+
+_PROBE_EXACT = {"ping", "hello", "hi", "test", "hey", "status", "healthcheck", "health"}
+_PROBE_MARKERS = (
+    "conformance probe",
+    "state your useful capabilities",
+    "reply with any short message",
+)
+
+
+def _is_liveness_probe(request: str | None) -> bool:
+    """True for monitoring traffic that should never be counted as demand.
+
+    Deliberately narrow. A greeting is a probe only when it is the WHOLE
+    message — "hello" is a monitor, "hello, which subgraph tracks Aave?" is a
+    customer, and treating the second as noise would hide real demand, which is
+    a far worse error than counting a probe.
+    """
+    if not request:
+        return False
+    r = request.strip().lower().rstrip("!.?")
+    if r in _PROBE_EXACT:
+        return True
+    return any(m in r for m in _PROBE_MARKERS)
 
 def _log_paid_failure(descriptor: str, exc) -> None:
     """Record a paid x402 request that crashed inside its handler.

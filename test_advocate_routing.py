@@ -1508,6 +1508,52 @@ class TestRefusalScoring(unittest.TestCase):
             sqlite3.connect = real_connect
 
 
+class TestLivenessProbeClassification(unittest.TestCase):
+    """A probe counted as demand makes a dead week look like a busy one.
+
+    Measured over 60 days before this landed: 883 real questions against 311
+    ping/hello and 25 conformance probes, and the last 7 days of a2a traffic
+    were almost entirely probes.
+    """
+
+    def _fn(self):
+        import re
+        src = open(os.path.join(os.path.dirname(__file__), "a2a_server.py")).read()
+        block = re.search(
+            r"_PROBE_EXACT = \{.*?return any\(m in r for m in _PROBE_MARKERS\)", src, re.S
+        ).group(0)
+        ns = {}
+        exec(block, ns)
+        return ns["_is_liveness_probe"]
+
+    def test_bare_greetings_and_pings_are_probes(self):
+        f = self._fn()
+        for q in ("ping", "Hello!", "hi", "TEST", "status", "health"):
+            self.assertTrue(f(q), q)
+
+    def test_conformance_probes_are_probes(self):
+        f = self._fn()
+        self.assertTrue(f("a2a-scorecard conformance probe: please reply with any short message."))
+        self.assertTrue(f("In one sentence, state your useful capabilities. Do not make purchases."))
+
+    def test_a_greeting_with_a_real_question_is_not_a_probe(self):
+        """The error that matters. Hiding real demand is far worse than
+        counting a probe, so the match is on the WHOLE message only."""
+        f = self._fn()
+        for q in (
+            "hello, which subgraph tracks Aave V3 markets on Base?",
+            "hi - top USDC holders on Ethereum?",
+            "Top Uniswap V3 pools on Ethereum by TVL",
+            "Which subgraph has ENS registrations?",
+        ):
+            self.assertFalse(f(q), q)
+
+    def test_empty_and_none_are_safe(self):
+        f = self._fn()
+        self.assertFalse(f(""))
+        self.assertFalse(f(None))
+
+
 if __name__ == "__main__":
     loader = unittest.TestLoader()
     # DISCOVER the module's TestCases instead of listing them by hand.
