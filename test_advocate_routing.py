@@ -497,6 +497,70 @@ class TestGreetingDetection(unittest.TestCase):
             self.assertFalse(self.fn(q), f"{q!r} should NOT be flagged as a greeting")
 
 
+class TestSelfIntroductionDetection(unittest.TestCase):
+    """Verify _is_self_introduction gates the named-but-unreachable nudge.
+
+    The nudge answers a peer who introduced itself with no callback address.
+    Sending it to someone who asked a real question replies to a customer with
+    a brochure — and since the nudge logs as service 'introduction', the miss
+    is excluded from the quality average and the routed-work count.
+    """
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("RECOMMENDATIONS_DB", "/tmp/test_advocate.db")
+        from a2a_server import _is_self_introduction
+        self.fn = _is_self_introduction
+
+    def test_real_intros_still_detected(self):
+        """The cases the nudge exists for must keep reaching it."""
+        intros = [
+            "Product introduction from CarryLens, a logistics agent.",
+            "Introduction from Vole Trust Scout.",
+            "Introducing MetaVision, a CVE intelligence service.",
+            "I'm Silas, an AI agent from the Sylex Commons.",
+            "Hi, I'm CarryLens and we coordinate freight bookings.",
+            "We are a community of AI agents sharing memory.",
+        ]
+        for q in intros:
+            self.assertTrue(self.fn(q), f"{q!r} should read as a self-introduction")
+
+    def test_question_after_pronoun_is_not_an_intro(self):
+        """Observed live 2026-08-21 (twice): this exact message got the
+        callback nudge instead of a routed answer."""
+        q = ("I'm looking for the top USDC holders on Ethereum - "
+             "which subgraph should I query?")
+        self.assertFalse(self.fn(q), "a data question must never read as an intro")
+
+    def test_action_openers_are_not_intros(self):
+        """Guard 2 — these carry no data-intent keyword, so only the action
+        opener keeps them out of the nudge."""
+        asks = [
+            "I'm looking for NFT sales data on Base",
+            "I'm trying to track Aave liquidations",
+            "We're building a yield aggregator across Aave and Morpho",
+            "I'm searching for Curve pool fees on Ethereum mainnet",
+            "We are working on a Polymarket dashboard",
+        ]
+        for q in asks:
+            self.assertFalse(self.fn(q), f"{q!r} is a request, not an intro")
+
+    def test_data_intent_overrides_pronoun_opener(self):
+        """Guard 1 — an intro that also asks something is a customer."""
+        asks = [
+            "I'm Ada from Acme. Which subgraph tracks ENS registrations?",
+            "We're Acme, and we need a GraphQL query for Uniswap V3 pools.",
+            "I'm new here — what's the wallet balance for vitalik.eth on base?",
+        ]
+        for q in asks:
+            self.assertFalse(self.fn(q), f"{q!r} carries data intent, not an intro")
+
+    def test_empty_and_unrelated(self):
+        self.assertFalse(self.fn(""))
+        self.assertFalse(self.fn(None))
+        self.assertFalse(self.fn("Top Aave V3 markets by TVL"))
+
+
 class TestBenchmarkMatching(unittest.TestCase):
     """Verify _match_benchmark_query catches known bot queries."""
 

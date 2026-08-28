@@ -937,6 +937,64 @@ def _is_greeting(text: str) -> bool:
     return False
 
 
+# Unambiguous self-introduction openers — a peer announcing itself, matched
+# anywhere in the message.
+_SELF_INTRO_MARKERS = (
+    "introduction from",
+    "product introduction",
+    "introducing ",
+)
+
+# The loose openers. "I'm ..." is a self-introduction only when what follows is
+# an identity; in "I'm looking for ..." the pronoun is the subject of an action,
+# and the message is a request.
+_SELF_INTRO_PRONOUNS = ("hi, i'm", "hello, i'm", "i'm ", "we're ", "we are ")
+_INTRO_ACTION_OPENERS = (
+    "looking for", "looking to", "trying to", "trying ", "building",
+    "searching for", "searching", "working on", "after ", "hoping to",
+    "wondering", "interested in", "seeking", "querying", "needing",
+)
+
+
+def _is_self_introduction(text: str) -> bool:
+    """True for a peer introducing itself with no data question attached.
+
+    Gates the named-but-unreachable callback nudge. That nudge exists to
+    collect an address from a peer who left nothing to reply to — but it was
+    reached through a bare `startswith("i'm ", "we're ", ...)` test, which is
+    also how a large share of real customers open a question. Observed
+    2026-08-21, twice: "I'm looking for the top USDC holders on Ethereum -
+    which subgraph should I query?" got the brochure instead of an answer.
+
+    Two guards, both scoped to the loose pronoun path so the explicit markers
+    above keep behaving as they did:
+
+    1. Data intent anywhere in the message. `_is_greeting` grew exactly this
+       guard in f6aa4a9 (2026-08-19); this path runs earlier in the handler and
+       never got it.
+    2. An action opener right after the pronoun. The data-intent markers are
+       keyword-based, so a genuine ask can miss every one of them ("I'm looking
+       for NFT sales data on Base") and still must not read as an intro.
+
+    Answering someone who only wanted to say hello is recoverable. Replying to
+    a customer with a brochure is not — and because the nudge logs as service
+    `introduction`, the miss is excluded from the quality average and from the
+    dashboard's routed-work count, so it leaves no trace to notice later.
+    """
+    if not text:
+        return False
+    t = text.strip().lower()
+    if any(m in t for m in _SELF_INTRO_MARKERS):
+        return True
+    for pron in _SELF_INTRO_PRONOUNS:
+        if t.startswith(pron):
+            if any(m in t for m in _DATA_INTENT_MARKERS):
+                return False
+            rest = t[len(pron):].lstrip(" ,")
+            return not rest.startswith(_INTRO_ACTION_OPENERS)
+    return False
+
+
 def _is_greeting_spam(sender_key: str) -> bool:
     """Return True if this sender has exceeded the greeting limit.
 
@@ -2884,12 +2942,7 @@ class GraphAdvocateExecutor(AgentExecutor):
         # intro just evaporates (observed 2026-07-13: CarryLens, name only,
         # addr empty). Acknowledge it and say exactly what to include so a
         # callback / collaboration is possible next time. Free, before the gate.
-        _is_self_intro = (
-            "introduction from" in _text_lower
-            or "product introduction" in _text_lower
-            or "introducing " in _text_lower
-            or _text_lower.startswith(("hi, i'm", "hello, i'm", "i'm ", "we're ", "we are "))
-        )
+        _is_self_intro = _is_self_introduction(user_text)
         if sender_name and not sender_address and _is_self_intro:
             log.info(f"INTRO-NUDGE task={task_id} | named sender '{sender_name}' left no address")
             _nudge = {
