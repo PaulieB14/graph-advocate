@@ -2033,10 +2033,39 @@ def _log_request(task_id: str, request: str, service: str, confidence: str, tool
 
 
 _PROBE_EXACT = {"ping", "hello", "hi", "test", "hey", "status", "healthcheck", "health"}
+# Tier 1 — the message forbids work outright. A caller who writes this wants
+# no answer, so it is a probe even when it also names data: "do not run a paid
+# routing query" contains the word "query", and "do not make purchases" rides
+# along with capability surveys. Census and scorecard bots announce themselves
+# exactly this way, and a customer never does. Observed over the week to
+# 2026-08-28: 26 of 90 inbound messages were 402 challenges, mostly this class,
+# and every one counted as demand.
+_PROBE_PROHIBITIONS = (
+    "do not execute tools",
+    "do not run a paid",
+    "do not make purchases",
+)
+
+# Tier 2 — self-applied labels, with no prohibition attached. Weaker, so a data
+# question inside one outranks the label (see _is_liveness_probe).
 _PROBE_MARKERS = (
     "conformance probe",
     "state your useful capabilities",
     "reply with any short message",
+    "capability survey",
+    "integration proposal only",
+)
+
+# Ranking / entity vocabulary that appears in a data request but never in a
+# monitoring ping. Used ONLY to overrule a tier-2 label, alongside
+# _DATA_INTENT_MARKERS — kept separate because that list is shared with
+# _is_greeting and widening it there would change an unrelated, well-covered
+# path. "Conformance probe. Top Uniswap V3 pools on Ethereum by TVL" (arrived
+# 2026-08-15) names no subgraph, query or wallet, so the shared markers miss it
+# entirely and only this vocabulary keeps it counted as the question it is.
+_PROBE_DATA_HINTS = (
+    "top ", "pools", "tvl", "holders", "volume", "liquidity",
+    "markets", "swaps", "transfers", "liquidations",
 )
 
 
@@ -2047,12 +2076,30 @@ def _is_liveness_probe(request: str | None) -> bool:
     message — "hello" is a monitor, "hello, which subgraph tracks Aave?" is a
     customer, and treating the second as noise would hide real demand, which is
     a far worse error than counting a probe.
+
+    The marker list holds to the same standard: each phrase is one a caller
+    only writes when it wants no work done ("capability survey", "do not run a
+    paid routing query"). Unsolicited outreach that does NOT disclaim itself —
+    a peer pitching an integration in its own words — stays demand and keeps
+    its 402, because from the outside it is indistinguishable from a lead.
+
+    Classification only. Nothing here touches the payment gate: a probe that
+    hits a paid endpoint still pays.
     """
     if not request:
         return False
     r = request.strip().lower().rstrip("!.?")
     if r in _PROBE_EXACT:
         return True
+    if any(m in r for m in _PROBE_PROHIBITIONS):
+        return True
+    # Tier-2 labels are substring matches, so they can fire on a phrase buried
+    # in a real request — "Conformance probe. Top Uniswap V3 pools on Ethereum
+    # by TVL" arrived 2026-08-15 and is a question wearing a probe's hat. Same
+    # guard _is_greeting uses: data intent anywhere outranks a bare label.
+    # Under-counting demand is the error this function must not make.
+    if any(m in r for m in _DATA_INTENT_MARKERS) or any(m in r for m in _PROBE_DATA_HINTS):
+        return False
     return any(m in r for m in _PROBE_MARKERS)
 
 def _log_paid_failure(descriptor: str, exc) -> None:
@@ -6002,25 +6049,47 @@ def _build_dashboard_data() -> dict:
         pass
 
     # ── 24h activity counts (hero metrics) ────────────────────────────────
+    # Probes are excluded from every count here. `requests` was a raw COUNT(*),
+    # so the dashboard's headline read 42 `hello` + 33 `ping` from directory
+    # bots exactly like 75 answered data questions — on 2026-08-16 it showed
+    # vol24=20 on a day with ZERO substantive answers. The probe classification
+    # already existed (see _is_liveness_probe, and the quality headline and the
+    # by_service timeseries both honour it); the hero tile was the one surface
+    # still counting monitoring traffic as demand.
+    #
+    # The probe count is kept and published as its own field rather than
+    # dropped: the traffic is real, it just isn't demand, and an operator who
+    # sees requests fall to 2 should be able to tell "nobody asked anything"
+    # apart from "the bots stopped reaching us".
     hero_24h = {"requests": 0, "unique_senders": 0, "last_5min": 0,
-                "prev_24h_requests": 0, "delta_pct": None}
+                "prev_24h_requests": 0, "delta_pct": None, "probe_requests": 0}
     try:
         conn = _sq.connect(str(DB_PATH))
         cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         cutoff_48h = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
         cutoff_5min = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        _no_probes = "sender_type IS NULL OR sender_type NOT LIKE 'probe:%'"
         hero_24h["requests"] = conn.execute(
-            "SELECT COUNT(*) FROM activity WHERE timestamp >= ?", (cutoff_24h,),
+            f"SELECT COUNT(*) FROM activity WHERE timestamp >= ? AND ({_no_probes})",
+            (cutoff_24h,),
         ).fetchone()[0]
         hero_24h["unique_senders"] = conn.execute(
-            "SELECT COUNT(DISTINCT task_id) FROM activity WHERE timestamp >= ?", (cutoff_24h,),
+            f"SELECT COUNT(DISTINCT task_id) FROM activity WHERE timestamp >= ? AND ({_no_probes})",
+            (cutoff_24h,),
         ).fetchone()[0]
         hero_24h["last_5min"] = conn.execute(
-            "SELECT COUNT(*) FROM activity WHERE timestamp >= ?", (cutoff_5min,),
+            f"SELECT COUNT(*) FROM activity WHERE timestamp >= ? AND ({_no_probes})",
+            (cutoff_5min,),
         ).fetchone()[0]
-        # Prior 24h window (24-48h ago) for trend delta
+        hero_24h["probe_requests"] = conn.execute(
+            "SELECT COUNT(*) FROM activity WHERE timestamp >= ? AND sender_type LIKE 'probe:%'",
+            (cutoff_24h,),
+        ).fetchone()[0]
+        # Prior 24h window (24-48h ago) for trend delta. Must apply the same
+        # filter as `requests` or the delta compares demand against demand+bots
+        # and reads as a collapse on any day the probe rate happens to dip.
         hero_24h["prev_24h_requests"] = conn.execute(
-            "SELECT COUNT(*) FROM activity WHERE timestamp >= ? AND timestamp < ?",
+            f"SELECT COUNT(*) FROM activity WHERE timestamp >= ? AND timestamp < ? AND ({_no_probes})",
             (cutoff_48h, cutoff_24h),
         ).fetchone()[0]
         if hero_24h["prev_24h_requests"] > 0:
@@ -6627,7 +6696,7 @@ function renderWalletCard(o) {
 
 // ── Hero metrics (top row) ──────────────────────────────────────────────
 function renderHero(d) {
-  const h24 = d.hero_24h || {requests:0,unique_senders:0,last_5min:0};
+  const h24 = d.hero_24h || {requests:0,unique_senders:0,last_5min:0,probe_requests:0};
   const q = d.quality_summary || {avg_score:null,total_scored:0};
   const qScore = q.avg_score !== null ? q.avg_score.toFixed(2) : '—';
   const qBadge = q.avg_score === null ? 'dim' : (q.avg_score >= 3.5 ? 'green' : (q.avg_score >= 2.5 ? 'amber' : 'dim'));
@@ -6652,7 +6721,9 @@ function renderHero(d) {
           : ''
       }</div>
       <div class="value">${h24.requests.toLocaleString()}</div>
-      <div class="sub">${h24.unique_senders} unique senders</div>
+      <div class="sub">${h24.unique_senders} unique senders${
+        h24.probe_requests ? ` · <span title="Bare hello/ping and capability surveys from directory bots — real traffic, but not demand, so excluded from the count above">+${h24.probe_requests} probes</span>` : ''
+      }</div>
     </div>
     <div class="hero-card">
       <div class="label"><span class="icon">⭐</span>Avg quality score</div>

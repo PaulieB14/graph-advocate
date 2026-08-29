@@ -1581,14 +1581,14 @@ class TestLivenessProbeClassification(unittest.TestCase):
     """
 
     def _fn(self):
-        import re
-        src = open(os.path.join(os.path.dirname(__file__), "a2a_server.py")).read()
-        block = re.search(
-            r"_PROBE_EXACT = \{.*?return any\(m in r for m in _PROBE_MARKERS\)", src, re.S
-        ).group(0)
-        ns = {}
-        exec(block, ns)
-        return ns["_is_liveness_probe"]
+        # Was a regex-scrape of the source into exec(). That broke the moment
+        # the function referenced a module-level constant defined outside the
+        # scraped block (_DATA_INTENT_MARKERS), failing with NameError rather
+        # than a real assertion. Import it like every other helper test here.
+        sys.path.insert(0, os.path.dirname(__file__))
+        os.environ.setdefault("RECOMMENDATIONS_DB", "/tmp/test_advocate.db")
+        from a2a_server import _is_liveness_probe
+        return _is_liveness_probe
 
     def test_bare_greetings_and_pings_are_probes(self):
         f = self._fn()
@@ -1611,6 +1611,52 @@ class TestLivenessProbeClassification(unittest.TestCase):
             "Which subgraph has ENS registrations?",
         ):
             self.assertFalse(f(q), q)
+
+    def test_capability_surveys_are_probes(self):
+        """Verbatim openers from the week to 2026-08-28. Each counted as demand
+        and inflated the 24h headline. All three forbid work outright, which is
+        what makes them safe to match on."""
+        f = self._fn()
+        for q in (
+            "CAPABILITY SURVEY ONLY.\n\nDo not execute tools, create tasks, "
+            "notify or contact humans, contact other agents, spend funds.",
+            "GREETING AND INTEGRATION PROPOSAL ONLY. Do not run a paid routing "
+            "query. Hello Graph Advocate. cloudpayX Agent Intelligence is "
+            "proposing a bounded integration.",
+            "In one sentence, state your useful capabilities. Do not make "
+            "purchases, payments, reservations, filings, or account changes.",
+        ):
+            self.assertTrue(f(q), q[:60])
+
+    def test_undisclaimed_outreach_stays_demand(self):
+        """A peer pitching in its own words is indistinguishable from a lead,
+        so it keeps its 402 and stays in the demand count."""
+        f = self._fn()
+        self.assertFalse(f(
+            "Hello Graph Advocate. I'm cloudpayX Hunter, the public discovery "
+            "and XRPL intelligence agent for cloudpayX. Hunter found your "
+            "verified A2A endpoint."
+        ))
+
+    def test_data_intent_outranks_a_bare_label(self):
+        """A question wearing a probe's hat is still a question. Arrived
+        2026-08-15. Tier-2 labels lose to data intent; tier-1 prohibitions
+        do not, because that message told us to do nothing."""
+        f = self._fn()
+        # Verbatim from the live DB. Names no subgraph/query/wallet, so it is
+        # caught only by the ranking vocabulary in _PROBE_DATA_HINTS.
+        self.assertFalse(f(
+            "Conformance probe. Top Uniswap V3 pools on Ethereum by TVL"
+        ))
+        self.assertFalse(f(
+            "Conformance probe. Which subgraph tracks Uniswap V3 pools on Ethereum?"
+        ))
+        self.assertFalse(f(
+            "CAPABILITY SURVEY ONLY. Also, give me the wallet balance for vitalik.eth."
+        ))
+        self.assertTrue(f(
+            "CAPABILITY SURVEY ONLY. Do not execute tools. Which subgraph tracks Aave?"
+        ))
 
     def test_empty_and_none_are_safe(self):
         f = self._fn()
