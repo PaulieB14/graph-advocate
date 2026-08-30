@@ -152,9 +152,9 @@ Flat module layout, grouped here by role. Web entrypoint is [`a2a_server.py`](a2
 - [`agent_score.py`](agent_score.py) — 0–100 agent reputation score (ERC-8004 + on-chain + feedback)
 - [`b20.py`](b20.py) — B20 native token-standard helpers (Base)
 
-**Outreach** — outbound agent-to-agent
-- [`outreach.py`](outreach.py) — Daily outbound outreach run
-- [`x402_outreach.py`](x402_outreach.py) — Outbound x402 client (GA pays other agents)
+**Outreach** — inbound conversion vs outbound paying (two different jobs)
+- [`outreach.py`](outreach.py) — Daily inbound conversion: find x402/A2A agents on 8004scan and ask them to CALL and PAY Graph Advocate. Does not spend. Persistence on the Railway volume (`/data`). Win = on-chain settlement to payTo, not HTTP 200.
+- [`x402_outreach.py`](x402_outreach.py) — Outbound x402 client (GA pays other agents). Unchanged. Gated by `GA_BASE_WALLET_PK` + `/admin/outreach-pay`.
 
 **Dashboards & monitoring**
 - [`dashboard.py`](dashboard.py) — Terminal dashboard (recommendation-log stats)
