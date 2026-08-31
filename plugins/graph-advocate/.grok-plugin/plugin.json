@@ -1,0 +1,21 @@
+{
+  "name": "graph-advocate",
+  "version": "2.11.1",
+  "description": "Route any blockchain data question to the right Graph Protocol service. Live data from 15,500+ subgraphs, Token API (EVM/Solana/TON), Polymarket, Hyperliquid, x402 analytics, and ERC-8004 agent reputation — via the Graph Advocate MCP.",
+  "author": {
+    "name": "PaulieB14",
+    "url": "https://github.com/PaulieB14"
+  },
+  "repository": "https://github.com/PaulieB14/graph-advocate",
+  "homepage": "https://graphadvocate.com",
+  "license": "MIT-0",
+  "mcpServers": "./.grok-plugin/mcp.json",
+  "keywords": [
+    "graph-advocate",
+    "the graph",
+    "subgraph",
+    "onchain data",
+    "x402",
+    "token api"
+  ]
+}

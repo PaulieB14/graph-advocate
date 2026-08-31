@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "graph-advocate": {
+      "command": "npx",
+      "args": ["-y", "graph-advocate-mcp"]
+    }
+  }
+}
