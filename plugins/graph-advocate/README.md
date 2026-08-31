@@ -15,12 +15,12 @@ grok plugin install PaulieB14/graph-advocate --path plugins/graph-advocate
 Once listed on the [Grok plugin marketplace](https://github.com/xai-org/plugin-marketplace):
 
 ```bash
-grok plugin marketplace add graph-advocate
+grok plugin install graph-advocate --trust
 ```
 
 ## What this plugin does
 
-- Starts the public MCP package `graph-advocate-mcp` over stdio (`npx -y graph-advocate-mcp`).
+- Starts the public MCP package `graph-advocate-mcp` over stdio (`npx -y graph-advocate-mcp@2.11.1`).
 - Ships a routing skill so Grok picks the right Graph Advocate tool.
 - Does **not** hold a wallet or private key. Paid tools return a structured HTTP 402 (price, asset, network, `payTo`) so *your* wallet can settle x402.
 
