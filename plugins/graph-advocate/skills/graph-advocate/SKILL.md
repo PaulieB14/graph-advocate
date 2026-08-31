@@ -116,16 +116,19 @@ If the request spans two services, use both and combine results.
 | GET | `https://graphadvocate.com/dashboard` | Live monitoring |
 | POST | `https://graphadvocate.com/feedback` | Agent feedback |
 
-## Default mode: no wallet, free tier
+## Grok MCP: paid routing, free quotes
 
-This skill is **fully functional with no wallet attached**. The default routing —
-plain-English question in, JSON recommendation + live data out — runs against the
-free tier and never asks for funds. Agents that don't expose an x402-enabled
-runtime simply never see a payment challenge.
+This Grok plugin talks to Graph Advocate over MCP. `route_data_request` POSTs
+`/route` and is **charged $0.01 USDC on every call**. The 3 free queries/day
+apply only to Graph Advocate's **A2A** endpoint, not this MCP path.
+`check_quota` reporting `remaining_today` does **not** make the next
+`route_data_request` free.
 
-If you're evaluating Graph Advocate for the first time, start without a wallet,
-use the free tier, and decide later whether the paid endpoints are worth opting
-into.
+Without a wallet or x402 settlement, paid tools return `payment_required`
+(structured 402: price, asset, network, `payTo`) instead of live data. Use
+`preflight_price` (free) to inspect a 402 before paying.
+
+Free MCP tools: `preflight_price`, `check_quota`.
 
 ## Optional paid mode (opt-in)
 
@@ -135,7 +138,7 @@ x402 payment challenges. Without that configuration, paid endpoints return
 `402 Payment Required` and the call stops there — no funds move.
 
 ### Pricing
-- `/route` — 3 free queries/sender/day, then **$0.01 USDC** per call (Base mainnet)
+- `/route` (A2A) — 3 free queries/sender/day, then **$0.01 USDC**. MCP `route_data_request` is **$0.01 every call** (no free quota on this path).
 - `/polymarket/*` — paid from call 1 ($0.01 - $0.05 per call)
 - `/hyperliquid/*` — paid from call 1 ($0.02 - $0.10 per call)
 - `/predmarket/spread` — paid from call 1 (**$0.05 USDC**) — Polymarket ↔ Limitless cross-venue spread on a topic. POST `{topic, limit?}` returns per-pair yes-mid spread (bps) and arbitrage direction. JOIN that single-venue passthroughs structurally can't return.
