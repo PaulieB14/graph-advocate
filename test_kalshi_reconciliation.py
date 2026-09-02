@@ -15,12 +15,19 @@ Offline by construction — no network, no venue APIs.
 import pytest
 
 from kalshi import (
-    RECONCILE_MAX_DIVERGENCE,
+    FED_UPPER_BOUND_DEFAULT,
+    _align_ladder,
     _event_epoch,
     _kalshi_ladder_buckets,
     _poly_delta_bounds,
-    _reconcile_ladder,
+    _viable_anchors,
 )
+
+
+def align(kb, items, anchor=None):
+    """_align_ladder with the default origin, which is what the endpoint uses."""
+    a = FED_UPPER_BOUND_DEFAULT if anchor is None else anchor
+    return _align_ladder(kb, items, a, "assumed_default")
 
 
 def rung(strike, mid, strike_type="greater"):
@@ -33,8 +40,17 @@ def rung(strike, mid, strike_type="greater"):
     }
 
 
-# The KXFED-26SEP ladder as it stood for activity 8561.
-FED_LADDER = [rung(3.50, 0.99), rung(3.75, 0.595), rung(4.00, 0.015), rung(4.50, 0.005)]
+# The KXFED-26SEP ladder as it stood for activity 8561. The full 11-rung grid,
+# not a subset: the strike grid must be UNIFORM or the bucket arithmetic
+# mis-places levels, so a 4-rung sample with a 0.50 gap in it is now correctly
+# rejected and would be a misleading fixture. The four rungs the paid response
+# actually quoted (3.50/3.75/4.00/4.50) carry their real prices; the untraded
+# tails are filled monotonically as the live book has them.
+FED_LADDER = [
+    rung(2.75, 0.995), rung(3.00, 0.995), rung(3.25, 0.995), rung(3.50, 0.99),
+    rung(3.75, 0.595), rung(4.00, 0.015), rung(4.25, 0.005), rung(4.50, 0.005),
+    rung(4.75, 0.005), rung(5.00, 0.005), rung(5.25, 0.005),
+]
 
 # The fed-decision-in-september-762 group as it stood for the same call.
 FED_POLY = [
@@ -50,16 +66,24 @@ class TestLadder:
     def test_ladder_is_a_complete_distribution(self):
         kb = _kalshi_ladder_buckets(FED_LADDER)
         assert kb is not None
-        assert sum(b[2] for b in kb["buckets"]) == pytest.approx(1.0, abs=1e-9)
+        assert sum(b["p"] for b in kb["buckets"]) == pytest.approx(1.0, abs=1e-9)
         assert kb["step"] == pytest.approx(0.25)
 
-    def test_step_is_the_minimum_gap_not_the_first(self):
-        # Rungs are not always evenly spaced; a bucket sized off the first gap
-        # would mis-place every level above it.
-        kb = _kalshi_ladder_buckets(
+    def test_a_non_uniform_grid_is_rejected_outright(self):
+        # Bucket membership is computed as `lo + step` with ONE step, so a wider
+        # gap anywhere silently drops a partially-overlapping bucket and
+        # fabricates a disagreement — reproduced at up to -2014bp during review.
+        # Non-uniform ladders are live (KXUSDX-26 mixes 0.25 and 1.0), so this
+        # rejection is load-bearing, not theoretical.
+        assert _kalshi_ladder_buckets(
             [rung(3.0, 0.99), rung(4.0, 0.60), rung(4.25, 0.10), rung(4.5, 0.02)]
+        ) is None
+
+    def test_uniform_grid_is_accepted(self):
+        kb = _kalshi_ladder_buckets(
+            [rung(3.0, 0.99), rung(3.25, 0.60), rung(3.5, 0.10), rung(3.75, 0.02)]
         )
-        assert kb["step"] == pytest.approx(0.25)
+        assert kb is not None and kb["step"] == pytest.approx(0.25)
 
     @pytest.mark.parametrize("markets,why", [
         ([rung(3.5, 0.9), rung(3.75, 0.5)], "two rungs is not a ladder"),
@@ -94,65 +118,76 @@ class TestReconcile:
         # The whole point: the origin for Polymarket's deltas is derived from
         # the fit, so there is no second source of truth to keep current.
         kb = _kalshi_ladder_buckets(FED_LADDER)
-        rec = _reconcile_ladder(kb, FED_POLY)
+        rec = align(kb, FED_POLY)
         assert rec is not None
         assert rec["anchor_level"] == pytest.approx(3.75)
-        assert rec["total_abs_divergence"] < 0.10
+        assert rec["anchor_source"] == "assumed_default"
+        assert rec["total_abs_difference"] < 0.10
 
     def test_reports_the_disagreement_the_customer_paid_for(self):
         kb = _kalshi_ladder_buckets(FED_LADDER)
-        rec = _reconcile_ladder(kb, FED_POLY)
+        rec = align(kb, FED_POLY)
         by = {r["outcome"]: r for r in rec["outcomes"]}
         # Kalshi 0.395 vs Polymarket 0.425 on "no change" — the -300bp that the
         # old wording-based matcher discarded as "no trustworthy spread".
-        assert by["No change"]["kalshi_prob"] == pytest.approx(0.395, abs=1e-4)
-        assert by["No change"]["spread_bps"] == -300
-        assert by["25 bps increase"]["spread_bps"] == 150
+        assert by["No change"]["kalshi_prob_mid"] == pytest.approx(0.395, abs=1e-4)
+        assert by["No change"]["difference_bps"] == -300
+        assert by["25 bps increase"]["difference_bps"] == 150
         # Sorted by magnitude so the largest disagreement reads first.
-        assert abs(rec["outcomes"][0]["spread_bps"]) >= abs(rec["outcomes"][-1]["spread_bps"])
+        assert abs(rec["outcomes"][0]["difference_bps"]) >= abs(rec["outcomes"][-1]["difference_bps"])
 
     def test_rejects_an_incomplete_distribution(self):
         kb = _kalshi_ladder_buckets(FED_LADDER)
         partial = [dict(FED_POLY[1]), dict(FED_POLY[2])]
         partial[0]["prob"] = 0.20
         partial[1]["prob"] = 0.20
-        assert _reconcile_ladder(kb, partial) is None
+        assert align(kb, partial) is None
 
-    def test_rejects_a_distribution_that_cannot_align(self):
+    def test_a_large_genuine_disagreement_is_reported_not_suppressed(self):
+        # Polymarket at 96% on a cut against a ladder pricing it near zero is a
+        # real disagreement, and the honest answer is to show it flagged as
+        # outside the quote band. The earlier design rejected this as a "bad
+        # fit", which conflated two different things: whether the two events are
+        # the same (now decided by the resolution-date match) and how far apart
+        # they are priced (the output).
         kb = _kalshi_ladder_buckets(FED_LADDER)
-        bad = [
+        wide = [
             {"lo": 0.0, "hi": 0.0, "prob": 0.02, "label": "No change"},
             {"lo": 0.25, "hi": 0.25, "prob": 0.02, "label": "25 bps increase"},
             {"lo": -0.25, "hi": -0.25, "prob": 0.96, "label": "25 bps decrease"},
         ]
-        assert _reconcile_ladder(kb, bad) is None
+        rec = align(kb, wide)
+        assert rec is not None
+        by = {r["outcome"]: r for r in rec["outcomes"]}
+        assert by["25 bps decrease"]["difference_bps"] < -9000
+        assert by["25 bps decrease"]["exceeds_quote_band"] is True
 
     def test_rejects_polymarket_finer_than_the_kalshi_grid(self):
         # A 25bp outcome against 50bp rungs lands between them. Reporting the
         # unrepresentable outcome as a 100% disagreement would invent an
         # arbitrage, so the whole fit is dropped.
         kb = _kalshi_ladder_buckets(
-            [rung(3.0, 0.99), rung(3.5, 0.60), rung(4.0, 0.02), rung(4.5, 0.005)]
+            [rung(3.0, 0.99), rung(3.5, 0.60), rung(4.0, 0.02), rung(4.5, 0.005), rung(5.0, 0.001)]
         )
         finer = [
             {"lo": 0.0, "hi": 0.0, "prob": 0.40, "label": "No change"},
             {"lo": 0.25, "hi": 0.25, "prob": 0.35, "label": "25 bps increase"},
             {"lo": 0.5, "hi": 0.5, "prob": 0.25, "label": "50 bps increase"},
         ]
-        assert _reconcile_ladder(kb, finer) is None
+        assert align(kb, finer) is None
 
     def test_accepts_a_matching_grid_when_the_extremes_are_open_ended(self):
         # Same granularity on both sides, with the outermost outcomes labelled
         # open ("50+ bps"), which is how Polymarket actually words them.
         kb = _kalshi_ladder_buckets(
-            [rung(3.0, 0.99), rung(3.5, 0.60), rung(4.0, 0.02), rung(4.5, 0.005)]
+            [rung(3.0, 0.99), rung(3.5, 0.60), rung(4.0, 0.02), rung(4.5, 0.005), rung(5.0, 0.001)]
         )
         coarse = [
             {"lo": 0.0, "hi": 0.0, "prob": 0.39, "label": "No change"},
             {"lo": 0.5, "hi": None, "prob": 0.58, "label": "50+ bps increase"},
             {"lo": None, "hi": -0.5, "prob": 0.03, "label": "50+ bps decrease"},
         ]
-        rec = _reconcile_ladder(kb, coarse)
+        rec = align(kb, coarse, 3.5)
         assert rec is not None
         assert rec["anchor_level"] == pytest.approx(3.5)
 
@@ -161,19 +196,41 @@ class TestReconcile:
         # decrease" is "exactly 3.0". Those are different events, and the
         # ladder cannot separate them, so no reconciliation is offered.
         kb = _kalshi_ladder_buckets(
-            [rung(3.0, 0.99), rung(3.5, 0.60), rung(4.0, 0.02), rung(4.5, 0.005)]
+            [rung(3.0, 0.99), rung(3.5, 0.60), rung(4.0, 0.02), rung(4.5, 0.005), rung(5.0, 0.001)]
         )
         closed = [
             {"lo": 0.0, "hi": 0.0, "prob": 0.39, "label": "No change"},
             {"lo": 0.5, "hi": 0.5, "prob": 0.58, "label": "50 bps increase"},
             {"lo": -0.5, "hi": -0.5, "prob": 0.03, "label": "50 bps decrease"},
         ]
-        assert _reconcile_ladder(kb, closed) is None
+        assert align(kb, closed, 3.5) is None
 
-    def test_divergence_cap_is_enforced(self):
+    def test_the_anchor_is_reported_as_an_assumption_not_a_derivation(self):
+        # The audit killed two attempts to derive it: minimising divergence
+        # erased the signal being measured, and requiring a structurally forced
+        # origin only looks unique on a narrow ladder — the real 11-rung Fed
+        # ladder admits eight. So it is an input, and the response must say so.
         kb = _kalshi_ladder_buckets(FED_LADDER)
-        rec = _reconcile_ladder(kb, FED_POLY)
-        assert rec["total_abs_divergence"] <= RECONCILE_MAX_DIVERGENCE
+        rec = align(kb, FED_POLY)
+        assert rec["anchor_source"] == "assumed_default"
+        assert rec["anchor_as_of"]
+        supplied = _align_ladder(kb, FED_POLY, 3.75, "caller_supplied")
+        assert supplied["anchor_source"] == "caller_supplied"
+        assert supplied["anchor_as_of"] is None
+
+    def test_differences_are_bounded_by_the_quote_band(self):
+        kb = _kalshi_ladder_buckets(FED_LADDER)
+        rec = align(kb, FED_POLY)
+        for row in rec["outcomes"]:
+            assert row["kalshi_prob_low"] <= row["kalshi_prob_mid"] <= row["kalshi_prob_high"]
+            assert row["kalshi_quote_band_bps"] >= 0
+            expected = abs(row["difference_bps"]) > row["kalshi_quote_band_bps"]
+            assert row["exceeds_quote_band"] is expected
+
+    def test_viable_anchors_are_exposed_rather_than_silently_chosen(self):
+        kb = _kalshi_ladder_buckets(FED_LADDER)
+        viable = _viable_anchors(kb, FED_POLY)
+        assert 3.75 in viable
 
 
 class TestEventEpoch:

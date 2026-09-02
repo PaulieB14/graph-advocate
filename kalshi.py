@@ -141,21 +141,71 @@ def _content_overlap(a_text: str, b_text: str) -> float:
 #      would be a second source of truth to keep current — solve for the anchor
 #      on the Kalshi strike grid that best aligns the two distributions.
 #
-# Two guards keep a numerically-lucky coincidence from being reported as an
-# arbitrage: the two events must resolve within RECONCILE_MAX_DAY_GAP days of
-# each other, and the fitted distributions must agree to within
-# RECONCILE_MAX_DIVERGENCE in total absolute probability. A genuinely unrelated
-# pair scores near 1.0 on that measure, a real match near 0.04.
+# Event identity rests on ONE guard: the two events must resolve within
+# RECONCILE_MAX_DAY_GAP days of each other. There used to be a second, a cap on
+# total divergence, on the reasoning that an unrelated pair scores near 1.0 and a
+# real match near 0.04. It was removed. It cannot distinguish "different events"
+# from "same event, priced far apart" — and the latter is the output, so capping
+# it silently discarded the largest genuine disagreements while advertising
+# itself as evidence of identity.
 # ---------------------------------------------------------------------------
 
-RECONCILE_MAX_DIVERGENCE = 0.35
+# Ladder alignment.
+#
+# WHAT THIS IS NOT. It is not an arbitrage signal, and the field names below say
+# so. An adversarial audit of the first version established that the underlying
+# book cannot support one: on KXFED-26SEP, `liquidity_dollars` is 0.0000 on all
+# eleven rungs and nine are one-sided (the bottom four have no offer, the top
+# five no bid). A mid-to-mid "spread" on that book is narrower than the quote it
+# came from. So this reports where the two venues DISAGREE, bounded by what you
+# could actually trade at, and leaves the trading judgement to the caller.
+#
+# WHY IT EXISTS. Kalshi states a threshold on the level ("upper bound above
+# 3.75%"); Polymarket states a delta from today ("25 bps increase"). Same event,
+# no shared words — the best Jaccard overlap across every real Fed pairing was
+# 0.067 against a 0.25 threshold, which is why the wording matcher returned zero
+# pairs on every call in this endpoint's history, paid ones included.
+#
+# WHERE THE ANCHOR COMES FROM. Polymarket's deltas need an origin: the level
+# prevailing just before the meeting. It cannot be derived from the two
+# distributions without circularity, and both attempts are recorded here so
+# neither is tried again.
+#
+#   1. Solving for the origin that MINIMISES total divergence. Divergence is the
+#      aggregate venue disagreement, so that estimator is tuned to erase its own
+#      signal — and `sum(|difference_bps|)` came out exactly equal to the
+#      acceptance score, i.e. the gate and the product were one number.
+#   2. Requiring the origin to be FORCED by which outcomes the ladder can
+#      express. On a narrow ladder this looks unique; on the real 11-rung Fed
+#      ladder EIGHT origins are viable, because a wide ladder can express a
+#      +/-50bp outcome set from almost anywhere in its middle.
+#
+# Neither venue publishes the current level in a parseable field: Kalshi's
+# rules_primary states only the threshold, Polymarket's description says "versus
+# the level it was prior to" without giving it. So the anchor is an INPUT. The
+# caller may pass `anchor_level`; otherwise a dated constant is used and labelled
+# as an assumption, with every viable alternative returned alongside so the
+# caller can see what a different origin would imply.
+
+# The upper bound of the target federal funds range, and the date that was last
+# checked. This is a fact about the world, not something this module can infer —
+# if it goes stale every aligned row is wrong by a rung, which is why the value
+# is returned with its date and marked "assumed" on every response.
+FED_UPPER_BOUND_DEFAULT = 3.75
+FED_UPPER_BOUND_AS_OF = "2026-09-02"
+
 RECONCILE_MAX_DAY_GAP = 3.0
 RECONCILE_MIN_RUNGS = 2
 
 
 def _mid_from_bid_ask(bid, ask) -> Optional[float]:
-    """Mid of a yes bid/ask pair, normalised to 0-1 whether quoted in dollars
-    or cents."""
+    """Mid of a yes bid/ask pair, normalised to 0-1.
+
+    Kalshi quotes the `*_dollars` fields in dollars and the legacy fields in
+    integer cents. Sniffing the unit from the magnitude misreads a 0/1c quote as
+    0/1 dollars, so callers must pass the dollar fields; this only guards the
+    obvious cents case for the legacy path.
+    """
     try:
         if bid is None or ask is None:
             return None
@@ -167,44 +217,100 @@ def _mid_from_bid_ask(bid, ask) -> Optional[float]:
         return None
 
 
+def _quote(m: dict) -> Optional[dict]:
+    """One rung's executable quote. None unless both sides are present."""
+    b = m.get("yes_bid_dollars")
+    a = m.get("yes_ask_dollars")
+    if b is None or a is None:
+        b, a = m.get("yes_bid"), m.get("yes_ask")
+    mid = _mid_from_bid_ask(b, a)
+    if mid is None:
+        return None
+    try:
+        bid, ask = float(b), float(a)
+        if max(bid, ask) > 1.5:
+            bid, ask = bid / 100.0, ask / 100.0
+    except (TypeError, ValueError):
+        return None
+    def _sz(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return 0.0
+    return {
+        "bid": round(bid, 4), "ask": round(ask, 4), "mid": mid,
+        "bid_size": _sz(m.get("yes_bid_size_fp")),
+        "ask_size": _sz(m.get("yes_ask_size_fp")),
+        "width": round(abs(ask - bid), 4),
+    }
+
+
 def _kalshi_ladder_buckets(markets: list[dict]) -> Optional[dict]:
     """A `greater`-type Kalshi ladder -> disjoint buckets over the absolute level.
 
-    Returns None unless the rungs are priced, numerous enough, and monotone.
-    P(level > s) must be non-increasing as s rises; a ladder that violates that
-    is either mispriced or not a ladder, and either way must not be reconciled.
+    Rejects anything that is not a clean ladder: fewer than three priced rungs,
+    P(> s) rising with s, or a NON-UNIFORM strike grid. That last one matters —
+    bucket membership is computed as `blo + step` with a single `step`, so a
+    ladder with a wider gap anywhere silently drops a partially-overlapping
+    bucket and fabricates a disagreement. Non-uniform ladders exist live
+    (KXUSDX-26 mixes 0.25 and 1.0), so this is a real rejection, not a
+    theoretical one.
+
+    Each bucket carries a probability RANGE as well as a point: the point comes
+    from the two rungs' mids, the range from their bids and asks. The width of
+    that range is the uncertainty any downstream comparison has to clear.
     """
-    pts: list[tuple[float, float]] = []
+    pts: list[tuple] = []
     for m in markets:
         if str(m.get("strike_type") or "").lower() != "greater":
             continue
         fs = m.get("floor_strike")
-        mid = _mid_from_bid_ask(
-            m.get("yes_bid_dollars") if m.get("yes_bid_dollars") is not None else m.get("yes_bid"),
-            m.get("yes_ask_dollars") if m.get("yes_ask_dollars") is not None else m.get("yes_ask"),
-        )
-        if fs is None or mid is None:
+        q = _quote(m)
+        if fs is None or q is None:
             continue
         try:
-            pts.append((float(fs), mid))
+            pts.append((float(fs), q))
         except (TypeError, ValueError):
             continue
     if len(pts) < RECONCILE_MIN_RUNGS + 1:
         return None
-    pts.sort()
+    pts.sort(key=lambda x: x[0])
+    strikes = [p[0] for p in pts]
+    if len(set(strikes)) != len(strikes):
+        return None                       # duplicate rung: zero-width bucket
+    steps = [round(strikes[i + 1] - strikes[i], 6) for i in range(len(strikes) - 1)]
+    if len(set(steps)) != 1 or steps[0] <= 0:
+        return None                       # non-uniform grid
+    step = steps[0]
     for i in range(len(pts) - 1):
-        # Tolerate a couple of cents of crossed quotes, not a real inversion.
-        if pts[i + 1][1] > pts[i][1] + 0.02:
-            return None
-    steps = [round(pts[i + 1][0] - pts[i][0], 6) for i in range(len(pts) - 1)]
-    step = min(s for s in steps if s > 0) if any(s > 0 for s in steps) else None
-    if not step:
-        return None
-    buckets = [(None, pts[0][0], round(1.0 - pts[0][1], 4))]
+        if pts[i + 1][1]["mid"] > pts[i][1]["mid"] + 0.02:
+            return None                   # P(>s) must not rise with s
+
+    def _clamp(v):
+        # A tolerated 1-2c inversion must not become a negative probability.
+        return round(max(0.0, min(1.0, v)), 4)
+
+    buckets = []
+    q0 = pts[0][1]
+    buckets.append({"lo": None, "hi": strikes[0],
+                    "p": _clamp(1.0 - q0["mid"]),
+                    "p_lo": _clamp(1.0 - q0["ask"]), "p_hi": _clamp(1.0 - q0["bid"])})
     for i in range(len(pts) - 1):
-        buckets.append((pts[i][0], pts[i + 1][0], round(pts[i][1] - pts[i + 1][1], 4)))
-    buckets.append((pts[-1][0], None, round(pts[-1][1], 4)))
-    return {"buckets": buckets, "step": step, "strikes": [p[0] for p in pts]}
+        a, b = pts[i][1], pts[i + 1][1]
+        buckets.append({"lo": strikes[i], "hi": strikes[i + 1],
+                        "p": _clamp(a["mid"] - b["mid"]),
+                        "p_lo": _clamp(a["bid"] - b["ask"]),
+                        "p_hi": _clamp(a["ask"] - b["bid"])})
+    qn = pts[-1][1]
+    buckets.append({"lo": strikes[-1], "hi": None,
+                    "p": _clamp(qn["mid"]), "p_lo": _clamp(qn["bid"]),
+                    "p_hi": _clamp(qn["ask"])})
+    two_sided = sum(1 for _, q in pts if q["bid_size"] > 0 and q["ask_size"] > 0)
+    return {
+        "buckets": buckets, "step": step, "strikes": strikes,
+        "rungs": len(pts), "two_sided_rungs": two_sided,
+        "widest_quote": round(max(q["width"] for _, q in pts), 4),
+    }
 
 
 _DELTA_LABEL_RE = re.compile(
@@ -239,104 +345,103 @@ def _poly_delta_bounds(label: Optional[str]) -> Optional[tuple]:
 
 
 def _event_epoch(ts: Optional[str]) -> Optional[float]:
-    """ISO-8601 (either venue's flavour) -> epoch seconds, or None."""
+    """ISO-8601 (either venue's flavour) -> epoch seconds, or None.
+
+    A timestamp with no offset is read as UTC, not local time: both venues
+    publish UTC, and reading it as local would shift the day-gap guard by hours
+    depending on where this happens to run.
+    """
     if not ts or not isinstance(ts, str):
         return None
     try:
-        from datetime import datetime
-        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
     except (ValueError, TypeError):
         return None
 
 
-def _reconcile_ladder(kb: dict, poly_items: list[dict]) -> Optional[dict]:
-    """Align delta-framed Polymarket outcomes onto a Kalshi absolute ladder.
+def _viable_anchors(kb: dict, poly_items: list[dict]) -> list:
+    """Origins under which the ladder can express every Polymarket outcome.
 
-    `poly_items` are {lo, hi, prob, label}. Solves for the anchor level that
-    minimises total absolute divergence, then reports per-outcome spreads.
+    Returned to the caller so they can see what the alignment would look like
+    from a different origin. NOT used to pick one — see the module note.
     """
-    total = sum(i["prob"] for i in poly_items)
-    if not (0.90 <= total <= 1.10):
-        return None          # not a complete distribution; nothing to align to
     step = kb["step"]
-    grid = kb["strikes"]
-    candidates = sorted({round(v, 6) for s in grid
-                         for v in (s - step, s, s + step)})
-
-    def kalshi_mass(lo: Optional[float], hi: Optional[float]) -> tuple:
-        """Kalshi probability that the level lands within [lo, hi].
-
-        Returns (mass, buckets_covered). The count matters: a mass of 0.0
-        because the ladder really prices that outcome at zero is a fact, but a
-        mass of 0.0 because the requested range fell BETWEEN rungs — a
-        Polymarket bucket finer than the Kalshi grid — is a granularity
-        mismatch, and reporting it as a 100% disagreement would manufacture an
-        arbitrage that does not exist. The caller rejects the fit on that.
-        """
-        lo_ = -1e9 if lo is None else lo
-        hi_ = 1e9 if hi is None else hi
-        acc = 0.0
-        covered = 0
-        for blo, bhi, p in kb["buckets"]:
-            # bucket (blo, bhi] contains grid levels strictly above blo
-            lvl_lo = (blo + step) if blo is not None else -1e9
-            lvl_hi = bhi if bhi is not None else 1e9
-            if lvl_lo >= lo_ - 1e-9 and lvl_hi <= hi_ + 1e-9:
-                acc += p
-                covered += 1
-        return round(acc, 4), covered
-
-    # NOTE on tails. An earlier version widened the lowest and highest outcomes
-    # to absorb the ladder's unbounded outer buckets, on the reasoning that a
-    # distribution summing to ~1 is complete. That is too permissive: it let a
-    # CLOSED label ("25 bps decrease") swallow the entire bottom tail, so a
-    # distribution putting 96% on one outcome "fitted" a ladder that disagreed,
-    # at a divergence of 0.06. Only labels that are genuinely open-ended
-    # ("50+ bps decrease", parsed to lo=None) absorb a tail.
-    #
-    # The cost is that a closed outcome sitting on the ladder's outermost rung
-    # cannot be matched at all, because Kalshi cannot separate "exactly the
-    # bottom rung" from "the bottom rung or lower". Those reconciliations are
-    # dropped. For a number a caller may trade on, returning nothing beats
-    # returning a spread whose two sides are not the same event.
-    best = None
-    for anchor in candidates:
-        rows = []
-        divergence = 0.0
-        uncovered = False
+    out = []
+    for anchor in sorted({round(v, 6) for s in kb["strikes"]
+                          for v in (s - step, s, s + step)}):
+        ok = True
         for item in poly_items:
             lo = None if item["lo"] is None else round(anchor + item["lo"], 6)
             hi = None if item["hi"] is None else round(anchor + item["hi"], 6)
-            k, covered = kalshi_mass(lo, hi)
-            # An outcome the ladder cannot express at all, carrying real
-            # probability, means the two grids do not line up. Drop the whole
-            # anchor rather than emit a spread for the outcomes that did fit.
-            if covered == 0 and item["prob"] > 0.02:
-                uncovered = True
+            if _ladder_mass(kb, lo, hi)[3] == 0:
+                ok = False
                 break
-            divergence += abs(k - item["prob"])
-            rows.append({
-                "outcome": item["label"],
-                "implied_level_lo": lo,
-                "implied_level_hi": hi,
-                "kalshi_prob": k,
-                "polymarket_prob": round(item["prob"], 4),
-                "spread_bps": int(round((k - item["prob"]) * 10000)),
-            })
-        if uncovered:
-            continue
-        if best is None or divergence < best[0]:
-            best = (divergence, anchor, rows)
-    if best is None:
-        return None
-    divergence, anchor, rows = best
-    if divergence > RECONCILE_MAX_DIVERGENCE:
-        return None
-    rows.sort(key=lambda r: abs(r["spread_bps"]), reverse=True)
+        if ok:
+            out.append(anchor)
+    return out
+
+
+def _ladder_mass(kb: dict, lo, hi) -> tuple:
+    """(point, low, high, buckets_covered) for absolute level range [lo, hi]."""
+    step = kb["step"]
+    lo_ = -1e9 if lo is None else lo
+    hi_ = 1e9 if hi is None else hi
+    p = plo = phi = 0.0
+    covered = 0
+    for b in kb["buckets"]:
+        lvl_lo = (b["lo"] + step) if b["lo"] is not None else -1e9
+        lvl_hi = b["hi"] if b["hi"] is not None else 1e9
+        if lvl_lo >= lo_ - 1e-9 and lvl_hi <= hi_ + 1e-9:
+            p += b["p"]; plo += b["p_lo"]; phi += b["p_hi"]; covered += 1
+    return round(p, 4), round(plo, 4), round(phi, 4), covered
+
+
+def _align_ladder(kb: dict, poly_items: list[dict], anchor: float,
+                  anchor_source: str) -> Optional[dict]:
+    """Put both venues' outcomes on one axis, at a GIVEN origin.
+
+    Emits differences bounded by the ladder's own bid/ask range. It does not
+    choose the origin and does not claim a tradeable edge; see the module note.
+    """
+    total = sum(i["prob"] for i in poly_items)
+    if not (0.90 <= total <= 1.10):
+        return None                       # not a complete distribution
+    rows = []
+    for item in poly_items:
+        lo = None if item["lo"] is None else round(anchor + item["lo"], 6)
+        hi = None if item["hi"] is None else round(anchor + item["hi"], 6)
+        p, plo, phi, covered = _ladder_mass(kb, lo, hi)
+        # An outcome the ladder cannot express AT ALL. Reporting it as a 100%
+        # disagreement would manufacture one, so the whole alignment is dropped.
+        if covered == 0:
+            return None
+        gap = round(p - item["prob"], 4)
+        band = round(max(0.0, phi - plo), 4)
+        rows.append({
+            "outcome": item["label"],
+            "implied_level_lo": lo,
+            "implied_level_hi": hi,
+            "kalshi_prob_mid": p,
+            "kalshi_prob_low": plo,
+            "kalshi_prob_high": phi,
+            "polymarket_price": round(item["prob"], 4),
+            "difference_bps": int(round(gap * 10000)),
+            "kalshi_quote_band_bps": int(round(band * 10000)),
+            "exceeds_quote_band": bool(abs(gap) > band),
+        })
+    rows.sort(key=lambda r: abs(r["difference_bps"]), reverse=True)
     return {
         "anchor_level": anchor,
-        "total_abs_divergence": round(divergence, 4),
+        "anchor_source": anchor_source,
+        "anchor_as_of": FED_UPPER_BOUND_AS_OF if anchor_source == "assumed_default" else None,
+        "total_abs_difference": round(
+            sum(abs(r["difference_bps"]) for r in rows) / 10000.0, 4),
         "outcomes": rows,
+        "outcomes_exceeding_quote_band": sum(1 for r in rows if r["exceeds_quote_band"]),
     }
 
 
@@ -726,7 +831,8 @@ async def kalshi_event_consensus_trend(event_ticker: str) -> dict:
 # 2. Kalshi vs Polymarket cross-source spread
 # ===========================================================================
 
-async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
+async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5,
+                                   anchor_level: Optional[float] = None) -> dict:
     """Cross-source arbitrage: spread between Kalshi + Polymarket on same topic.
 
     Survives Pinax adding raw Kalshi data because Pinax exposes one source
@@ -865,16 +971,17 @@ async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
 
     pairs.sort(key=lambda p: abs(p["spread_yes_kalshi_minus_poly"]), reverse=True)
 
-    # ---- ladder reconciliation -------------------------------------------
-    # Runs whether or not the Jaccard pass found pairs: the two are different
-    # claims. A pair says "these two markets are worded alike"; a reconciled
-    # outcome says "these two event GROUPS resolve on the same thing, and here
-    # is the per-outcome disagreement". Fed rates only ever produce the latter.
+    # ---- ladder alignment ------------------------------------------------
+    # Runs whether or not the Jaccard pass found pairs: the two answer different
+    # questions. A pair says "these two markets are worded alike". An aligned
+    # outcome says "these two event GROUPS resolve on the same thing, and here is
+    # where they disagree, bounded by what you could trade at". Fed rates only
+    # ever produce the latter — the venues share no wording at all.
     #
     # Both sides are widened from the topic hits back to their FULL event group
-    # before reconciling. A distribution has to be complete to be compared, and
-    # the hits are truncated to `limit` — reconciling a truncated ladder would
-    # silently drop probability mass and invent a disagreement.
+    # first. A distribution has to be complete to be compared and the hits are
+    # truncated to `limit`, so aligning a truncated ladder would drop probability
+    # mass and invent a disagreement.
     reconciled: list[dict] = []
     try:
         k_events: dict[str, list] = {}
@@ -886,6 +993,28 @@ async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
             ev = m.get("event_ticker")
             if ev in k_events:
                 k_events[ev].append(m)
+
+        # FRONT MONTH ONLY. Polymarket's deltas are measured from the level
+        # prevailing immediately before that meeting. For the next meeting that
+        # is today's level; for any later one it depends on the decisions in
+        # between, so no single anchor exists and aligning one would fabricate
+        # four-figure differences. Keep only the earliest-closing event per
+        # series and drop the rest.
+        def _series_of(ticker: str) -> str:
+            return str(ticker or "").rsplit("-", 1)[0]
+
+        earliest: dict[str, tuple] = {}
+        for ev, ms in k_events.items():
+            if not ms:
+                continue
+            when = _event_epoch(ms[0].get("close_time") or ms[0].get("expiration_time"))
+            if when is None:
+                continue
+            ser = _series_of(ev)
+            if ser not in earliest or when < earliest[ser][1]:
+                earliest[ser] = (ev, when)
+        front = {ev for ev, _ in earliest.values()}
+        k_events = {ev: ms for ev, ms in k_events.items() if ev in front}
 
         p_events: dict[str, list] = {}
         for m in poly_hits:
@@ -918,29 +1047,37 @@ async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
                 p_when = _event_epoch(
                     ((p_ms[0].get("events") or [{}])[0] or {}).get("endDate")
                     or p_ms[0].get("endDate"))
-                # Same resolvable event, or don't compare it at all. Without
-                # this a September ladder happily "fits" a December one.
-                if k_when and p_when:
-                    gap_days = abs(k_when - p_when) / 86400.0
-                    if gap_days > RECONCILE_MAX_DAY_GAP:
-                        continue
-                else:
+                # Same resolvable event, or do not compare at all. Note this
+                # compares Kalshi's trading CLOSE against Polymarket's end date,
+                # which are different clocks; the 3-day window absorbs that.
+                if k_when is None or p_when is None:
                     continue
-                rec = _reconcile_ladder(kb, items)
+                gap_days = abs(k_when - p_when) / 86400.0
+                if gap_days > RECONCILE_MAX_DAY_GAP:
+                    continue
+                viable = _viable_anchors(kb, items)
+                if anchor_level is not None:
+                    _anchor, _src = float(anchor_level), "caller_supplied"
+                else:
+                    _anchor, _src = FED_UPPER_BOUND_DEFAULT, "assumed_default"
+                rec = _align_ladder(kb, items, _anchor, _src)
                 if not rec:
                     continue
                 rec.update({
+                    "viable_anchors": viable,
+                    "anchor_is_uniquely_determined": len(viable) == 1,
                     "kalshi_event": k_ev,
                     "polymarket_event": p_slug,
                     "resolution_gap_days": round(gap_days, 2),
-                    "method": "ladder_vs_delta_reconciliation",
-                    "kalshi_rungs": len(kb["strikes"]),
+                    "method": "ladder_vs_delta_alignment",
+                    "kalshi_rungs": kb["rungs"],
+                    "kalshi_two_sided_rungs": kb["two_sided_rungs"],
                     "polymarket_outcomes": len(items),
                 })
                 reconciled.append(rec)
-        reconciled.sort(key=lambda r: r["total_abs_divergence"])
-    except Exception as exc:            # never let the new path break the old one
-        log.warning("ladder reconciliation failed: %s", exc)
+        reconciled.sort(key=lambda r: r["total_abs_difference"])
+    except Exception as exc:            # never let this path break the old one
+        log.warning("ladder alignment failed: %s", exc)
         reconciled = []
 
     # Always surface the top priced markets on each side so the caller has the
@@ -960,39 +1097,61 @@ async def kalshi_polymarket_spread(topic_keyword: str, limit: int = 5) -> dict:
 
     # Classify the result so the caller knows what to do next.
     _rec_note = (
-        "`reconciled` compares the two venues' full outcome DISTRIBUTIONS rather "
-        "than their wording: the Kalshi threshold ladder (floor_strike) is turned "
-        "into disjoint buckets, the Polymarket group (groupItemTitle) into deltas, "
-        "and the anchor level is solved for. anchor_level is DERIVED, not looked "
-        "up — sanity-check it against the current policy level. Both events must "
-        "resolve within {gap} days and the fitted distributions must agree to "
-        "within {div} total absolute probability, so a low total_abs_divergence "
-        "is evidence they are the same event. spread_bps is Kalshi minus "
-        "Polymarket on that outcome."
-    ).format(gap=RECONCILE_MAX_DAY_GAP, div=RECONCILE_MAX_DIVERGENCE)
+        "`reconciled` is NOT an arbitrage signal and does not claim a tradeable "
+        "edge. Where the two venues cannot be matched on wording it puts their "
+        "full outcome DISTRIBUTIONS on one axis: the Kalshi threshold ladder "
+        "(floor_strike) becomes disjoint buckets, the Polymarket group "
+        "(groupItemTitle) becomes deltas. Read it as 'where do these venues "
+        "disagree, and is the gap bigger than the quote'.\n"
+        "ANCHOR. Polymarket's deltas need an origin — the level just before the "
+        "meeting — and it CANNOT be derived from the two distributions without "
+        "circularity. Neither venue publishes it in a parseable field, so it is "
+        "an input: pass `anchor_level` to set it. Otherwise anchor_source is "
+        "'assumed_default' and anchor_as_of dates the assumption. `viable_anchors` "
+        "lists every origin the ladder could express these outcomes from, and "
+        "`anchor_is_uniquely_determined` is normally FALSE — a wrong anchor shifts "
+        "every row by a rung, so check it.\n"
+        "BEFORE TREATING ANY ROW AS EDGE. kalshi_prob_mid is a midpoint; "
+        "kalshi_prob_low/high bound the same outcome from bids and asks. "
+        "`exceeds_quote_band` is true only where the difference is wider than that "
+        "bound — rows where it is false are inside the noise. Compare "
+        "kalshi_two_sided_rungs against kalshi_rungs: on the Fed ladder most rungs "
+        "have one side empty and zero book liquidity, so the midpoint is not a "
+        "price you can trade. Polymarket's side is a single printed price, so the "
+        "true combined uncertainty is WIDER than kalshi_quote_band_bps. Fees, "
+        "slippage, and the venues' different resolution criteria are all excluded "
+        "— Polymarket rounds a sub-25bp move UP to the next bracket, Kalshi does "
+        "not.\n"
+        "Only the front-month event is aligned, because the deltas are measured "
+        "from the level just before that meeting; for a later one that level "
+        "depends on the decisions in between. total_abs_difference is the sum of "
+        "|difference_bps| — the same quantity restated, not independent "
+        "corroboration. Event identity comes from the {gap}-day resolution-date "
+        "match, not from that sum."
+    ).format(gap=RECONCILE_MAX_DAY_GAP)
 
     if pairs and reconciled:
         status = "ok"
         agent_note = (
-            "Both a worded pair match and a distribution reconciliation. "
-            "spread > 200bps is a candidate arbitrage, but VERIFY both markets "
-            "resolve on the same condition, strike and date before sizing. "
-            "pair_semantic_overlap is Jaccard on content words (0-1); treat "
-            "< 0.3 as loosely related. " + _rec_note
+            "Both a worded pair match and a distribution alignment. For `pairs`, "
+            "VERIFY both markets resolve on the same condition, strike and date "
+            "before sizing; pair_semantic_overlap is Jaccard on content words "
+            "(0-1), treat < 0.3 as loosely related. " + _rec_note
         )
     elif pairs:
         status = "ok"
         agent_note = (
             "Pairs matched by shared content words + price. spread > 200bps is a "
-            "candidate arbitrage, but VERIFY both markets resolve on the same "
-            "condition, strike and date before sizing — Kalshi (e.g. 'upper bound "
-            "above 4.25%') and Polymarket (e.g. 'cut by 25 bps') often frame the same "
-            "topic as different conditions. pair_semantic_overlap is Jaccard on content "
-            "words (0-1); treat < 0.3 as loosely related."
+            "candidate to INVESTIGATE, not a trade: VERIFY both markets resolve on "
+            "the same condition, strike and date, and check both books, before "
+            "sizing — Kalshi (e.g. 'upper bound above 4.25%') and Polymarket (e.g. "
+            "'cut by 25 bps') often frame the same topic as different conditions. "
+            "pair_semantic_overlap is Jaccard on content words (0-1); treat < 0.3 "
+            "as loosely related."
         )
     elif reconciled:
-        # The Fed case, and the reason this endpoint used to return nothing:
-        # the venues price one event in different units, so no wording overlaps.
+        # The Fed case, and the reason this endpoint used to return nothing: the
+        # venues price one event in different units, so no wording overlaps.
         status = "ok_reconciled"
         agent_note = (
             f"No two markets are worded alike, which is normal for '{keyword}' — "

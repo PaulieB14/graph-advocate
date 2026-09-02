@@ -9488,8 +9488,18 @@ def build_app():
                                    "expected_body": {"topic": "fed rate"}},
                                   status_code=400)
             limit = body.get("limit") or 5
+            # Optional: the level Polymarket's deltas are measured from. It
+            # cannot be derived from the data without circularity, so a caller
+            # who knows it should say so; otherwise a dated default is used and
+            # labelled as an assumption in the response.
             try:
-                result = await kalshi_polymarket_spread(topic, limit=limit)
+                anchor = body.get("anchor_level")
+                anchor = float(anchor) if anchor is not None else None
+            except (TypeError, ValueError):
+                anchor = None
+            try:
+                result = await kalshi_polymarket_spread(topic, limit=limit,
+                                                        anchor_level=anchor)
                 _log_request("x402-paid", f"kalshi-poly-spread {topic[:40]}",
                              "kalshi-polymarket-spread", "high", "kalshi+pinax",
                              response=result)
