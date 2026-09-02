@@ -549,7 +549,7 @@ _PAID_CATALOG = {
     'kalshi-polymarket/spread': {
         "path": "/kalshi-polymarket/spread",
         "log_prefix": 'kalshi-poly-spread', "price": '$0.05', "amount": '50000', "body": {},
-        "op_id": 'kalshiPolymarketSpread', "desc": 'Kalshi vs Polymarket cross-source spread on a topic — matched by wording where possible, and by reconciling the two venues\' full outcome distributions where they frame the same event differently (threshold vs delta, e.g. Fed rates). JOIN that single-source APIs cannot return; per-outcome spread in bps.',
+        "op_id": 'kalshiPolymarketSpread', "desc": 'Where Kalshi and Polymarket disagree on a topic — matched by wording where possible, and by aligning the two venues\' full outcome distributions where they frame the same event differently (threshold vs delta, e.g. Fed rates). Per-outcome difference in bps, bounded by quote width so noise is distinguishable from signal. JOIN that single-source APIs cannot return.',
         "a2a": False, "openapi": True, "wellknown": True,
     },
     'kalshi/consensus-trend': {
@@ -2474,14 +2474,16 @@ SKILLS = [
         id="kalshi_polymarket_spread",
         name="Kalshi ↔ Polymarket cross-source spread",
         description=(
-            "POST /kalshi-polymarket/spread. Compares Kalshi and Polymarket on the "
-            "same event two ways: `pairs` when the two venues word a question "
-            "alike, and `reconciled` when they do not — Kalshi states a threshold "
-            "on the level ('upper bound above 3.75%') while Polymarket states a "
+            "POST /kalshi-polymarket/spread. Shows where Kalshi and Polymarket "
+            "disagree on the same event, two ways: `pairs` when the venues word a "
+            "question alike, and `reconciled` when they do not — Kalshi states a "
+            "threshold on the level ('upper bound above 3.75%'), Polymarket a "
             "delta ('25 bps increase'), so for macro markets like Fed rates the "
             "wording never matches and only the distribution comparison works. "
-            "Returns per-outcome spreads in bps. A JOIN neither venue can answer "
-            "alone. $0.05 USDC per call on Base."
+            "Differences are reported in bps AND bounded by the venues' quote "
+            "widths, so you can tell signal from noise; it does not claim a "
+            "tradeable edge. A JOIN neither venue can answer alone. $0.05 USDC "
+            "per call on Base."
         ),
         tags=["kalshi", "polymarket", "spread", "arbitrage", "cross-venue", "x402"],
         examples=[
