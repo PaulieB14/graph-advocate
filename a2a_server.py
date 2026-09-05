@@ -5348,10 +5348,16 @@ def _get_onchain_stats() -> dict:
 # Cache for the payer scan (see below).
 _PAYERS_CACHE: dict = {"data": None, "ts": 0.0}
 _PAYERS_CACHE_TTL_SEC = 600
+# A paying wallet quiet for longer than this counts as churned. Long enough that a
+# weekly-cadence caller does not flap in and out of "active".
+_CHURN_AFTER_DAYS = 14
 # GA's OWN wallets — self-test / outreach traffic, NOT customers. Kept in sync
 # with ga-monitor's GA_SELF_WALLETS. Lowercased for matching.
 _GA_SELF_WALLETS = {
     "0xe121e3a8611e1f44f7cc52892ee1117fddc8f734",  # outbound hot wallet (self-test)
+    "0xda664bc18c73e93b43c7f7753833c91b13161bd0",  # Paul's x402 test wallet — hammers
+                                                   # the paid flow during testing, so
+                                                   # its payments are not revenue
     _OUTBOUND_WALLET.lower(),                        # 0x575267… graphadvocate.eth
     X402_WALLET.lower(),                             # the receiving wallet itself
 }
@@ -5474,7 +5480,13 @@ def _get_onchain_payers() -> dict:
             payers.append({
                 "wallet": f, "short": f[:6] + "\u2026" + f[-4:],
                 "call_count": e["n"], "usdc_total": round(e["usdc"], 4),
-                "first_seen": _full(e["fb"]), "last_seen": _hms(e["lb"]),
+                "first_seen": _full(e["fb"]), "last_seen": _full(e["lb"]),
+                # last_seen was _hms() — a clock time with no date — so a wallet
+                # that stopped paying weeks ago looked identical to one that paid
+                # minutes ago, and churn was invisible. These two fields exist so
+                # consumers never have to infer recency from a formatted string.
+                "days_since_last": round(max(0, head - e["lb"]) * 2 / 86400.0, 1),
+                "is_active": (head - e["lb"]) * 2 < _CHURN_AFTER_DAYS * 86400,
                 "is_repeat": e["n"] > 1, "is_self": is_self,
             })
         payers.sort(key=lambda x: (-x["usdc_total"], -x["call_count"]))
@@ -5925,7 +5937,7 @@ def _build_dashboard_data() -> dict:
                 "type": sender_type or "unknown",
                 "count": cnt,
                 "top_service": top_svc,
-                "last_seen": (last_seen or "")[11:19],
+                "last_seen": (last_seen or "")[:19],
             })
         conn.close()
     except Exception:
@@ -5971,7 +5983,7 @@ def _build_dashboard_data() -> dict:
                 "call_count": cnt,
                 "usdc_total": round(usdc or 0, 4),
                 "first_seen": (first_seen or "")[:19],
-                "last_seen": (last_seen or "")[11:19],
+                "last_seen": (last_seen or "")[:19],
                 "is_repeat": cnt > 1,
             })
         conn.close()
@@ -5997,6 +6009,8 @@ def _build_dashboard_data() -> dict:
                 {"wallet": p["wallet"], "short": p["short"],
                  "call_count": p["call_count"], "usdc_total": p["usdc_total"],
                  "first_seen": p["first_seen"], "last_seen": p["last_seen"],
+                 "days_since_last": p.get("days_since_last"),
+                 "is_active": p.get("is_active"),
                  "is_repeat": p["is_repeat"]}
                 for p in _op["payers"] if not p["is_self"]
             ][:12]
