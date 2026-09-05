@@ -6420,6 +6420,12 @@ async def dashboard_endpoint(request: Request):
   .lb-rank{font-size:0.85rem;font-weight:800;color:var(--text-muted);width:24px;text-align:center;font-family:'JetBrains Mono',monospace}
   .lb-rank.top{color:var(--amber)}
   .lb-info{flex:1;min-width:0}
+  .payers-summary{font-size:0.82rem;color:var(--text-muted);margin-bottom:10px}
+  .pay-live{color:#10b981;font-weight:600}
+  .pay-gone{color:#ef4444;font-weight:600}
+  .pay-badge{font-size:0.7rem;padding:2px 7px;border-radius:10px;white-space:nowrap}
+  .pay-badge.live{background:rgba(16,185,129,0.15);color:#10b981}
+  .pay-badge.gone{background:rgba(239,68,68,0.15);color:#ef4444}
   .lb-sender{font-size:0.78rem;color:var(--text-bright);font-family:'JetBrains Mono',monospace;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lb-svc{font-size:0.68rem;color:var(--text-muted);margin-top:2px}
   .lb-count{font-size:1rem;font-weight:800;color:var(--accent-bright);font-family:'JetBrains Mono',monospace}
@@ -6639,6 +6645,13 @@ async def dashboard_endpoint(request: Request):
       <h2>🏆 Top Querying Agents</h2>
       <div class="panel-sub">Most active senders by query count · sorted descending</div>
       <div class="lb-grid" id="leaderboard"></div>
+    </div>
+
+    <div class="panel" style="margin-top:20px">
+      <h2>💰 Paying Customers</h2>
+      <div class="panel-sub">On-chain USDC payers, newest activity first · a wallet quiet 14+ days is marked churned</div>
+      <div id="payers-summary" class="payers-summary"></div>
+      <div class="lb-grid" id="payers"></div>
     </div>
   </div>
 
@@ -6919,6 +6932,65 @@ function renderServiceHealth(services) {
   }).join('');
 }
 
+// ── Relative time ───────────────────────────────────────────────────────
+// last_seen carries a full date now; an ISO string reads badly inline.
+function fmtAgo(iso) {
+  if (!iso) return '?';
+  const t = Date.parse(iso.endsWith('Z') ? iso : iso + 'Z');
+  if (isNaN(t)) return iso;
+  const d = (Date.now() - t) / 86400000;
+  if (d < 1)  return Math.max(1, Math.round(d * 24)) + 'h ago';
+  if (d < 30) return Math.round(d) + 'd ago';
+  return Math.round(d / 30) + 'mo ago';
+}
+
+// ── Paying customers ────────────────────────────────────────────────────
+// This panel exists because churn was previously invisible: the payer list
+// showed a time-of-day with no date, so a wallet that stopped paying months
+// ago looked identical to one that paid an hour ago.
+function renderPayers(rows) {
+  const el = document.getElementById('payers');
+  const sum = document.getElementById('payers-summary');
+  if (!el) return;
+  if (!rows || !rows.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem;padding:12px">No paying customers yet</div>';
+    if (sum) sum.innerHTML = '';
+    return;
+  }
+  const known = rows.filter(r => r.is_active !== undefined && r.is_active !== null);
+  const live = known.filter(r => r.is_active);
+  const gone = known.filter(r => !r.is_active);
+  if (sum) {
+    sum.innerHTML = known.length
+      ? `<span class="pay-live">${live.length} active</span> · ` +
+        `<span class="pay-gone">${gone.length} churned</span> of ${known.length} paying wallets`
+      : '';
+  }
+  const sorted = rows.slice().sort((a, b) => {
+    const ad = a.days_since_last, bd = b.days_since_last;
+    if (ad == null && bd == null) return (b.usdc_total || 0) - (a.usdc_total || 0);
+    if (ad == null) return 1;
+    if (bd == null) return -1;
+    return ad - bd;
+  });
+  el.innerHTML = sorted.map(r => {
+    const active = r.is_active;
+    const d = r.days_since_last;
+    const badge = (active === undefined || active === null)
+      ? ''
+      : active
+        ? '<span class="pay-badge live">active</span>'
+        : `<span class="pay-badge gone">quiet ${Math.round(d)}d</span>`;
+    return `<div class="lb-item">
+      <div class="lb-info">
+        <div class="lb-sender">${escapeHtml(r.short || r.wallet || '?')} ${badge}</div>
+        <div class="lb-svc">${r.call_count} payments · $${r.usdc_total} · last ${fmtAgo(r.last_seen)}</div>
+      </div>
+      <div class="lb-count">$${r.usdc_total}</div>
+    </div>`;
+  }).join('');
+}
+
 // ── Leaderboard ─────────────────────────────────────────────────────────
 function renderLeaderboard(rows) {
   const el = document.getElementById('leaderboard');
@@ -6933,7 +7005,7 @@ function renderLeaderboard(rows) {
       <div class="lb-rank ${rankClass}">${medal}</div>
       <div class="lb-info">
         <div class="lb-sender">${escapeHtml(r.sender)}</div>
-        <div class="lb-svc">${r.type} · ${r.top_service} · ${r.last_seen}</div>
+        <div class="lb-svc">${r.type} · ${r.top_service} · ${fmtAgo(r.last_seen)}</div>
       </div>
       <div class="lb-count">${r.count}</div>
     </div>`;
@@ -7110,6 +7182,7 @@ async function refresh() {
     renderDonut(d.donut);
     renderServiceHealth(d.service_health);
     renderLeaderboard(d.leaderboard);
+    renderPayers(d.repeat_payers);
 
     // Populate feed cache and service filter
     _feedCache = d.recent || [];
