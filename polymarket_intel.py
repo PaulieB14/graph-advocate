@@ -314,6 +314,20 @@ def compute_scores(positions: list[dict], aggregate: dict | None = None) -> dict
             "Full-history aggregate unavailable; score derived from the capped position "
             "sample only — treat as a partial read."
         )
+    elif sample_capped:
+        # When the aggregate IS present this response mixes two provenances: PnL,
+        # volume and trade count are full-history, while win_rate, sharpe_like,
+        # open_positions_count and worst_position_pnl_usdc come from a capped
+        # position sample. The visible symptom is a POSITIVE "worst" position —
+        # it is the weakest of the sampled OPEN positions, not the wallet's worst
+        # ever, so without this note it reads as the opposite of what it means.
+        caveats.append(
+            f"Mixed provenance: PnL, volume and trade count are full-history "
+            f"({a_txns:,} trades), but win_rate, sharpe_like, open_positions_count and "
+            f"worst_position_pnl_usdc come from a capped sample of {sample_size} open "
+            f"positions. worst_position_pnl_usdc is the weakest of those {sample_size} "
+            f"— not the wallet's worst position overall."
+        )
 
     return {
         "skill_score": round(skill_score, 1),
