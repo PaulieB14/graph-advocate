@@ -1641,6 +1641,17 @@ def _init_activity_db():
         except Exception:
             pass
 
+        # rubric / fill_rate — which scale graded this row, and how much of the
+        # payload was actually populated. Added 2026-09-12: the routing rubric
+        # pinned every direct-data answer to a constant 4/5, so an empty result
+        # and a full one were indistinguishable. Existing rows predate the split
+        # and are all routing-scored; NULL reads as "routing" on the read side.
+        for _qcol, _qtype in (("rubric", "TEXT"), ("fill_rate", "REAL")):
+            try:
+                conn.execute(f"ALTER TABLE quality_scores ADD COLUMN {_qcol} {_qtype}")
+            except Exception:
+                pass
+
         # Daily query limits — persists across deploys
         conn.execute("""
             CREATE TABLE IF NOT EXISTS daily_limits (
@@ -4198,6 +4209,147 @@ async def feedback_stats_endpoint(request: Request):
 
 # ── Quality scoring ──────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Delivery scoring — for answers that ARE the result, not a query to run
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# The 5-point rubric inside _score_response grades a ROUTING answer: did we hand
+# the caller something runnable (query_ready / subgraph_id / curl / install)?
+# Paid data endpoints never hand over a query — they hand over the answer. Every
+# point of that rubric is therefore either inapplicable or auto-credited, and the
+# score collapsed to a CONSTANT: 17 of the first 25 paid calls scored exactly
+# 4/5 with zero variance, and an empty result (`status: no_forecast_history_yet`,
+# every analytic field null) scored the same 4/5 as a full one. This is the same
+# blindness the `executed` column was added for on 2026-08-01, generalized.
+#
+# The rubric is chosen by the SHAPE of the answer, never by service name.
+# `subgraph-registry` emits BOTH shapes (46 routing / 3 direct-data historically),
+# so a service allowlist gets exactly that service wrong — and an allowlist is
+# what turned this into a recurring bug, patched once per new service in
+# 2026-05-11 (hyperliquid/polymarket), again for MCP, again here. Shape has no
+# list to maintain: a new paid endpoint is graded correctly the day it ships.
+
+_DELIVERY_ENVELOPE_KEYS = {
+    "recommendation", "reason", "confidence", "tool", "alternatives",
+    "graph_subgraphs", "executed", "agent_note", "note", "source",
+    "kalshi_source", "docs", "get_started", "playground", "playground_url",
+}
+
+# Status values meaning "we looked and there was nothing there". Matched on word
+# boundaries so `status: ok` and partial-but-real results like `limitless_only`
+# are NOT swept up, while these are:
+#   no_forecast_history_yet · no_matches · no_semantic_match
+#   matched_no_common_condition · milestone_exists_but_no_plays_yet
+_EMPTY_STATUS_RE = re.compile(
+    r"(^|_)(no|none|empty|missing|insufficient|unavailable|pending)(_|$)|_yet$|^not_"
+)
+
+
+def _delivery_leaves(value, _depth: int = 0):
+    """Yield the scalar leaves of a payload.
+
+    Lists are sampled rather than walked whole so one long results array cannot
+    dominate the fill ratio, and depth is capped so a pathological response
+    cannot blow the stack.
+    """
+    if _depth > 6:
+        yield value
+        return
+    if isinstance(value, dict):
+        for v in value.values():
+            yield from _delivery_leaves(v, _depth + 1)
+    elif isinstance(value, (list, tuple)):
+        for v in list(value)[:20]:
+            yield from _delivery_leaves(v, _depth + 1)
+    else:
+        yield value
+
+
+def _delivery_filled(value) -> bool:
+    """Does this leaf actually carry information?"""
+    if value is None:
+        return False
+    if isinstance(value, (bool, int, float)):
+        return True
+    if isinstance(value, str):
+        return bool(value.strip()) and value.strip().lower() not in {"null", "none", "n/a", "-"}
+    return bool(value)
+
+
+def _score_delivery(rec: dict):
+    """Grade a direct-data answer on what it delivered. Returns (score, fill, signals).
+
+    Fill rate is the point of this rubric: the kalshi empty result carried 13
+    keys and looked rich by key count, but its analytic values were all null.
+    Counting keys rewards that answer; counting populated leaves does not.
+    """
+    payload = {k: v for k, v in rec.items() if k not in _DELIVERY_ENVELOPE_KEYS}
+    parse_ok = rec.get("recommendation", "unknown") != "unknown"
+    has_error = any(k in rec for k in ("error", "exception_type"))
+    status = str(payload.get("status") or "")
+    empty_sentinel = bool(status) and bool(_EMPTY_STATUS_RE.search(status.lower()))
+
+    leaves = list(_delivery_leaves(payload))
+    fill = (sum(1 for v in leaves if _delivery_filled(v)) / len(leaves)) if leaves else 0.0
+
+    has_collection = any(isinstance(v, (list, dict)) and len(v) > 0 for v in payload.values())
+    populated_scalars = sum(
+        1 for v in payload.values()
+        if not isinstance(v, (list, dict)) and _delivery_filled(v)
+    )
+    has_body = bool(has_collection or populated_scalars >= 4)
+
+    score = sum([
+        1 if parse_ok else 0,                    # resolved to a known service
+        1 if not has_error else 0,               # no error / exception payload
+        1 if not empty_sentinel else 0,          # not a "nothing found" sentinel
+        1 if fill >= 0.5 else 0,                 # payload is not mostly null
+        1 if (fill >= 0.8 and has_body) else 0,  # substantially complete, with a result body
+    ])
+    return score, round(fill, 3), {"parse_ok": parse_ok, "has_error": has_error,
+                                   "empty_sentinel": empty_sentinel, "has_body": has_body}
+
+
+def _write_quality_score(*, activity_id, request, service, has_query_ready,
+                         has_subgraph_id, has_curl, has_install, parse_ok,
+                         score, exec_ok, rubric, fill_rate):
+    """Single writer for quality_scores, shared by both rubrics.
+
+    Delivery rows store NULL for the four routing booleans — they describe a
+    query hand-off that a direct-data answer never makes. SQLite's AVG() skips
+    NULLs, so the read-side query_ready / subgraph_id / curl rates keep meaning
+    "among routing answers" instead of being diluted by rows the question does
+    not apply to.
+    """
+    import sqlite3 as _sq
+    conn = _sq.connect(str(DB_PATH))
+    try:
+        conn.execute(
+            "INSERT INTO quality_scores (timestamp, activity_id, request, service, "
+            "has_query_ready, has_subgraph_id, has_curl_example, has_install, parse_success, "
+            "score, executed, rubric, fill_rate) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                datetime.now(timezone.utc).isoformat(),
+                activity_id,
+                request[:200],
+                service,
+                has_query_ready,
+                has_subgraph_id,
+                has_curl,
+                has_install,
+                parse_ok,
+                score,
+                exec_ok,  # None when execution was never attempted
+                rubric,
+                fill_rate,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str | None = None):
     """Auto-score a routing response for quality. Called after every Claude response.
 
@@ -4237,6 +4389,28 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
         # module level so the read-side headline filter can derive from it —
         # the two drifting apart is what let refusals into the average.
         if service in _NON_ROUTING_SERVICES:
+            return
+
+        # Choose the rubric by the SHAPE of this answer, not the service name.
+        # A routing answer hands the caller something runnable; a direct-data
+        # answer IS the result and is graded on what it delivered instead.
+        # See the note above _score_delivery for why shape and not a name list.
+        if not (rec.get("query_ready") or rec.get("curl_example")):
+            d_score, d_fill, d_sig = _score_delivery(rec)
+            d_exec = rec.get("executed") if isinstance(rec, dict) else None
+            d_exec_ok = bool(d_exec.get("ok")) if isinstance(d_exec, dict) else None
+            # Same cap as the routing rubric: an answer whose execution failed
+            # is not a top score however complete the payload looks.
+            if d_exec_ok is False:
+                d_score = min(d_score, 3)
+            _write_quality_score(
+                activity_id=activity_id, request=request, service=service,
+                has_query_ready=None, has_subgraph_id=None,
+                has_curl=None, has_install=None,
+                parse_ok=1 if d_sig["parse_ok"] else 0,
+                score=d_score, exec_ok=d_exec_ok,
+                rubric="delivery", fill_rate=d_fill,
+            )
             return
 
         # Services that don't expose a subgraph_id by design — REST APIs, MCP
@@ -4339,29 +4513,12 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
         if exec_attempted and not exec_ok:
             score = min(score, 3)
 
-        import sqlite3 as _sq
-        conn = _sq.connect(str(DB_PATH))
-        conn.execute(
-            "INSERT INTO quality_scores (timestamp, activity_id, request, service, "
-            "has_query_ready, has_subgraph_id, has_curl_example, has_install, parse_success, "
-            "score, executed) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                datetime.now(timezone.utc).isoformat(),
-                activity_id,
-                request[:200],
-                service,
-                has_query_ready,
-                has_subgraph_id,
-                has_curl,
-                has_install,
-                parse_ok,
-                score,
-                exec_ok,  # None when execution was never attempted
-            ),
+        _write_quality_score(
+            activity_id=activity_id, request=request, service=service,
+            has_query_ready=has_query_ready, has_subgraph_id=has_subgraph_id,
+            has_curl=has_curl, has_install=has_install, parse_ok=parse_ok,
+            score=score, exec_ok=exec_ok, rubric="routing", fill_rate=None,
         )
-        conn.commit()
-        conn.close()
     except Exception as e:
         log.warning(f"Quality score write failed: {e}")
 
@@ -4726,6 +4883,8 @@ async def backfill_quality_endpoint(request: Request):
             "SELECT timestamp, request, parse_success, has_query_ready, "
             "has_subgraph_id, has_curl_example, has_install, score "
             "FROM quality_scores WHERE service = ? "
+            # delivery rows are graded on payload, not on these
+            "AND COALESCE(rubric, 'routing') = 'routing' "
             "ORDER BY score ASC, timestamp DESC LIMIT ?",
             (sample_service, sample_n),
         ).fetchall()
@@ -4766,7 +4925,8 @@ async def backfill_quality_endpoint(request: Request):
             svc_rows = conn.execute(
                 "SELECT rowid AS rid, score, parse_success, has_query_ready, "
                 "has_subgraph_id, has_curl_example, has_install "
-                "FROM quality_scores WHERE service = ?",
+                "FROM quality_scores WHERE service = ? "
+                "AND COALESCE(rubric, 'routing') = 'routing'",
                 (svc,),
             ).fetchall()
             if not svc_rows:
