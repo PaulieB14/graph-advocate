@@ -87,7 +87,10 @@ snap = {
 }
 
 def delta(now, before, key):
-    if not before or before.get(key) is None: return ''
+    # Guard BOTH sides. A day with nothing scored leaves quality_24h_avg None,
+    # and a None minus a float killed the whole report on 2026-09-13 — the audit
+    # broke precisely on the quiet day it was most needed.
+    if not before or before.get(key) is None or now.get(key) is None: return ''
     diff = now[key] - before[key]
     if isinstance(diff, float): return f"  ({diff:+.4f})"
     return f"  ({diff:+})"
@@ -151,6 +154,13 @@ else:
         issues.append("field sanity: plausible again, GA may use — " + ", ".join(recovered))
 
 snap['issues'] = issues
+
+# Persist before rendering, not after. The 2026-09-13 crash happened mid-report
+# and took the snapshot with it, so the next run compared against a two-day-old
+# baseline and the notification counted stale issues. Worse for the field probe:
+# a lost snapshot drops field_probe_fails, which re-announces the known-bad
+# baseline as if it were new. State first, presentation second.
+json.dump(snap, open('$SNAP', 'w'), indent=2, default=str)
 snap['paid_real_24h'] = len(paid_real) if parsed else 0
 snap['x402_failed_24h'] = len(failed) if parsed else 0
 
@@ -200,8 +210,7 @@ print(fence)
 print(probe_txt.strip(chr(10)) or "(no probe output)")
 print(fence)
 
-# Persist new snapshot
-json.dump(snap, open('$SNAP', 'w'), indent=2, default=str)
+# (snapshot already persisted above, before rendering)
 PYEOF
 
 # Notify
