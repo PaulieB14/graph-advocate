@@ -1377,14 +1377,14 @@ _BENCHMARK_RESPONSES = {
     },
     "token api vs subgraph for uniswap pool data?": {
         "recommendation": "subgraph-registry",
-        "reason": "For Uniswap pool data, a subgraph is better. The Uniswap V3 subgraph indexes Pool entities with feeTier, totalValueLockedUSD, token0, token1, volumeUSD — rich relational data that Token API can't match. Token API gives OHLCV price data but no fee tier breakdown or per-pool TVL history. Use subgraph for protocol-level entity queries; use Token API for cross-chain balances and holder rankings.",
+        "reason": "For Uniswap pool data, a subgraph is better. The Uniswap V3 subgraph indexes Pool entities with feeTier, totalValueLockedUSD, token0, token1, volumeUSD — rich relational data that Token API can't match. Token API gives OHLCV price data but no fee tier breakdown or per-pool TVL history. Use subgraph for protocol-level entity queries; use Token API for cross-chain balances and holder rankings. Ranked by volumeUSD, not TVL: Uniswap subgraph totalValueLockedUSD is inflated by illiquid spam-token pools, so a TVL sort puts a dead pool with zero volume on top. TVL is still returned per row so you see both.",
         "confidence": "high",
         "get_started": "Free API key: https://thegraph.com/studio/ — 100K queries/month, 2 min signup",
         "query_ready": {
             "tool": "execute_query_by_subgraph_id",
             "args": {
                 "subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
-                "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id feeTier token0 { symbol } token1 { symbol } totalValueLockedUSD } }",
+                "gql": "{ pools(first: 10, orderBy: volumeUSD, orderDirection: desc) { id feeTier token0 { symbol } token1 { symbol } totalValueLockedUSD volumeUSD } }",
             },
         },
         "cache_for_seconds": 86400,
@@ -3340,15 +3340,15 @@ class GraphAdvocateExecutor(AgentExecutor):
                     "tool": "execute_query_by_subgraph_id",
                     "args": {
                         "subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
-                        "query": "{ pools(first: 5, orderBy: totalValueLockedUSD, orderDirection: desc) { id token0 { symbol } token1 { symbol } feeTier totalValueLockedUSD volumeUSD } }",
+                        "query": "{ pools(first: 5, orderBy: volumeUSD, orderDirection: desc) { id token0 { symbol } token1 { symbol } feeTier totalValueLockedUSD volumeUSD } }",
                     },
                 },
                 "live_example": {
-                    "you_ask": "Top Uniswap V3 pools on Ethereum by TVL",
+                    "you_ask": "Top Uniswap V3 pools on Ethereum by traded volume",
                     "i_return": {
                         "subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
                         "endpoint": "https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
-                        "curl": "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV' -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"query\":\"{ pools(first:5, orderBy: totalValueLockedUSD, orderDirection: desc){ id token0{symbol} token1{symbol} totalValueLockedUSD } }\"}'",
+                        "curl": "curl -X POST 'https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV' -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"query\":\"{ pools(first:5, orderBy: volumeUSD, orderDirection: desc){ id token0{symbol} token1{symbol} totalValueLockedUSD volumeUSD } }\"}'",
                     },
                     "note": "That's the whole loop: plain-English request in, a real subgraph ID + a query you can run right now out. Send yours.",
                 },
@@ -5747,7 +5747,8 @@ async def _log_settlement_outcome(pre_balance: float | None, wait_seconds: int =
     returns. The settle path goes through the CDP facilitator → onchain
     transferWithAuthorization → eventual block confirmation. We give that
     pipeline a generous window before declaring settle failed. The
-    onchain-stats helper has a 60s cache, so we bust it explicitly here.
+    onchain-stats helper caches for _ONCHAIN_CACHE_TTL_SEC (600s), far longer
+    than this wait, so we bust it explicitly here.
     """
     import asyncio as _asyncio
     try:
