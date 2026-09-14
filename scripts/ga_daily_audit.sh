@@ -37,6 +37,25 @@ curl -sS -H "Authorization: Bearer $PROD_TOKEN" 'https://graphadvocate.com/logs?
 curl -sS -H "Authorization: Bearer $PROD_TOKEN" https://graphadvocate.com/quality > "$OUT_DIR/quality.json" &
 wait
 
+# Field sanity probe — the auto-scorer grades an answer's SHAPE and cannot see
+# that a field inside a recommended query returns nonsense (Aave profitUSD off
+# by 1e6, Uniswap totalValueLockedUSD). So run the queries and check the numbers.
+# Folded in here rather than given its own launchd job: a bad field then surfaces
+# through the same daily alert that is already watched, instead of a log nobody reads.
+GRAPH_KEY=$(railway variables --kv 2>/dev/null | grep "^GRAPH_API_KEY=" | head -1 | cut -d= -f2- | sed 's/[[:space:]]*$//' || echo "")
+PROBE_OUT="$OUT_DIR/field-probe.txt"
+if [ -n "$GRAPH_KEY" ]; then
+    # The probe exits 1 when a field is untrustworthy — that is a finding, not a
+    # script failure, so it must not trip `set -e`.
+    set +e
+    GRAPH_API_KEY="$GRAPH_KEY" python3 /Users/paulbarba/graph-advocate/scripts/field_sanity_probe.py > "$PROBE_OUT" 2>&1
+    PROBE_RC=$?
+    set -e
+else
+    echo "GRAPH_API_KEY unavailable from railway — probe skipped." > "$PROBE_OUT"
+    PROBE_RC=2
+fi
+
 # Process with Python — same shape as the audit script we use in Claude
 python3 <<PYEOF > "$REPORT"
 import json, os
@@ -97,6 +116,40 @@ if parsed:
         if regression:
             issues.append(f"⚠️ REGRESSION: {len(regression)} rows have exception_type='str' (commit 617fa89 should have fixed this)")
 
+# A field that lies is an issue even on a day with no traffic at all — this is
+# the one check that does not depend on anyone having asked GA a question.
+#
+# Alert on CHANGE, not on the steady state. profitUSD and the Uniswap TVL
+# ranking are broken upstream in the subgraphs and will fail this probe every
+# day indefinitely; re-reporting them daily would train the alert to be ignored,
+# which is the exact failure that left this probe unscheduled for two days. So
+# the known-bad set is carried in the snapshot and only a DIFFERENCE is loud:
+# a newly untrustworthy field (GA may be handing it out), or one that became
+# plausible again (GA could start using it). The full probe output is in the
+# report body either way.
+probe_rc = $PROBE_RC
+probe_txt = open('$PROBE_OUT').read() if os.path.exists('$PROBE_OUT') else ''
+probe_fails = [l.strip()[4:].strip() for l in probe_txt.splitlines() if l.strip().startswith('FAIL')]
+probe_labels = sorted(f.split(':')[0].strip() for f in probe_fails)
+snap['field_probe_fails'] = probe_labels
+prev_labels = prev.get('field_probe_fails') if prev else None
+
+if probe_rc == 2:
+    issues.append("field sanity probe could not run (GRAPH_API_KEY unavailable)")
+elif prev_labels is None:
+    # First run since the probe was wired in: state the baseline once so it is
+    # seen and acknowledged, then fall silent unless the set moves.
+    if probe_labels:
+        issues.append(f"field sanity baseline ({len(probe_labels)} known-bad): "
+                      + ", ".join(probe_labels))
+else:
+    new_bad = [l for l in probe_labels if l not in prev_labels]
+    recovered = [l for l in prev_labels if l not in probe_labels]
+    if new_bad:
+        issues.append("field sanity: NEW untrustworthy field(s) — " + ", ".join(new_bad))
+    if recovered:
+        issues.append("field sanity: plausible again, GA may use — " + ", ".join(recovered))
+
 snap['issues'] = issues
 snap['paid_real_24h'] = len(paid_real) if parsed else 0
 snap['x402_failed_24h'] = len(failed) if parsed else 0
@@ -138,6 +191,14 @@ if repeat:
         print(f"| {r['short']} | {r['call_count']} | \${r['usdc_total']:.4f} | {r['first_seen']} | {r['last_seen']} |")
 else:
     print("_(none yet — paid_by_wallet capture started 2026-06-18 via commit 43c6724)_")
+
+print("\n## Field sanity\n")
+# NB: this block is inside an unquoted heredoc, where backticks are command
+# substitution — build the markdown fence from chr(96) instead of typing it.
+fence = chr(96) * 3
+print(fence)
+print(probe_txt.strip(chr(10)) or "(no probe output)")
+print(fence)
 
 # Persist new snapshot
 json.dump(snap, open('$SNAP', 'w'), indent=2, default=str)
