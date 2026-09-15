@@ -1258,6 +1258,20 @@ log = logging.getLogger("graph-advocate")
 # malformed JSON-RPC request — the library still returns a structured -32602
 # response to the client and emits a companion WARNING with the validation
 # details. The ERROR + traceback is redundant log noise.
+#
+# Two more shapes reach the same logger as ERROR + full traceback, and neither is
+# a defect on our side:
+#   * starlette ClientDisconnect — the caller hung up mid-POST, so `await
+#     request.json()` never completes. Someone closing a socket is not an error.
+#   * json.JSONDecodeError — a scanner POSTed a non-JSON body. The library
+#     already answers -32700 and logs a companion WARNING with the detail.
+# On 2026-09-15 all 16 ERROR-level lines in a 9-hour window were these two, which
+# is the real cost: a genuine exception would be indistinguishable from the
+# background hum. Drop the redundant ERROR; the structured JSON-RPC error still
+# goes back to the caller and the WARNING still records what happened.
+_A2A_BENIGN_EXC = ("ClientDisconnect", "JSONDecodeError")
+
+
 class _SuppressA2AValidationTraceback(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
@@ -1266,6 +1280,10 @@ class _SuppressA2AValidationTraceback(logging.Filter):
             return True
         if record.levelno == logging.ERROR and "Failed to validate base JSON-RPC request" in msg:
             return False
+        if record.levelno == logging.ERROR and record.exc_info:
+            exc = record.exc_info[0]
+            if exc is not None and exc.__name__ in _A2A_BENIGN_EXC:
+                return False
         return True
 
 
