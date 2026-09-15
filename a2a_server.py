@@ -254,11 +254,48 @@ def _get_daily_count(task_id: str) -> int:
 # dedicated /route + /polymarket/* + /hyperliquid/* + /onchain-x402 bazaar
 # OutputConfig examples below — keep them in sync. Preview only; anonymous
 # senders still pay from call 1.
+#
+# The routing sample is a REAL answer, not a shape with "0x..." in it. A caller
+# deciding whether to pay cannot tell a stub from a service that only ever
+# returns stubs, and a placeholder is the weakest possible argument for handing
+# over money. So this is a genuine recommendation to a DIFFERENT question than
+# the one asked — the subgraph ID, the query and the fee figure are real and the
+# caller can verify all three for free before paying us anything. Nothing they
+# actually asked for is given away.
+#
+# Verified 2026-09-14 against the network subgraph and by executing the query.
 _A2A_ROUTING_EXAMPLE = {
-    "recommendation": "token-api",
-    "reason": "wallet balance query on an EVM chain",
+    "recommendation": "subgraph-registry",
+    "reason": (
+        "Example answer to a different question — 'top Uniswap V3 pools on Base'. "
+        "Uniswap V3 Base is indexed and has earned ~100,217 GRT in lifetime query "
+        "fees, so it is load-bearing rather than abandoned. Ranked by volumeUSD, "
+        "not TVL: see field_warning."
+    ),
     "confidence": "high",
-    "query_ready": {"tool": "getV1EvmBalances", "args": {"network": "base", "address": "0x..."}},
+    "query_ready": {
+        "tool": "execute_query_by_subgraph_id",
+        "args": {
+            "subgraph_id": "GqzP4Xaehti8KSfQmv3ZctFSjnSUYZ4En5NRsiTbvZpz",
+            "gql": (
+                "{ _meta { block { number } } pools(first: 3, orderBy: volumeUSD, "
+                "orderDirection: desc) { id feeTier volumeUSD totalValueLockedUSD "
+                "token0 { symbol } token1 { symbol } } }"
+            ),
+        },
+    },
+    "field_warning": (
+        "totalValueLockedUSD is unreliable on this deployment — the 0.3% pool "
+        "reports $179.3M against $32.7M for the 0.05% pool that does ~3x its "
+        "volume, an inverted ranking. Read it, do not sort by it."
+    ),
+    "verify_this_before_paying": (
+        "Run the query above against "
+        "https://gateway.thegraph.com/api/subgraphs/id/GqzP4Xaehti8KSfQmv3ZctFSjnSUYZ4En5NRsiTbvZpz "
+        "with your own Subgraph Studio key. If it returns pools, this sample was "
+        "real and so is the paid answer. Costs you nothing, and proves the claim "
+        "rather than asserting it."
+    ),
     "alternatives": [],
 }
 
@@ -762,6 +799,46 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
         # Honest: $0.01 over the routing path returns a ROUTING recommendation.
         "output_example": _A2A_ROUTING_EXAMPLE,
         "output_example_for": "routing",
+        # An agent weighing $0.01 is not asking "how do I pay" — that is already
+        # answered above — but "why would this answer be any good". Everything
+        # here is checkable by the caller without paying and without asking us,
+        # which is the only kind of trust signal worth anything to a machine.
+        "verify": {
+            "claim": (
+                "Answers name a real subgraph or endpoint and hand back a query "
+                "that runs. We report what exists; we never certify it is healthy."
+            ),
+            "check_the_sample": (
+                "output_example is a real answer to a different question, not a "
+                "template. Run its query_ready against the gateway yourself — free, "
+                "and it settles whether this service returns substance or shapes."
+            ),
+            "check_freshness_yourself": (
+                "Every subgraph answer is independently verifiable: ask the "
+                "deployment for { _meta { block { number } } } and compare it to "
+                "the chain head. Do this before trusting any routing answer, "
+                "including ours — lifetime query fees are historical and say "
+                "nothing about whether a deployment still answers today."
+            ),
+            "we_screen_field_traps": (
+                "Recommendations carry a field_warning where a field is known to "
+                "return implausible values — Uniswap totalValueLockedUSD and "
+                "reserveUSD rankings, Aave profitUSD. We would rather tell you a "
+                "field is untrustworthy than serve a confident wrong number."
+            ),
+            "identity": {
+                "erc8004_agent_id": 734,
+                "registry": "eip155:42161:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+                "note": (
+                    "Onchain identity and feedback are readable without our "
+                    "cooperation. Settlement history is on Base USDC."
+                ),
+            },
+            "limits": (
+                "We route and cite; we do not guarantee third-party uptime, and a "
+                "subgraph we name can go stale after we name it."
+            ),
+        },
     }
 
     # If the question maps to a specialized paid endpoint, signpost THAT endpoint
