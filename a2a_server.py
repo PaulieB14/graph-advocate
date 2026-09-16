@@ -1269,7 +1269,25 @@ log = logging.getLogger("graph-advocate")
 # is the real cost: a genuine exception would be indistinguishable from the
 # background hum. Drop the redundant ERROR; the structured JSON-RPC error still
 # goes back to the caller and the WARNING still records what happened.
-_A2A_BENIGN_EXC = ("ClientDisconnect", "JSONDecodeError")
+#   * UnicodeDecodeError — a body that is not UTF-8 at all. Observed 2026-09-16
+#     with `byte 0x8b in position 1`, which is the second byte of the gzip magic
+#     number: something POSTed a gzipped payload without a matching header.
+_A2A_BENIGN_EXC = ("ClientDisconnect", "JSONDecodeError", "UnicodeDecodeError")
+
+# One bad request produces TWO ERROR records, and the first carries no exc_info:
+#
+#   [ERROR] Request Error (ID: None): Code=-32603, Message=''      <- line 269
+#   [ERROR] Unhandled exception + traceback                        <- line 407
+#
+# Filtering on exc_info alone therefore silenced only half the noise. A -32603
+# whose Message is empty carries no information whatsoever — the traceback is
+# where the detail lives, and that is handled above. A -32603 that does carry a
+# message is kept unless the message is one of the benign shapes.
+_A2A_NOISE_CODE = "Code=-32603"
+_A2A_BENIGN_MSG = (
+    "Expecting value: line 1 column 1",   # non-JSON body
+    "codec can't decode byte",            # non-UTF-8 body
+)
 
 
 class _SuppressA2AValidationTraceback(logging.Filter):
@@ -1278,11 +1296,18 @@ class _SuppressA2AValidationTraceback(logging.Filter):
             msg = record.getMessage()
         except Exception:
             return True
-        if record.levelno == logging.ERROR and "Failed to validate base JSON-RPC request" in msg:
+        if record.levelno != logging.ERROR:
+            return True
+        if "Failed to validate base JSON-RPC request" in msg:
             return False
-        if record.levelno == logging.ERROR and record.exc_info:
+        if record.exc_info:
             exc = record.exc_info[0]
             if exc is not None and exc.__name__ in _A2A_BENIGN_EXC:
+                return False
+        if _A2A_NOISE_CODE in msg and "Request Error" in msg:
+            if "Message=''" in msg:
+                return False
+            if any(b in msg for b in _A2A_BENIGN_MSG):
                 return False
         return True
 
