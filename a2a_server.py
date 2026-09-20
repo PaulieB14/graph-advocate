@@ -5676,6 +5676,12 @@ _X402_SCAN_FLOOR_BLOCK = int(os.environ.get("X402_SCAN_FLOOR_BLOCK", "45000000")
 _SCAN_CHUNK = 9999          # Base public RPC caps eth_getLogs at 10k blocks
 _SCAN_MAX_CHUNKS = 40       # per invocation, so no request stalls on backfill
 _SCAN_BISECT_MAX_DEPTH = 14  # 9999 blocks -> 1 block; a floor, never reached in practice
+_SCAN_WIDTH_MIN = 250
+# Learned in-process: the width the provider last accepted. Re-learned in one
+# scan after a restart, which costs a single bisect cascade instead of one per
+# scan forever. Deliberately not persisted — the right width tracks how busy the
+# USDC contract is right now, not what it was when the process last started.
+_SCAN_WIDTH = {"w": _SCAN_CHUNK}
 _PAYER_MEM: dict = {"last_block": 0, "agg": {}}   # fallback if /data is read-only
 
 
@@ -5737,33 +5743,60 @@ def _is_range_error(exc: Exception) -> bool:
     try:
         import httpx
         if isinstance(exc, httpx.HTTPStatusError):
-            return exc.response.status_code in (413, 400, 429)
+            # 429 is deliberately NOT here. Rate limiting is not a size signal,
+            # and halving a rate-limited request turns one refusal into two --
+            # a retry storm that makes the limit worse. It is handled by
+            # _is_rate_limited() below, which stops the scan instead.
+            return exc.response.status_code == 413
     except Exception:
         pass
     m = str(exc).lower()
+    if "429" in m or "too many requests" in m or "rate limit" in m:
+        return False
     return any(t in m for t in (
         "413", "payload too large", "response size", "too many results",
-        "query returned more than", "exceed", "limit exceeded", "range is too large"))
+        "query returned more than", "limit exceeded", "range is too large"))
 
 
-def _get_logs_bisect(topic_to: str, start: int, end: int, depth: int = 0) -> list:
+def _is_rate_limited(exc: Exception) -> bool:
+    """A provider asking us to slow down. Back off; never split."""
+    try:
+        import httpx
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code == 429
+    except Exception:
+        pass
+    m = str(exc).lower()
+    return "429" in m or "too many requests" in m or "rate limit" in m
+
+
+def _get_logs_bisect(topic_to: str, start: int, end: int, depth: int = 0,
+                     stats: dict | None = None) -> list:
     """`eth_getLogs` over [start, end], halving the window on a size refusal.
 
     Returns the concatenated logs. Raises `_LogRangeTooBig` only if a SINGLE block
     is still refused, which no longer has a smaller range to fall back to.
+
+    `stats["min_ok"]` collects the narrowest window the provider actually accepted,
+    so the caller can start the NEXT scan near a width that works instead of paying
+    the same cascade of refusals every time.
     """
     try:
-        return _rpc_call(_BASE_RPC_URL, "eth_getLogs", [{
+        logs = _rpc_call(_BASE_RPC_URL, "eth_getLogs", [{
             "address": _USDC_BASE, "topics": [_TRANSFER_TOPIC, None, topic_to],
             "fromBlock": hex(start), "toBlock": hex(end)}], timeout=20) or []
+        if stats is not None:
+            w = end - start + 1
+            stats["min_ok"] = min(stats.get("min_ok", w), w)
+        return logs
     except Exception as e:
         if not _is_range_error(e) or depth >= _SCAN_BISECT_MAX_DEPTH:
             raise
         if start >= end:
             raise _LogRangeTooBig(f"block {start} alone exceeds the provider limit") from e
         mid = start + (end - start) // 2
-        return (_get_logs_bisect(topic_to, start, mid, depth + 1)
-                + _get_logs_bisect(topic_to, mid + 1, end, depth + 1))
+        return (_get_logs_bisect(topic_to, start, mid, depth + 1, stats)
+                + _get_logs_bisect(topic_to, mid + 1, end, depth + 1, stats))
 
 
 def _get_onchain_payers() -> dict:
@@ -5791,15 +5824,29 @@ def _get_onchain_payers() -> dict:
         # _payer_state_save, so a permanently-oversized window at the tip meant
         # the scan never advanced AND the caller saw error -> DB fallback.
         while start <= head and scanned < _SCAN_MAX_CHUNKS:
-            end = min(start + _SCAN_CHUNK - 1, head)
+            end = min(start + _SCAN_WIDTH["w"] - 1, head)
+            st: dict = {}
             try:
-                logs = _get_logs_bisect(topic_to, start, end)
+                logs = _get_logs_bisect(topic_to, start, end, stats=st)
             except Exception as e:
                 # Progress up to the previous chunk is real; keep it, stop here,
                 # and report a WARNING rather than an error so the payer figures
                 # below are still served from everything scanned so far.
-                out["warning"] = f"log scan stopped at block {start}: {str(e)[:100]}"
+                if _is_rate_limited(e):
+                    # Never keep hammering a provider that asked us to stop. The
+                    # next invocation resumes from last_block, so backing off
+                    # costs latency, not data.
+                    out["warning"] = f"rate limited at block {start}; resuming next scan"
+                else:
+                    out["warning"] = f"log scan stopped at block {start}: {str(e)[:100]}"
                 break
+            # Converge on a width the provider accepts: drop straight to what
+            # worked, and creep back up only when a full window went through.
+            ok = st.get("min_ok")
+            if ok and ok < _SCAN_WIDTH["w"]:
+                _SCAN_WIDTH["w"] = max(_SCAN_WIDTH_MIN, ok)
+            elif ok and ok >= _SCAN_WIDTH["w"] and _SCAN_WIDTH["w"] < _SCAN_CHUNK:
+                _SCAN_WIDTH["w"] = min(_SCAN_CHUNK, int(_SCAN_WIDTH["w"] * 1.5))
             for lg in logs or []:
                 frm = ("0x" + lg["topics"][1][-40:]).lower()
                 b = int(lg["blockNumber"], 16)
