@@ -5673,7 +5673,14 @@ _GA_SELF_WALLETS = {
 _USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
 _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 _X402_SCAN_FLOOR_BLOCK = int(os.environ.get("X402_SCAN_FLOOR_BLOCK", "45000000"))
-_SCAN_CHUNK = 9999          # Base public RPC caps eth_getLogs at 10k blocks
+# Measured against mainnet.base.org 2026-09-20 by binary search: a 2001-block
+# span is accepted, 2002 is refused with 413. The old value of 9999 came from a
+# comment claiming a 10k cap, and was over the real limit by 5x — so EVERY chunk
+# 413'd, forever. The bisect below made that survivable; this makes it rare.
+# The refusal is a BLOCK-RANGE cap, not a response-size one: the filtered query
+# (transfers to GA's wallet) returns zero logs at every width and is still
+# refused above the cap. Keep a block of margin under it.
+_SCAN_CHUNK = 2000
 _SCAN_MAX_CHUNKS = 40       # per invocation, so no request stalls on backfill
 _SCAN_BISECT_MAX_DEPTH = 14  # 9999 blocks -> 1 block; a floor, never reached in practice
 _SCAN_WIDTH_MIN = 250
