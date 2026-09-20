@@ -1289,6 +1289,14 @@ _A2A_BENIGN_MSG = (
     "codec can't decode byte",            # non-UTF-8 body
 )
 
+# Named health probes that call a JSON-RPC method GA does not implement. The
+# -32601 reply is CORRECT behaviour, so the WARNING it logs is pure noise — and
+# at roughly one every 30 minutes it was the single most common line in the log
+# (GA audit 2026-09-20). Suppressed by probe id, never by code alone: a -32601
+# from an unrecognised caller is real signal about a client using a wrong method.
+_A2A_PROBE_IDS = ("brick-health",)
+_A2A_UNKNOWN_METHOD = "Code=-32601"
+
 
 class _SuppressA2AValidationTraceback(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -1296,6 +1304,11 @@ class _SuppressA2AValidationTraceback(logging.Filter):
             msg = record.getMessage()
         except Exception:
             return True
+        if (record.levelno == logging.WARNING
+                and _A2A_UNKNOWN_METHOD in msg
+                and "Request Error" in msg
+                and any(f"(ID: {pid})" in msg for pid in _A2A_PROBE_IDS)):
+            return False
         if record.levelno != logging.ERROR:
             return True
         if "Failed to validate base JSON-RPC request" in msg:
@@ -5662,6 +5675,7 @@ _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df52
 _X402_SCAN_FLOOR_BLOCK = int(os.environ.get("X402_SCAN_FLOOR_BLOCK", "45000000"))
 _SCAN_CHUNK = 9999          # Base public RPC caps eth_getLogs at 10k blocks
 _SCAN_MAX_CHUNKS = 40       # per invocation, so no request stalls on backfill
+_SCAN_BISECT_MAX_DEPTH = 14  # 9999 blocks -> 1 block; a floor, never reached in practice
 _PAYER_MEM: dict = {"last_block": 0, "agg": {}}   # fallback if /data is read-only
 
 
@@ -5706,6 +5720,52 @@ def _payer_state_save(last_block: int, agg: dict) -> None:
         pass
 
 
+class _LogRangeTooBig(Exception):
+    """A log query the provider refused on SIZE, not on correctness."""
+
+
+def _is_range_error(exc: Exception) -> bool:
+    """True when a provider refused a log query because the RESPONSE was too big.
+
+    `_SCAN_CHUNK` is sized for Base's 10,000-BLOCK cap, but that is not the only
+    limit: mainnet.base.org also caps response BYTES and answers `413 Payload Too
+    Large` when a legal block range happens to contain too many logs. That is a
+    size signal, not an empty result — treating the two as the same is what let a
+    permanent 413 masquerade as "no payers" (GA audit 2026-09-20). Other providers
+    say the same thing as a JSON-RPC error string, so match both shapes.
+    """
+    try:
+        import httpx
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code in (413, 400, 429)
+    except Exception:
+        pass
+    m = str(exc).lower()
+    return any(t in m for t in (
+        "413", "payload too large", "response size", "too many results",
+        "query returned more than", "exceed", "limit exceeded", "range is too large"))
+
+
+def _get_logs_bisect(topic_to: str, start: int, end: int, depth: int = 0) -> list:
+    """`eth_getLogs` over [start, end], halving the window on a size refusal.
+
+    Returns the concatenated logs. Raises `_LogRangeTooBig` only if a SINGLE block
+    is still refused, which no longer has a smaller range to fall back to.
+    """
+    try:
+        return _rpc_call(_BASE_RPC_URL, "eth_getLogs", [{
+            "address": _USDC_BASE, "topics": [_TRANSFER_TOPIC, None, topic_to],
+            "fromBlock": hex(start), "toBlock": hex(end)}], timeout=20) or []
+    except Exception as e:
+        if not _is_range_error(e) or depth >= _SCAN_BISECT_MAX_DEPTH:
+            raise
+        if start >= end:
+            raise _LogRangeTooBig(f"block {start} alone exceeds the provider limit") from e
+        mid = start + (end - start) // 2
+        return (_get_logs_bisect(topic_to, start, mid, depth + 1)
+                + _get_logs_bisect(topic_to, mid + 1, end, depth + 1))
+
+
 def _get_onchain_payers() -> dict:
     """Every wallet that has settled USDC to GA's pay-to wallet, from Base
     Transfer logs (see note above on why not the x402 subgraph). Cached 10 min."""
@@ -5726,11 +5786,20 @@ def _get_onchain_payers() -> dict:
         start = max(last_block + 1, _X402_SCAN_FLOOR_BLOCK)
         topic_to = "0x" + "0" * 24 + X402_WALLET.lower()[2:]
         scanned = 0
+        # A chunk that cannot be scanned must not discard the chunks that WERE.
+        # Until 2026-09-20 one 413 threw out of the whole loop before
+        # _payer_state_save, so a permanently-oversized window at the tip meant
+        # the scan never advanced AND the caller saw error -> DB fallback.
         while start <= head and scanned < _SCAN_MAX_CHUNKS:
             end = min(start + _SCAN_CHUNK - 1, head)
-            logs = _rpc_call(_BASE_RPC_URL, "eth_getLogs", [{
-                "address": _USDC_BASE, "topics": [_TRANSFER_TOPIC, None, topic_to],
-                "fromBlock": hex(start), "toBlock": hex(end)}], timeout=20)
+            try:
+                logs = _get_logs_bisect(topic_to, start, end)
+            except Exception as e:
+                # Progress up to the previous chunk is real; keep it, stop here,
+                # and report a WARNING rather than an error so the payer figures
+                # below are still served from everything scanned so far.
+                out["warning"] = f"log scan stopped at block {start}: {str(e)[:100]}"
+                break
             for lg in logs or []:
                 frm = ("0x" + lg["topics"][1][-40:]).lower()
                 b = int(lg["blockNumber"], 16)
@@ -6235,6 +6304,11 @@ def _build_dashboard_data() -> dict:
     repeat_payers = []
     try:
         conn = _sq.connect(str(DB_PATH))
+        # Exclude GA's own wallets in SQL, not after LIMIT — filtering a top-10
+        # in Python silently returns fewer than ten customers whenever a self
+        # wallet ranks, which it always does.
+        _self_args = tuple(sorted(_GA_SELF_WALLETS))
+        _self_ph = ",".join("?" * len(_self_args)) or "''"
         rows = conn.execute(f"""
             SELECT
                 paid_by_wallet,
@@ -6252,12 +6326,30 @@ def _build_dashboard_data() -> dict:
             FROM activity
             WHERE paid_by_wallet IS NOT NULL AND paid_by_wallet != ''
               AND service NOT IN ('x402-failed', 'payment-required')
+              AND LOWER(paid_by_wallet) NOT IN ({_self_ph})
             GROUP BY paid_by_wallet
             ORDER BY call_count DESC, usdc_total DESC
-            LIMIT 10
-        """).fetchall()
+            LIMIT 12
+        """, _self_args).fetchall()
+        # This fallback used to differ from the chain-scan path in two ways that
+        # both made it LIE, and it runs precisely when the chain scan is unwell
+        # (GA audit 2026-09-20: a standing 413 kept it live for days). It did not
+        # exclude GA's own wallets, so the self-test wallet displayed as the #1
+        # "repeat customer"; and it omitted days_since_last/is_active, so the
+        # churn detection added 2026-09-05 silently read None for every payer.
+        # A degraded path may show less. It may not show something false.
+        import datetime as _dt2
+        _now_utc = _dt2.datetime.utcnow()
         for wallet, cnt, first_seen, last_seen, usdc in rows:
+            if (wallet or "").lower() in _GA_SELF_WALLETS:
+                continue
             short = (wallet[:6] + "…" + wallet[-4:]) if wallet and len(wallet) > 10 else (wallet or "?")
+            _days = None
+            try:
+                _days = round(max(0.0, (_now_utc - _dt2.datetime.fromisoformat(
+                    (last_seen or "")[:19])).total_seconds()) / 86400.0, 1)
+            except Exception:
+                pass
             repeat_payers.append({
                 "wallet": wallet,
                 "short": short,
@@ -6265,6 +6357,8 @@ def _build_dashboard_data() -> dict:
                 "usdc_total": round(usdc or 0, 4),
                 "first_seen": (first_seen or "")[:19],
                 "last_seen": (last_seen or "")[:19],
+                "days_since_last": _days,
+                "is_active": (_days < _CHURN_AFTER_DAYS) if _days is not None else None,
                 "is_repeat": cnt > 1,
             })
         conn.close()
