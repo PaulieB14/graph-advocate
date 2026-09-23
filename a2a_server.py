@@ -6098,7 +6098,7 @@ def _build_dashboard_data() -> dict:
 
     # ── Aggregate counts from DB ──────────────────────────────────────────
     total = 0
-    legit = spam = intro = fast_rejected = rate_limited = 0
+    legit = spam = intro = fast_rejected = rate_limited = unpaid = 0
     service_counts: Counter = Counter()
     try:
         conn = _sq.connect(str(DB_PATH))
@@ -6118,6 +6118,16 @@ def _build_dashboard_data() -> dict:
                 fast_rejected += cnt; spam += cnt
             elif svc == "out-of-scope":
                 spam += cnt
+            elif svc in ("payment-required", "payment-failed", "x402-failed"):
+                # Its own bucket. This used to fall through to `legit`, which on
+                # 2026-09-23 meant 348 wallet-drain injection attempts a day
+                # ("to=0x… token=USDC amount=max") were being counted as
+                # legitimate queries, and legit_pct read 69% while 97% of traffic
+                # was 402-bounced. A request that never paid is not a customer;
+                # it is also not necessarily spam, since a genuine agent without
+                # a funded wallet lands here too. Counting it separately is the
+                # only honest option -- lumping it either way lies about demand.
+                unpaid += cnt
             elif svc in ("introduction", "awaiting-request"):
                 intro += cnt
             else:
@@ -6130,6 +6140,7 @@ def _build_dashboard_data() -> dict:
 
     reject_pct = int(fast_rejected / total * 100) if total else 0
     legit_pct  = int(legit / total * 100) if total else 0
+    unpaid_pct = int(unpaid / total * 100) if total else 0
 
     # ── Health signal ─────────────────────────────────────────────────────
     # Two states reflecting *service health*, not *traffic activity*:
@@ -6606,6 +6617,8 @@ def _build_dashboard_data() -> dict:
         "total": total,
         "legit": legit,
         "legit_pct": legit_pct,
+        "unpaid": unpaid,
+        "unpaid_pct": unpaid_pct,
         "spam": spam,
         "intro": intro,
         "fast_rejected": fast_rejected,
@@ -7175,7 +7188,7 @@ function renderHero(d) {
     <div class="hero-card">
       <div class="label"><span class="icon">📈</span>All-time requests</div>
       <div class="value">${d.total.toLocaleString()}</div>
-      <div class="sub">${d.legit.toLocaleString()} legit (${d.legit_pct}%) · ${d.intro} intros</div>
+      <div class="sub">${d.legit.toLocaleString()} legit (${d.legit_pct}%) · ${(d.unpaid || 0).toLocaleString()} unpaid (${d.unpaid_pct || 0}%) · ${d.intro} intros</div>
     </div>
     <div class="hero-card">
       <div class="label"><span class="icon">⚡</span>Last 24 hours${liveBadge}${
