@@ -399,6 +399,7 @@ _A2A_OUTPUT_EXAMPLES = {
 # can auto-pay) signpost the caller onto the standard x402 rail at the RIGHT
 # price. `amount` = price in USDC 6-decimal base units. Prices MUST stay in sync
 # with the RouteConfig prices in the PaymentMiddlewareASGI block below.
+_PAID_ROUTE_CONFIGS: dict = {}
 _USDC_BASE_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC on Base (eip155:8453)
 # CANONICAL paid-endpoint catalog — the SINGLE source of truth.
 #
@@ -11025,6 +11026,40 @@ def build_app():
         # but answer it in JSON built from `_PAID_CATALOG`, the same source of
         # truth openapi.json and /.well-known/x402 derive from. Nothing here is
         # typed twice, and a GET now signposts the exact paid call to make.
+        # The RouteConfigs below are the single source of truth the payment
+        # middleware uses to build the x402 v2 challenge for a POST. Capture them
+        # so the GET handler can emit the IDENTICAL challenge instead of
+        # hand-rolling a second one that would drift.
+        def _capture_route_configs(cfgs):
+            """Mirror every priced POST route as GET, and keep a reference.
+
+            The CDP Bazaar indexer probes a resource with a bare GET and reads the
+            x402 v2 challenge from the PAYMENT-REQUIRED response header -- it reads
+            ONLY that header for v2. Until now the middleware registered POST only,
+            so a GET fell past it to Starlette's 405, and the hand-built 402 below
+            carried no such header. Every endpoint failed CDP validation with
+            "PaymentRequired must be delivered via the PAYMENT-REQUIRED response
+            header", which is why 24 routes declare discovery metadata and 2 were
+            indexed.
+
+            Registering the same RouteConfig under GET makes the middleware answer
+            with the identical challenge it already builds for POST -- same accepts,
+            same resource block, same extensions.bazaar -- rather than a second,
+            hand-rolled payload that would drift from it.
+
+            This also removes the hazard the 405 was originally written to avoid:
+            the middleware short-circuits an unpaid GET with a 402 before the inner
+            app is reached, so the `await request.body()` that used to hang for ~10s
+            on a bodyless GET is never entered.
+            """
+            global _PAID_ROUTE_CONFIGS
+            expanded = dict(cfgs)
+            for _key, _cfg in cfgs.items():
+                if _key.startswith("POST "):
+                    expanded.setdefault("GET " + _key[5:], _cfg)
+            _PAID_ROUTE_CONFIGS = expanded
+            return expanded
+
         async def _paid_method_not_allowed(request, exc):
             path = request.url.path
             entry = next((c for c in _PAID_CATALOG.values()
@@ -11144,7 +11179,7 @@ def build_app():
             _inner_route_app = _PayerCaptureASGI(_inner_route_app)
             _x402_route_app = PaymentMiddlewareASGI(
                 app=_inner_route_app,
-                routes={
+                routes=_capture_route_configs({
                     "POST /route": RouteConfig(
                         accepts=[
                             # EIP-3009 transferWithAuthorization — works for EOAs
@@ -11839,7 +11874,7 @@ def build_app():
                             output=OutputConfig(example={"topic_keyword":"sol","status":"ok","polymarket_candidates":1,"limitless_candidates":5,"limitless_binary_candidates":4,"semantic_rejections":3,"pairs":[{"polymarket_slug":"will-the-price-of-solana-be-above-70-on-june-15","polymarket_question":"Will the price of Solana be above $70 on June 15?","polymarket_yes_mid":0.265,"limitless_condition_id":"0xabcd...","limitless_slug":"sol-up-or-down-15-min","limitless_title":"SOL Up or Down - 15 Min","limitless_yes_mid":0.59,"semantic_match_score":0.111,"spread_yes_polymarket_minus_limitless":-0.325,"spread_bps":-3250,"arbitrage_direction":"long-limitless-short-polymarket"}],"agent_note":"Pairs filtered by semantic content-word overlap + negation consistency, then ranked by absolute spread. semantic_match_score is Jaccard on content words (0-1). Verify same-condition resolution before sizing — Polymarket and Limitless markets on the same topic often have different time horizons."},schema={"type":"object"}),
                         )},
                     ),
-                },
+                }),
                 server=x402_server,
             )
             log.info("x402 PaymentMiddlewareASGI wrapped /route endpoint")
