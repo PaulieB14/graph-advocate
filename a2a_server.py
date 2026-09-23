@@ -11076,7 +11076,18 @@ def build_app():
                 "extra": {"name": "USD Coin", "version": "2"},
             }
             payload = {
-                "error": "method_not_allowed",
+                # 402, not 405. x402 says an unpaid request to a priced resource
+                # answers with the payment requirements, and the CDP Bazaar's
+                # validator (POST /platform/v2/x402/validate) probes with a GET
+                # and reads `accepts` off the response. On a 405 it recorded
+                # `paymentRequirements: {"error": "method_not_allowed"}` and
+                # `bazaarExtension: null` -- so every endpoint failed validation
+                # and only the two that had already settled a payment were ever
+                # indexed. 24 routes declare discovery metadata; 2 were listed.
+                # The `Allow: POST` header and `method` field below still carry
+                # the verb, so nothing a crawler learned from the 405 is lost.
+                "x402Version": 1,
+                "error": "payment_required",
                 "message": lede,
                 "method": "POST",
                 "resource": f"{base}{path}",
@@ -11094,7 +11105,7 @@ def build_app():
             # Drop empties, not just Nones: a blank price or `{}` body reads as a
             # broken field to a crawler, where an absent key reads as "n/a".
             return _RouteJSON({k: v for k, v in payload.items() if v not in (None, "", {}, [])},
-                              status_code=405, headers={"Allow": "POST"})
+                              status_code=402, headers={"Allow": "POST"})
 
         _inner_route_app = _RouteStarlette(routes=[
             _RouteRoute("/route", _route_handler, methods=["POST"]),
