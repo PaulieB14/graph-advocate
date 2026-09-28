@@ -1179,6 +1179,16 @@ _INJECTION_SUBSTRINGS = (
 _BLOCKED_NAMES = {"metavision"}
 _BLOCKED_ADDRESSES = {"0xf94a2d1751300b44c8fda99972cc24386829da1a"}
 _BLOCKED_DOMAINS = {"metavision.click"}
+# Payload signatures for senders that rotate identity but never their text.
+# Both arrived anonymously (no name/address), so only the body identifies them:
+#   - wallet-drain injection "to=0x… token=USDC amount=max", ~60% of all traffic
+#     in the week to 2026-09-27 (it was already 402-bounced, but still logged
+#     as a request and inflated vol24 from ~90/day to ~330/day);
+#   - "Hermes紫薇" alliance/handshake solicitations, several a day.
+_BLOCKED_TEXT_PATTERNS = (
+    (re.compile(r"\btoken=\w+\s+amount=max\b"), "drain-injection"),
+    (re.compile(r"hermes\s*紫薇|紫薇(军团|联盟|社区)"), "solicitor:hermes-ziwei"),
+)
 
 
 def _blocked_sender(name: str, address: str, text: str) -> str | None:
@@ -1199,6 +1209,9 @@ def _blocked_sender(name: str, address: str, text: str) -> str | None:
     for d in _BLOCKED_DOMAINS | extra:
         if d and "." in d and d in t:
             return f"blocked-domain:{d[:32]}"
+    for pat, label in _BLOCKED_TEXT_PATTERNS:
+        if pat.search(t):
+            return f"blocked-text:{label}"
     return None
 
 
@@ -6114,6 +6127,8 @@ def _build_dashboard_data() -> dict:
             service_counts[_normalize_service(svc)] += cnt
             if svc == "rate-limited":
                 rate_limited += cnt; spam += cnt
+            elif svc == "blocked":
+                spam += cnt
             elif tool_val == "fast-reject":
                 fast_rejected += cnt; spam += cnt
             elif svc == "out-of-scope":
@@ -6523,13 +6538,21 @@ def _build_dashboard_data() -> dict:
     # sees requests fall to 2 should be able to tell "nobody asked anything"
     # apart from "the bots stopped reaching us".
     hero_24h = {"requests": 0, "unique_senders": 0, "last_5min": 0,
-                "prev_24h_requests": 0, "delta_pct": None, "probe_requests": 0}
+                "prev_24h_requests": 0, "delta_pct": None, "probe_requests": 0,
+                "blocked_requests": 0}
     try:
         conn = _sq.connect(str(DB_PATH))
         cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         cutoff_48h = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
         cutoff_5min = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-        _no_probes = "sender_type IS NULL OR sender_type NOT LIKE 'probe:%'"
+        # Blocked senders are dropped before any work is done; counting them
+        # as requests made one drain bot read as a 3x traffic surge.
+        _no_probes = ("(sender_type IS NULL OR sender_type NOT LIKE 'probe:%') "
+                      "AND service != 'blocked'")
+        hero_24h["blocked_requests"] = conn.execute(
+            "SELECT COUNT(*) FROM activity WHERE timestamp >= ? AND service = 'blocked'",
+            (cutoff_24h,),
+        ).fetchone()[0]
         hero_24h["requests"] = conn.execute(
             f"SELECT COUNT(*) FROM activity WHERE timestamp >= ? AND ({_no_probes})",
             (cutoff_24h,),
