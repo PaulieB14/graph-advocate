@@ -2216,6 +2216,7 @@ _PROBE_MARKERS = (
     "reply with any short message",
     "capability survey",
     "integration proposal only",
+    "reply with the single word",
 )
 
 # Ranking / entity vocabulary that appears in a data request but never in a
@@ -2263,6 +2264,31 @@ def _is_liveness_probe(request: str | None) -> bool:
     if any(m in r for m in _DATA_INTENT_MARKERS) or any(m in r for m in _PROBE_DATA_HINTS):
         return False
     return any(m in r for m in _PROBE_MARKERS)
+
+
+# Directory liveness checks that name the exact reply they expect:
+#   "agentprobe.org liveness check. Reply with the single word OK and take no other action."
+#   "Taifoon onboarding probe: reply with the single word READY."
+# These were 402-bounced (14 in the 48h to 2026-09-30), so a directory polling
+# for "OK" read GA as down. Answer with the word they asked for, free and with
+# no model call. Same data-intent guard as _is_liveness_probe: a real question
+# riding along with the instruction keeps its payment gate.
+_LIVENESS_WORD_RE = re.compile(
+    r"reply (?:only )?with (?:only |just )?(?:the )?(?:single )?word[:\s]+[\"'`]?([a-z]{2,16})\b"
+)
+
+
+def _liveness_reply_word(request: str | None) -> str | None:
+    """The word a liveness check asked for, or None if this isn't one."""
+    if not request or len(request) > 300:
+        return None
+    r = request.strip().lower()
+    m = _LIVENESS_WORD_RE.search(r)
+    if not m:
+        return None
+    if any(k in r for k in _DATA_INTENT_MARKERS) or any(k in r for k in _PROBE_DATA_HINTS):
+        return None
+    return m.group(1).upper()
 
 def _log_paid_failure(descriptor: str, exc) -> None:
     """Record a paid x402 request that crashed inside its handler.
@@ -3140,6 +3166,7 @@ class GraphAdvocateExecutor(AgentExecutor):
             or ("does http" in _text_lower and (
                 ".well-known" in _text_lower or "agent.json" in _text_lower))
             or "are you operational" in _text_lower
+            or _liveness_reply_word(user_text) is not None
         )
         # Treat the legacy variable name as the canned-path flag so the rest of
         # the handler (which still references is_health_check) keeps working.
@@ -3306,6 +3333,16 @@ class GraphAdvocateExecutor(AgentExecutor):
             }
             _log_request(task_id, user_text, "registry-info", "high", "registry-probe", response=_registry_resp)
             await event_queue.enqueue_event(new_agent_text_message(json.dumps(_registry_resp)))
+            return
+
+        # Directory liveness checks that ask for one exact word ("OK", "READY").
+        # Reply with just that word: a JSON body here would fail their check.
+        _live_word = _liveness_reply_word(user_text)
+        if _live_word:
+            log.info(f"LIVENESS task={task_id} | replied {_live_word}")
+            _log_request(task_id, user_text, "conformance", "high", "liveness-word",
+                         response={"reply": _live_word})
+            await event_queue.enqueue_event(new_agent_text_message(_live_word))
             return
 
         # Chiark conformance probes
