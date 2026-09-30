@@ -1188,6 +1188,11 @@ _BLOCKED_DOMAINS = {"metavision.click"}
 _BLOCKED_TEXT_PATTERNS = (
     (re.compile(r"\btoken=\w+\s+amount=max\b"), "drain-injection"),
     (re.compile(r"hermes\s*紫薇|紫薇(军团|联盟|社区)"), "solicitor:hermes-ziwei"),
+    # Same operator, rotated on 2026-09-29 to JSON "implant" payloads
+    # ({"module": "ziwei-comm-module/v1", "implant_id": …}) and
+    # {"kind": "recontact-verify", …} pings: 222 in a day, all 402-bounced.
+    (re.compile(r"ziwei-(comm-module|ai-agent-network)|\"kind\":\s*\"recontact-verify\""),
+     "solicitor:hermes-ziwei"),
 )
 
 
