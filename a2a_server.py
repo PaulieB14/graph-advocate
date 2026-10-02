@@ -6123,11 +6123,18 @@ def _build_dashboard_data() -> dict:
     try:
         conn = _sq.connect(str(DB_PATH))
         conn.row_factory = _sq.Row
+        # Blocked rows get their own small window. A single anonymous drain bot
+        # was ~60% of traffic, so sharing one LIMIT 200 let it push real
+        # requests out of the feed entirely.
+        _cols = ("SELECT timestamp as ts, task_id, sender_type, request, service, "
+                 "confidence, tool, response_json, reason, paid_by_wallet FROM activity ")
         db_rows = conn.execute(
-            "SELECT timestamp as ts, task_id, sender_type, request, service, "
-            "confidence, tool, response_json, reason, paid_by_wallet "
-            "FROM activity ORDER BY timestamp DESC LIMIT 200"
+            _cols + "WHERE service != 'blocked' ORDER BY timestamp DESC LIMIT 200"
         ).fetchall()
+        db_rows += conn.execute(
+            _cols + "WHERE service = 'blocked' ORDER BY timestamp DESC LIMIT 50"
+        ).fetchall()
+        db_rows.sort(key=lambda r: r["ts"] or "", reverse=True)
         conn.close()
     except Exception:
         pass
@@ -6251,6 +6258,8 @@ def _build_dashboard_data() -> dict:
     def _categorize(service: str, task_id: str) -> str:
         if task_id in ("x402-paid", "x402-tip"):
             return "paid"
+        if service == "blocked":
+            return "blocked"
         if service in ("introduction", "awaiting-request", "conformance",
                        "operational-confirmation", "registry-info"):
             return "intro"
@@ -6266,7 +6275,7 @@ def _build_dashboard_data() -> dict:
     recent = []
     seen_keys: dict = {}
     for r in logs:
-        if len(recent) >= 200:
+        if len(recent) >= 250:
             break
         ts = r.get("ts", "")
         # 2,000, not 200: a peer's A2A message runs to ~1,900 characters and the
@@ -6392,7 +6401,7 @@ def _build_dashboard_data() -> dict:
             "SELECT task_id, sender_type, COUNT(*) as cnt, "
             "MAX(timestamp) as last_seen "
             "FROM activity "
-            "WHERE service NOT IN ('out-of-scope', 'awaiting-request', 'unknown', 'introduction') "
+            "WHERE service NOT IN ('out-of-scope', 'awaiting-request', 'unknown', 'introduction', 'blocked') "
             "GROUP BY task_id ORDER BY cnt DESC LIMIT 10"
         ).fetchall()
         for tid, sender_type, cnt, last_seen in rows:
@@ -7112,6 +7121,7 @@ async def dashboard_endpoint(request: Request):
         <button class="feed-chip" data-cat="paid" title="x402-paid + tips">💰 Paid only <span class="chip-count" id="cnt-paid">0</span></button>
         <button class="feed-chip" data-cat="intro" title="Handshake / introduction / pings">👋 Intro <span class="chip-count" id="cnt-intro">0</span></button>
         <button class="feed-chip" data-cat="noise" title="Out-of-scope / rate-limited / unclear">🔇 Noise <span class="chip-count" id="cnt-noise">0</span></button>
+        <button class="feed-chip" data-cat="blocked" title="Senders/payloads dropped by the blocklist (drain injections, spam)">🚫 Blocked <span class="chip-count" id="cnt-blocked">0</span></button>
         <button class="feed-chip" data-cat="all" title="Everything">All <span class="chip-count" id="cnt-all">0</span></button>
       </div>
       <style>
@@ -7127,6 +7137,7 @@ async def dashboard_endpoint(request: Request):
         .row-cat-badge.cat-intro{background:rgba(148,163,184,0.15);color:#94a3b8}
         .row-cat-badge.cat-noise{background:rgba(248,113,113,0.12);color:#f87171}
         .row-cat-badge.cat-challenge{background:rgba(251,191,36,0.12);color:#fbbf24}
+        .row-cat-badge.cat-blocked{background:rgba(100,116,139,0.18);color:#94a3b8}
   </style>
       <div class="feed feed-large" id="feed"></div>
     </div>
@@ -7561,7 +7572,7 @@ function renderFeed(recent) {
     // toggles to a view that includes them.  Only shown for non-default
     // categories so paid/query rows stay visually clean.
     const cat = r.category || 'query';
-    const catBadge = (cat === 'intro' || cat === 'noise' || cat === 'challenge')
+    const catBadge = (cat === 'intro' || cat === 'noise' || cat === 'challenge' || cat === 'blocked')
       ? `<span class="row-cat-badge cat-${cat}">${cat}</span>`
       : '';
 
@@ -7635,6 +7646,7 @@ function _matchesCat(r, cat) {
   if (cat === 'paid') return c === 'paid';
   if (cat === 'intro') return c === 'intro';
   if (cat === 'noise') return c === 'noise' || c === 'challenge';
+  if (cat === 'blocked') return c === 'blocked';
   return true;
 }
 function setFeedCat(cat) {
@@ -7659,13 +7671,14 @@ function applyFeedFilter() {
   renderFeed(filtered);
 }
 function _updateChipCounts() {
-  const tally = { real: 0, paid: 0, intro: 0, noise: 0, all: _feedCache.length };
+  const tally = { real: 0, paid: 0, intro: 0, noise: 0, blocked: 0, all: _feedCache.length };
   _feedCache.forEach(r => {
     const c = r.category || 'query';
     if (c === 'paid' || c === 'query' || c === 'chat') tally.real++;
     if (c === 'paid') tally.paid++;
     if (c === 'intro') tally.intro++;
     if (c === 'noise' || c === 'challenge') tally.noise++;
+    if (c === 'blocked') tally.blocked++;
   });
   Object.keys(tally).forEach(k => {
     const el = document.getElementById('cnt-' + k);
