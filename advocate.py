@@ -182,7 +182,7 @@ EXACT RESPONSE SHAPE — use these names verbatim, do not guess: the envelope is
 Auth: only needed to *run* a package, not to search. JWT (not a plain API key): sign up at https://thegraph.market → create an API key → generate a JWT → `substreams auth`. Docs: https://docs.substreams.dev
 HOSTED SINKS — route here when the ask is "get this chain data into MY database" rather than "answer this query now". Managed Substreams-sink-as-a-service on The Graph Market: supply a .spkg with a `db_out` module, a start block and DB credentials, and StreamingFast runs the sink into your own Postgres or ClickHouse. Reorg-aware (applies the right upserts on a fork) and cursor-checkpointed (a restart resumes at the last confirmed block, no re-index). Postgres for app-facing reads, ClickHouse for analytics/dashboards. Free to operate until end of 2026; you pay for Substreams data either way. Docs: https://docs.substreams.dev/how-to-guides/sinks/hosted-sinks
 Hosted Sinks connection gotchas (cause most first-deploy failures): the sink dials out from StreamingFast (us-central1, Iowa) so the DB must be reachable from there. Supabase → use the DIRECT host db.<project-ref>.supabase.co, NOT the pooler (PgBouncer breaks the sink's prepared statements), SSL require or higher. Neon → free endpoints suspend on inactivity, use a paid plan for anything continuous. ClickHouse Cloud → native TLS port is 9440 not 9000, enable Secure and add StreamingFast to the IP Access List. All three: a dedicated user scoped to one schema, write access only.
-There is NO npm package for Substreams search — the old one was unpublished from npm on 2026-08-11 and any npx invocation of it 404s, so never emit an npm install line for Substreams search. The registry REST API above IS the search surface, and `brew install streamingfast/tap/substreams` is the CLI that runs packages. StreamingFast also ships official agent skills covering development, Ethereum/Solana decoding, SQL sinks, hosted sinks, deployment, testing and The Graph Market API: `claude plugin install substreams-dev@streamingfast-substreams`.
+There is NO npm package for Substreams search — the old one was unpublished from npm on 2026-08-11 and any npx invocation of it 404s, so never emit an npm install line for Substreams search. That is ONLY about search: Substreams itself DOES have official npm packages for consuming streams from JS/TS — `@substreams/core` and `@substreams/node` (plus `@substreams/manifest` for reading .spkg files) — so never claim "there is no npm package for Substreams". The registry REST API above IS the search surface, and `brew install streamingfast/tap/substreams` is the CLI that runs packages. StreamingFast also ships official agent skills covering development, Ethereum/Solana decoding, SQL sinks, hosted sinks, deployment, testing and The Graph Market API: `claude plugin install substreams-dev@streamingfast-substreams`.
 SELF-HOSTED SQL SINK — the DIY alternative to Hosted Sinks, when the caller wants to run the sink themselves. Use the `substreams` CLI directly: `substreams sink postgres <manifest>` or `substreams sink clickhouse <manifest>`, with `substreams sink <engine> setup` first to create the tables. DSN via `--dsn` or SUBSTREAMS_SINK_DSN; block range via `-s`/`-t`. Do NOT recommend the standalone `substreams-sink-sql` binary (folded into the substreams CLI in v1.20.2, deprecated) and do NOT recommend the npm package `create-substreams-sink-sql` (UNPUBLISHED from npm 2026-08-17 — every version 404s now). Migration guide: https://github.com/streamingfast/substreams/blob/develop/docs/how-to-guides/sinks/sql/migration.md
 
 [PROTOCOL-SPECIFIC MCP SERVERS — npm packages by @paulieb, ALWAYS ALTERNATIVES]
@@ -530,6 +530,14 @@ def _extract_json(raw: str) -> dict:
     cannot reintroduce it.
     """
     obj = _extract_json_inner(raw)
+    # Multi-part questions also come back wrapped: {"needs": [{...}, {...}]}.
+    # Same recovery as a bare list when the object has no recommendation of its
+    # own and exactly one key holds a list of recommendation objects.
+    if isinstance(obj, dict) and not obj.get("recommendation"):
+        lists = [v for v in obj.values()
+                 if isinstance(v, list) and v and isinstance(v[0], dict) and v[0].get("recommendation")]
+        if len(lists) == 1:
+            obj = lists[0]
     if isinstance(obj, dict):
         return obj
     # A bare list of recommendations is a real, recoverable model output: keep
@@ -2868,7 +2876,7 @@ def _auto_search(request: str) -> str:
             results.append(f"[TOKEN API ENDPOINTS for '{search_term}']\n{ta_results}")
 
         if run_agent_search:
-            agent_results = _search_8004_agents(search_term)
+            agent_results = _search_8004_agents(search_term, request)
             if agent_results:
                 results.append(f"[ERC-8004 AGENT SEARCH for '{search_term}']\n{agent_results}")
 
@@ -2927,6 +2935,13 @@ def _auto_search(request: str) -> str:
 
 
 MAX_REQUEST_LENGTH = 2000  # chars — prevents prompt stuffing and abuse
+
+
+_CALLER_JSON_ONLY_RE = re.compile(
+    r"\b(?:reply|respond|return|answer|output)\s+(?:with\s+)?only\s+(?:a\s+|one\s+|the\s+)?"
+    r"(?:single\s+)?(?:valid\s+)?json",
+    re.I,
+)
 
 
 def ask_graph_advocate(
@@ -3003,7 +3018,11 @@ def ask_graph_advocate(
                 model="claude-opus-4-6",
                 system=SYSTEM,
                 messages=msgs,
-                max_tokens=2000,
+                # Thinking and the answer share this budget. At 2000, a two-part
+                # question ("rank an approach for EACH need") hit max_tokens
+                # mid-JSON on both the call and the retry, and the caller got
+                # the keyword fallback instead of the answer (2026-10-05).
+                max_tokens=8000,
                 thinking={"type": "adaptive"},
             )
         return client.messages.create(
@@ -3035,6 +3054,16 @@ def ask_graph_advocate(
             rec = _extract_json(raw)
         except Exception as e:
             log.warning(f"Retry call failed: {e}")
+
+    # The caller dictated its own reply shape ("Reply with only a JSON object
+    # {...}") and the model followed it. Hand that object back untouched. Merging
+    # the fallback router into it on 2026-10-04 turned a correct risk verdict on
+    # Base WETH into that verdict plus a "subgraph-registry" recommendation and an
+    # unrelated Uniswap curl example, for a caller that asked for nothing else.
+    if (not rec.get("parse_error") and not rec.get("recommendation")
+            and _CALLER_JSON_ONLY_RE.search(request or "")):
+        _log(requesting_agent, request, {**rec, "recommendation": "caller-schema", "confidence": "n/a"})
+        return rec, messages
 
     # If parse still failed or recommendation is missing, use fallback router
     if rec.get("parse_error") or not rec.get("recommendation"):
@@ -3078,6 +3107,44 @@ def ask_graph_advocate(
             rec = _ground_subgraph_chain(rec, request, search_context)
             # Re-validate the post-grounding query.
             rec = _validate_and_fix_query(rec)
+
+        # Still rejected by the gateway after grounding: the ID is fine but the
+        # model guessed field names. Give it the gateway's error and the real
+        # schema, once. Without this GA shipped queries it had itself just
+        # watched fail — 13 in the 30 days to 2026-10-05, 10 of them ERC-8004
+        # (`tokenId`, `agentRegistrations`, `Agent.name`, none of which exist).
+        validation = rec.get("query_validation") or {}
+        if validation.get("ok") is False and validation.get("errors") and validation.get("subgraph_id"):
+            try:
+                sgid = validation["subgraph_id"]
+                key = (os.environ.get("GRAPH_API_KEY", "")
+                       or os.environ.get("GATEWAY_API_KEY", "")
+                       or "4c62716b2e5808ac83da1938db78296e")
+                schema_txt = _format_schema_for_prompt(_introspect_subgraph(sgid, key) or {})
+                if schema_txt:
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            f"The Graph gateway rejected your query_ready for subgraph {sgid}: "
+                            f"{'; '.join(map(str, validation['errors']))[:600]}\n\n"
+                            f"This is that subgraph's exact schema:\n{schema_txt}\n\n"
+                            "Reply with the same JSON object, with query_ready corrected to use "
+                            "only fields that exist in this schema. JSON only."
+                        ),
+                    })
+                    response = _call_claude(messages)
+                    raw = next((b.text for b in response.content if b.type == "text"), "")
+                    messages.append({"role": "assistant", "content": response.content})
+                    fixed = _extract_json(raw)
+                    if not fixed.get("parse_error") and fixed.get("query_ready"):
+                        fixed = _validate_and_fix_query(fixed)
+                        if (fixed.get("query_validation") or {}).get("ok") is True:
+                            rec["query_ready"] = fixed["query_ready"]
+                            rec["query_validation"] = fixed["query_validation"]
+                            rec["query_repaired"] = True
+                            log.info(f"QUERY    repaired after gateway rejection | {sgid[:12]}…")
+            except Exception as e:
+                log.warning(f"Query repair failed: {e}")
 
     _log(requesting_agent, request, rec)
 
@@ -3457,6 +3524,7 @@ You have access to these services:
     unpublished 2026-08-11). Use the public registry REST API directly:
     GET https://substreams.dev/v1/registry/packages?query=<term>
     CLI: `brew install streamingfast/tap/substreams`
+  - Substreams JS/TS SDK (consuming streams in an app): `npm i @substreams/core @substreams/node`
 
 **Data tools (npm by @paulieb — standalone, no agent required):**
   - subgraphs-skills: AI agent skills for developing/testing/optimizing subgraphs
@@ -3468,6 +3536,16 @@ You have access to these services:
 **8004scan — Agent Discovery** (https://8004scan.io)
   Search for AI agents registered on the ERC-8004 on-chain identity standard
   734+ agents with MCP endpoints, A2A endpoints, x402 payment support, reputation scores
+  ERC-8004 SUBGRAPH (HZ6yKjjbYpkLTXLJBxfe4HWN3jxkLfLNJXh4zeVj1t9L) — EXACT schema, verified
+  2026-10-05; never guess field names (tokenId/mcpServer/a2aServer do NOT exist):
+    agents { id agentId chainId owner registrationFile { name description
+             mcpEndpoint a2aEndpoint x402Support ens } }
+    - id is "<chainId>:<agentId>" with a COLON, e.g. agent(id: "42161:734")
+    - by number: agents(where: {agentId: "734"})  (agentId is a string)
+    - by name:   agents(where: {registrationFile_: {name_contains_nocase: "graph advocate"}})
+    - globalStats(id: "global") { totalAgents totalFeedback }
+    Use agents{registrationFile}, not agentRegistrationFiles — the latter also
+    returns superseded files with stale endpoints.
   Graph Advocate is registered as Agent #734: https://www.8004scan.io/agents/arbitrum/734
 
 **Graph Ecosystem Dashboards** (https://graphtools.pro):
@@ -3583,7 +3661,8 @@ Rules:
   a call and teaches the caller that GA's answers are stale.
 - When recommending subgraph search, also mention subgraph-registry-mcp, which users can
   install locally. For substreams search there is no npm package — point at the registry
-  REST API and the `substreams` CLI.
+  REST API and the `substreams` CLI. (Search only: the JS/TS SDK to consume
+  streams, `@substreams/core` + `@substreams/node`, IS on npm.)
 - Frame npm packages as "ready to use in 30 seconds" — just npx and go
 - If a user asks how to connect the Graph Advocate to their agent, present ALL integration options:
 
@@ -3693,27 +3772,47 @@ CHAT_TOOLS = [
 ]
 
 
-def _search_8004_agents(query: str) -> str:
+def _search_8004_agents(query: str, request: str = "") -> str:
     """Search for AI agents on the ERC-8004 registry via 8004scan API."""
     import httpx
     import logging
+    import re as _re
     log = logging.getLogger("graph-advocate")
 
+    # An explicit agent number ("Agent #734") is an exact lookup — resolve it on
+    # the subgraph before any keyword search. The extracted search term for
+    # "Find Graph Advocate on ERC-8004, Agent #734 on Arbitrum" was "arbitrum",
+    # which returned ArbitrumVitalik et al. and never the agent asked for.
+    num = _re.search(r"(?:#|\bagent\s*(?:id\s*)?)(\d+)\b", request or "", _re.I)
+    if num:
+        hit = _search_8004_subgraph(f"#{num.group(1)}")
+        if hit:
+            return hit
+
     try:
-        # Try semantic search first
-        r = httpx.get(
-            f"https://8004scan.io/api/v1/public/agents/search",
-            params={"q": query, "limit": 10},
-            timeout=10,
-            follow_redirects=True,
-        )
-        if r.status_code == 200:
+        # Name match first. /agents/search is semantic and does NOT match names:
+        # on 2026-10-05 q="Graph Advocate" returned SocialPulse/castmind/DAO
+        # Advisor, while /agents?search= returned both Graph Advocate records.
+        # Asked to find GA by name, GA reported it could not find itself.
+        agents, data = [], {}
+        for url, params in (
+            ("https://8004scan.io/api/v1/public/agents", {"search": query, "limit": 10}),
+            ("https://8004scan.io/api/v1/public/agents/search", {"q": query, "limit": 10}),
+        ):
+            r = httpx.get(url, params=params, timeout=10, follow_redirects=True)
+            if r.status_code != 200:
+                continue
             data = r.json()
             if not isinstance(data, dict):
-                return ""
-            agents = data.get("data") or data.get("agents") or []
-            if not agents:
-                return ""
+                continue
+            agents = data.get("data") or data.get("items") or data.get("agents") or []
+            if agents:
+                break
+        if not agents:
+            # Neither surface matched (or both are down) — the subgraph filters
+            # server-side and resolves "#734"-style agent numbers.
+            return _search_8004_subgraph(query)
+        if agents:
             results = []
             for a in agents[:10]:
                 if not isinstance(a, dict):
@@ -3728,7 +3827,7 @@ def _search_8004_agents(query: str) -> str:
                 a2a = ((services.get("a2a") or {}).get("endpoint")) or ""
                 x402 = a.get("x402_supported", False)
                 ens = a.get("ens", "")
-                entry = f"- {name} (#{token_id}, score: {score})"
+                entry = f"- {name} (#{token_id} on chain {chain}, score: {score})"
                 if desc:
                     entry += f"\n  {desc}"
                 if mcp:
@@ -3740,27 +3839,21 @@ def _search_8004_agents(query: str) -> str:
                 if ens:
                     entry += f"\n  ENS: {ens}"
                 results.append(entry)
-            return json.dumps({
+            out = {
                 "source": "8004scan.io",
-                "registry": "ERC-8004 on Arbitrum",
+                "registry": "ERC-8004 (multi-chain; chain_id per result)",
                 "total_agents": data.get("total", len(agents)),
                 "results": "\n".join(results),
                 "note": "Agents registered on the ERC-8004 Identity Registry with on-chain reputation and discovery.",
-            }, indent=2)
-        else:
-            # Fallback: list agents
-            r2 = httpx.get(
-                "https://8004scan.io/api/v1/public/agents",
-                params={"limit": 10, "sort": "score", "order": "desc"},
-                timeout=10,
-                follow_redirects=True,
-            )
-            if r2.status_code == 200:
-                data = r2.json()
-                agents = data.get("data", [])
-                results = [f"- {a.get('name','unnamed')} (score: {a.get('total_score',0)})" for a in agents[:10]]
-                return json.dumps({"source": "8004scan.io", "top_agents": "\n".join(results)})
-            return _search_8004_subgraph(query)
+            }
+            # /agents (the name-match surface) carries no MCP/A2A endpoints, and
+            # "return its endpoints" is the usual follow-on — take them from the
+            # subgraph's current registration file rather than answer without them.
+            if not any(("MCP:" in e or "A2A:" in e) for e in results):
+                sub = _search_8004_subgraph(query)
+                if sub:
+                    out["endpoints_from_subgraph"] = json.loads(sub).get("results", "")
+            return json.dumps(out, indent=2)
     except Exception as e:
         log.error(f"8004scan search error: {e}")
         # Fallback to direct subgraph query
@@ -4980,40 +5073,49 @@ def _search_8004_subgraph(query: str) -> str:
     GATEWAY_KEY = os.environ.get("GATEWAY_API_KEY", "7006f39fbab470711f44a5195b4d97c0")
     URL = f"https://gateway.thegraph.com/api/{GATEWAY_KEY}/subgraphs/id/{SUBGRAPH_ID}"
 
-    gql = """
-    {
-      agentRegistrationFiles(first: 15, where: {name_not: null}, orderBy: createdAt, orderDirection: desc) {
-        agentId name description mcpEndpoint a2aEndpoint x402Support ens supportedTrusts
-      }
-      globalStats(id: "global") { totalAgents totalFeedback totalValidations }
-    }
-    """
+    # Filter on the server. This used to pull the 15 NEWEST registration files
+    # and filter them locally, so any agent older than the newest 15 (GA itself,
+    # #734) could never be found. `agents { registrationFile }` is the current
+    # file; agentRegistrationFiles also holds superseded ones (stale endpoints).
+    import re as _re
+    fields = "id agentId chainId registrationFile { name description mcpEndpoint a2aEndpoint x402Support ens }"
+    num = _re.search(r"(?:#|agent\s*(?:id\s*)?)(\d+)\b", query or "", _re.I)
+    name = _re.sub(r"(?:#|agent\s*(?:id\s*)?)\d+\b", "", query or "", flags=_re.I).strip(" ,.;:")
+    parts = []
+    if num:
+        parts.append(f'byId: agents(first: 10, where: {{agentId: "{num.group(1)}"}}) {{ {fields} }}')
+    if name:
+        parts.append(f'byName: agents(first: 10, where: {{registrationFile_: {{name_contains_nocase: {json.dumps(name)}}}}}) {{ {fields} }}')
+    if not parts:
+        parts.append(f'recent: agents(first: 10, orderBy: createdAt, orderDirection: desc) {{ {fields} }}')
+    gql = "{ " + " ".join(parts) + ' globalStats(id: "global") { totalAgents totalFeedback } }'
 
     try:
         r = httpx.post(URL, json={"query": gql}, timeout=10)
         if r.status_code != 200:
             return ""
-        data = r.json().get("data", {})
-        agents = data.get("agentRegistrationFiles", [])
-        stats = data.get("globalStats", {})
-
-        # Filter by query if provided
-        if query:
-            q = query.lower()
-            agents = [a for a in agents if q in (a.get("name","") + " " + (a.get("description","") or "")).lower()]
+        data = r.json().get("data") or {}
+        stats = data.get("globalStats") or {}
+        seen, agents = set(), []
+        for key in ("byId", "byName", "recent"):
+            for a in data.get(key) or []:
+                if a["id"] not in seen:
+                    seen.add(a["id"])
+                    agents.append(a)
 
         if not agents:
             return ""
 
         results = []
         for a in agents[:10]:
-            entry = f"- {a.get('name','unnamed')} (agent #{a['agentId']})"
-            desc = (a.get("description") or "")[:100]
+            rf = a.get("registrationFile") or {}
+            entry = f"- {rf.get('name') or 'unnamed'} (agent #{a['agentId']} on chain {a['chainId']}, id {a['id']})"
+            desc = (rf.get("description") or "")[:100]
             if desc: entry += f"\n  {desc}"
-            if a.get("mcpEndpoint"): entry += f"\n  MCP: {a['mcpEndpoint']}"
-            if a.get("a2aEndpoint"): entry += f"\n  A2A: {a['a2aEndpoint']}"
-            if a.get("x402Support"): entry += f"\n  x402: enabled"
-            if a.get("ens"): entry += f"\n  ENS: {a['ens']}"
+            if rf.get("mcpEndpoint"): entry += f"\n  MCP: {rf['mcpEndpoint']}"
+            if rf.get("a2aEndpoint"): entry += f"\n  A2A: {rf['a2aEndpoint']}"
+            if rf.get("x402Support"): entry += f"\n  x402: enabled"
+            if rf.get("ens"): entry += f"\n  ENS: {rf['ens']}"
             results.append(entry)
 
         return json.dumps({

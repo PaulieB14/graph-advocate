@@ -1704,6 +1704,67 @@ class TestQosLeaderboardSource(unittest.TestCase):
                 self.assertNotIn("curl ", line, f"stale id used as an endpoint: {line.strip()[:80]}")
 
 
+
+class TestAnswerQualityFixes20261005(unittest.TestCase):
+    """Regressions from the 2026-10-05 answer-quality review."""
+
+    def setUp(self):
+        import advocate
+        self.advocate = advocate
+
+    def test_needs_wrapper_unwraps_like_a_list(self):
+        raw = json.dumps({"needs": [
+            {"recommendation": "substreams", "reason": "logs"},
+            {"recommendation": "graph-aave-mcp", "reason": "liquidations"},
+        ]})
+        out = self.advocate._extract_json(raw)
+        self.assertEqual(out["recommendation"], "substreams")
+        self.assertEqual(out["alternatives"][0]["service"], "graph-aave-mcp")
+
+    def test_plain_object_without_recommendation_is_untouched(self):
+        raw = json.dumps({"ref": "x", "level": "low", "reasons": ["a"]})
+        self.assertEqual(self.advocate._extract_json(raw)["level"], "low")
+
+    def test_caller_json_only_detection(self):
+        rx = self.advocate._CALLER_JSON_ONLY_RE
+        self.assertTrue(rx.search('Reply with only a JSON object {"ref":1}'))
+        self.assertTrue(rx.search("respond with only valid JSON"))
+        self.assertFalse(rx.search("return only the top 5 pools"))
+        self.assertFalse(rx.search("top uniswap pools on base as json"))
+
+    def test_substreams_npm_sdk_is_not_denied(self):
+        src = open(self.advocate.__file__).read()
+        self.assertIn("@substreams/core", src)
+        self.assertIn("so never claim", src)
+        self.assertIn("@substreams/node", src)
+
+    def test_8004_schema_hint_uses_real_fields(self):
+        src = open(self.advocate.__file__).read()
+        self.assertIn('agent(id: "42161:734")', src)
+        self.assertIn("tokenId/mcpServer/a2aServer do NOT exist", src)
+
+    def test_8004_subgraph_query_filters_server_side(self):
+        captured = {}
+
+        class R:
+            status_code = 200
+            def json(self):
+                return {"data": {"byId": [{"id": "42161:734", "agentId": "734", "chainId": "42161",
+                                           "registrationFile": {"name": "Graph Advocate",
+                                                                "mcpEndpoint": "https://graphadvocate.com/mcp"}}],
+                                 "globalStats": {"totalAgents": "1"}}}
+
+        def fake_post(url, json=None, timeout=None):
+            captured["q"] = json["query"]
+            return R()
+
+        with mock.patch("httpx.post", fake_post):
+            out = self.advocate._search_8004_subgraph("#734")
+        self.assertIn('agentId: "734"', captured["q"])
+        self.assertNotIn("agentRegistrationFiles(first: 15", captured["q"])
+        self.assertIn("MCP: https://graphadvocate.com/mcp", json.loads(out)["results"])
+
+
 if __name__ == "__main__":
     loader = unittest.TestLoader()
     # DISCOVER the module's TestCases instead of listing them by hand.

@@ -1876,6 +1876,9 @@ _NON_ROUTING_SERVICES = {
     "chat", "cached", "rate-limited",
     "clarification-needed", "no-match", "unclear-request",
     "registry-info",
+    # A reply in a shape the caller dictated, not a routing answer — the
+    # subgraph rubric would score a correct one ~1-3.
+    "caller-schema",
 }
 
 # The read-side headline filter MUST be a superset of the write-side skip.
@@ -4641,6 +4644,16 @@ def _score_response(request: str, rec: dict, activity_id: int = 0, task_id: str 
         # received a query. When execution was attempted, its outcome is the
         # strongest quality signal we have, so it gates the top of the scale.
         executed_block = rec.get("executed") if isinstance(rec, dict) else None
+        # Free answers are never executed, but every subgraph query is dry-run
+        # against the gateway first (`query_validation`, see advocate.py
+        # _validate_and_fix_query). Ignoring it meant a query the gateway had
+        # just rejected ("Type `Agent` has no field `tokenId`") still scored
+        # 5/5 — 13 such answers in the 30 days to 2026-10-05, none visible in
+        # the average.
+        if not isinstance(executed_block, dict):
+            qv = rec.get("query_validation") if isinstance(rec, dict) else None
+            if isinstance(qv, dict) and isinstance(qv.get("ok"), bool):
+                executed_block = qv
         exec_attempted = isinstance(executed_block, dict)
         exec_ok = bool(executed_block.get("ok")) if exec_attempted else None
 
@@ -6529,8 +6542,10 @@ def _build_dashboard_data() -> dict:
         conn = _sq.connect(str(DB_PATH))
         rows = conn.execute(
             "SELECT service, COUNT(*) as cnt FROM activity "
+            # `blocked` is spam GA refused, not a service it ran. Left in, it
+            # topped this panel (4,280 rows) as "low-quality" at score 1.0.
             "WHERE service NOT IN ('out-of-scope', 'awaiting-request', 'unknown', 'introduction', "
-            "'rate-limited', 'payment-required') "
+            "'rate-limited', 'payment-required', 'blocked') "
             "GROUP BY service ORDER BY cnt DESC LIMIT 12"
         ).fetchall()
         # Get avg quality scores per service
