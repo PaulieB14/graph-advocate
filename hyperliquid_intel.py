@@ -137,11 +137,22 @@ async def fetch_user_activity(user: str, limit: int | None = None) -> list[dict]
     )
 
 
-async def fetch_top_traders_by_coin(coin: str, n: int = 10) -> list[dict]:
-    """Top traders on a specific coin/market, sorted by total_volume desc."""
-    return _data(
-        await _pinax("/users", coin=coin, limit=n, sort="total_volume", order="desc")
-    )
+# Pinax /users windows (OpenAPI enum). None = all time.
+SCREEN_WINDOWS = ("1h", "1d", "1w", "30d")
+
+
+async def fetch_top_traders_by_coin(coin: str, n: int = 10, interval: str | None = "30d") -> list[dict]:
+    """Top traders on a coin by volume, within `interval` (None = all time).
+
+    Pinax's parameter is `sort_by`; `sort=` was silently ignored and only
+    looked right because its default order is volume. There is no `order`
+    parameter. The window matters: all-time top BTC volume is led by a
+    wallet that last traded 2026-08-18.
+    """
+    params: dict[str, Any] = {"coin": coin, "limit": n, "sort_by": "total_volume"}
+    if interval:
+        params["interval"] = interval
+    return _data(await _pinax("/users", **params))
 
 
 async def fetch_market_activity(coin: str, limit: int | None = None) -> list[dict]:
@@ -200,8 +211,7 @@ async def fetch_vault_depositors(vault: str, limit: int | None = None) -> list[d
             "/vaults/depositors",
             vault=vault,
             limit=limit or _DEPOSITORS_LIMIT,
-            sort="deposits",
-            order="desc",
+            sort_by="deposits",
         )
     )
 
@@ -493,8 +503,7 @@ async def fetch_vaults_list(
                 "/vaults",
                 limit=page_size,
                 page=page,
-                sort=sort_by,
-                order="desc",
+                sort_by=sort_by,
             )
         )
         if not chunk:
@@ -544,12 +553,17 @@ def compute_user_score(user_stats: dict) -> dict:
     liqs = float(user_stats.get("liquidation_fills") or 0)
     coins = int(user_stats.get("coins_traded") or 0)
 
-    # Profitability: PnL / total_volume (basis-points-of-edge proxy).
-    # Cap at +/- 100 bps because anything beyond is noise from tiny denominators.
-    pnl_bps = _clamp(_safe_div(pnl, volume) * 10_000, -100, 100)
+    # Profitability: PnL / total_volume, in bps of edge. Reported clamped to
+    # +/- 100 (beyond that is a tiny denominator), scored on a tanh curve
+    # around 10 bps. The old linear map gave large accounts, which make
+    # 0.3-1.7 bps on billions, under one point of movement either way.
+    edge_bps = _safe_div(pnl, volume) * 10_000
+    pnl_bps = _clamp(edge_bps, -100, 100)
 
-    # Risk control: liquidation rate (fills / total trades). Lower is better.
-    # 0 liquidations = perfect; 1% liquidation rate = catastrophic.
+    # Risk control: liquidation rate (fills / total trades). A penalty only:
+    # never being liquidated is the baseline, not a skill. The old formula
+    # gave zero liquidations HALF credit (0.40 * 50), capping every score
+    # near 80 and putting "sharp" out of reach of any large trader.
     liq_rate = _safe_div(liqs, txs)
     risk_penalty = _clamp(liq_rate * 10_000, 0, 100)  # 0-100 bps as penalty
 
@@ -558,16 +572,17 @@ def compute_user_score(user_stats: dict) -> dict:
 
     # Efficiency: profit factor proxy (PnL / fees paid).
     profit_factor = _safe_div(pnl, fees) if fees > 0 else 0
-    pf_normalized = _clamp(profit_factor / 10, -5, 5)  # 10x fees = max edge
 
     # Sample-size confidence (logarithmic, hits 1.0 at ~1M txs).
     confidence = _clamp(math.log10(max(1, txs)) / 6.0, 0.0, 1.0)
 
-    # Composite skill_score (0-100). Weight: profitability 40, risk 40, efficiency 20.
+    # 50 = no edge, no liquidations. Edge moves it up to +/-30 (10 bps is
+    # ~23 points), profit factor +/-10, liquidations down to -20.
     raw = (
-        0.40 * (50 + pnl_bps * 0.5)          # 0-100 from -100..100 bps
-        + 0.40 * (50 - risk_penalty * 0.5)   # full credit for zero liquidations
-        + 0.20 * (50 + pf_normalized * 10)    # profit factor
+        50
+        + 30 * math.tanh(edge_bps / 10)
+        + 10 * math.tanh(profit_factor / 3)
+        - risk_penalty * 0.2
     )
     # Confidence-weight: shrink score toward 50 when sample size is small.
     skill_score = _clamp(50 + (raw - 50) * confidence, 0.0, 100.0)
@@ -610,6 +625,28 @@ def compute_user_score(user_stats: dict) -> dict:
 #   3. Redemption pressure (withdrawals / deposits ratio over lifetime)
 #   4. Distribution rate (commissions paid out / lifetime deposits — too high
 #      means leader is taking too much; too low means strategy isn't earning)
+
+
+def market_maker_signals(row: dict) -> list[str]:
+    """Why a /users row looks like market making rather than directional
+    trading. Empty = no sign of it. A heuristic, reported as "likely".
+
+    Top-of-book volume on a major coin is mostly two-sided liquidity; ranking
+    those wallets on directional skill compares unlike things.
+    """
+    volume = float(row.get("total_volume") or 0)
+    if volume <= 0:
+        return []
+    fees = float(row.get("total_fees") or 0)
+    txs = float(row.get("transactions") or 0)
+    edge = abs(_safe_div(float(row.get("realized_pnl") or 0), volume) * 10_000)
+    imbalance = abs(float(row.get("volume_bought") or 0) - float(row.get("volume_sold") or 0)) / volume
+    out = []
+    if fees < 0:
+        out.append("net maker rebates (fees paid are negative)")
+    if txs >= 50_000 and imbalance < 0.01 and edge < 1:
+        out.append("balanced two-sided flow at <1 bps edge over 50k+ fills")
+    return out
 
 
 def compute_vault_score(

@@ -350,9 +350,13 @@ _A2A_OUTPUT_EXAMPLES = {
         "recent_24h_outflow_flag": False,
     },
     "hyperliquid/screen": {
-        "coin": "SOL", "traders_screened": 20, "sharp_count": 2,
-        "retail_count": 3, "neutral_count": 15,
-        "traders": [{"rank": 1, "user": "0x…", "skill_score": 78.1}],
+        "coin": "BTC", "window": "30d", "traders_screened": 10, "sharp_count": 0,
+        "retail_count": 2, "neutral_count": 8, "likely_market_maker_count": 7,
+        "best_directional_edge": {"user": "0x…", "coin_edge_bps": -2.2},
+        "traders": [{"rank": 1, "user": "0x…", "coin_edge_bps": 0.25, "skill_score": 51.8,
+                     "classification": "neutral", "likely_market_maker": True,
+                     "edge_rank_in_screen": 5, "edge_percentile_in_screen": 56,
+                     "days_since_last_trade": 0.0}],
     },
     "hyperliquid/vault": {
         "vault": "0xdfc24b…", "vault_quality_score": 56.8, "classification": "neutral",
@@ -573,8 +577,8 @@ _PAID_CATALOG = {
     },
     'hyperliquid/screen': {
         "path": "/hyperliquid/screen",
-        "log_prefix": 'hl-screen', "price": '$0.05', "amount": '50000', "body": {'coin': 'SOL', 'n': 20},
-        "op_id": 'hyperliquidScreen', "desc": 'Top N traders of a Hyperliquid coin, each scored sharp/neutral/retail.',
+        "log_prefix": 'hl-screen', "price": '$0.05', "amount": '50000', "body": {'coin': 'SOL', 'n': 10, 'window': '30d'},
+        "op_id": 'hyperliquidScreen', "desc": 'Top N (max 10) traders of a Hyperliquid coin by volume in a window (1h/1d/1w/30d/all, default 30d), each scored on that coin in that window: sharp/neutral/retail, edge in bps, rank within the screen, and a likely-market-maker flag.',
         "a2a": True, "openapi": True, "wellknown": True,
     },
     'hyperliquid/vault': {
@@ -4467,6 +4471,32 @@ def _delivery_filled(value) -> bool:
     return bool(value)
 
 
+# Labels and scores that rank a result list. A ranking where every row carries
+# the same label, or the scores barely move, is a list with no signal in it —
+# however full it is. The 2026-10-06 hl-screen call (top 10 BTC traders) put
+# "neutral" / ~50 on all ten and still graded 5/5. Shape again, not service:
+# any result list of 5+ rows is checked.
+_RANK_LABEL_KEYS = ("classification", "label", "verdict", "tier")
+_RANK_SCORE_KEYS = ("skill_score", "score")
+
+
+def _flat_ranking(payload) -> bool:
+    """True when a 5+ row result list ranks nothing: one label, or <2 points of spread."""
+    for v in payload.values():
+        if not (isinstance(v, list) and len(v) >= 5 and all(isinstance(r, dict) for r in v)):
+            continue
+        for k in _RANK_LABEL_KEYS:
+            vals = [r.get(k) for r in v]
+            if all(x is not None for x in vals) and len(set(map(str, vals))) == 1:
+                return True
+        for k in _RANK_SCORE_KEYS:
+            nums = [r.get(k) for r in v]
+            if all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in nums) \
+                    and max(nums) - min(nums) < 2:
+                return True
+    return False
+
+
 def _score_delivery(rec: dict):
     """Grade a direct-data answer on what it delivered. Returns (score, fill, signals).
 
@@ -4489,16 +4519,19 @@ def _score_delivery(rec: dict):
         if not isinstance(v, (list, dict)) and _delivery_filled(v)
     )
     has_body = bool(has_collection or populated_scalars >= 4)
+    flat = _flat_ranking(payload)
 
     score = sum([
         1 if parse_ok else 0,                    # resolved to a known service
         1 if not has_error else 0,               # no error / exception payload
         1 if not empty_sentinel else 0,          # not a "nothing found" sentinel
         1 if fill >= 0.5 else 0,                 # payload is not mostly null
-        1 if (fill >= 0.8 and has_body) else 0,  # substantially complete, with a result body
+        # substantially complete, with a result body that actually ranks something
+        1 if (fill >= 0.8 and has_body and not flat) else 0,
     ])
     return score, round(fill, 3), {"parse_ok": parse_ok, "has_error": has_error,
-                                   "empty_sentinel": empty_sentinel, "has_body": has_body}
+                                   "empty_sentinel": empty_sentinel, "has_body": has_body,
+                                   "flat_ranking": flat}
 
 
 def _write_quality_score(*, activity_id, request, service, has_query_ready,
@@ -10401,6 +10434,8 @@ def build_app():
             fetch_vault as hl_fetch_vault,
             fetch_vault_depositors as hl_fetch_vault_depositors,
             compute_user_score as hl_compute_user_score,
+            market_maker_signals as hl_market_maker_signals,
+            SCREEN_WINDOWS as HL_SCREEN_WINDOWS,
             compute_vault_score as hl_compute_vault_score,
             compute_risk as hl_compute_risk,
             normalize_user as hl_normalize_user,
@@ -10561,34 +10596,81 @@ def build_app():
             n = max(1, min(_N_CAP, _n_requested))
             if not coin:
                 return _RouteJSON({"error": "invalid_coin"}, status_code=400)
+            # Window the ranking. All-time top volume is led by wallets that
+            # stopped trading months ago (the 2026-10-06 BTC screen's #1 last
+            # traded 2026-08-18). Default 30d; "all" for the old behaviour.
+            window = str(data.get("window") or "30d").strip().lower()
+            if window not in (*HL_SCREEN_WINDOWS, "all"):
+                return _RouteJSON({"error": "invalid_window",
+                                   "allowed": [*HL_SCREEN_WINDOWS, "all"]}, status_code=400)
+            interval = None if window == "all" else window
             try:
-                top = await hl_fetch_top_traders(coin, n=n)
+                top = await hl_fetch_top_traders(coin, n=n, interval=interval)
+                now = datetime.now(timezone.utc)
+
+                def _days_since(ts):
+                    try:
+                        t = datetime.strptime(str(ts), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                        return round((now - t).total_seconds() / 86400, 1)
+                    except (TypeError, ValueError):
+                        return None
+
                 async def _score_one(idx_t):
                     idx, t = idx_t
                     addr = str(t.get("user") or "").lower()
-                    profile = await hl_fetch_user(addr) if addr else None
-                    score = hl_compute_user_score(profile or t)
+                    # Scored on THIS coin in THIS window — the same row the
+                    # response reports. Scoring the account-wide record while
+                    # showing coin PnL put +$12.4M BTC next to a score built
+                    # on -$6.4M overall. The account figure stays, labelled.
+                    account = await hl_fetch_user(addr) if addr else None
+                    score = hl_compute_user_score(t)
+                    volume = float(t.get("total_volume") or 0)
+                    pnl = float(t.get("realized_pnl") or 0)
+                    mm = hl_market_maker_signals(t)
                     return {
                         "rank": idx + 1,
                         "user": addr,
-                        "coin_volume_usdc": float(t.get("total_volume") or 0),
-                        "coin_realized_pnl_usdc": float(t.get("realized_pnl") or 0),
+                        "coin_volume_usdc": volume,
+                        "coin_realized_pnl_usdc": pnl,
+                        "coin_edge_bps": round(pnl / volume * 10_000, 3) if volume else None,
                         "skill_score": score.get("skill_score"),
                         "classification": score.get("classification"),
+                        "likely_market_maker": bool(mm),
+                        "market_maker_signals": mm,
                         "liquidation_count": score.get("liquidation_count"),
                         "sample_size_trades": score.get("sample_size_trades"),
+                        "last_trade": t.get("last_trade"),
+                        "days_since_last_trade": _days_since(t.get("last_trade")),
+                        "account_realized_pnl_usdc_all_coins_all_time":
+                            float(account.get("realized_pnl") or 0) if account else None,
                     }
-                holders = await _hl_gather(*(_score_one((i, t)) for i, t in enumerate(top)))
+                holders = list(await _hl_gather(*(_score_one((i, t)) for i, t in enumerate(top))))
+                # Relative standing inside this screen. Absolute labels can
+                # legitimately agree (top-of-book is mostly market makers);
+                # the buyer still needs an ordering.
+                ranked = sorted((h for h in holders if h["coin_edge_bps"] is not None),
+                                key=lambda h: h["coin_edge_bps"], reverse=True)
+                for pos, h in enumerate(ranked):
+                    h["edge_rank_in_screen"] = pos + 1
+                    h["edge_percentile_in_screen"] = (
+                        round(100 * (len(ranked) - 1 - pos) / (len(ranked) - 1)) if len(ranked) > 1 else 100)
                 from collections import Counter
                 cls = Counter(h.get("classification") or "?" for h in holders)
+                directional = [h for h in ranked if not h["likely_market_maker"]]
                 payload = {
-                    "coin": coin, "traders_screened": len(holders),
+                    "coin": coin, "window": window,
+                    "scored_on": "this coin, this window (volume, PnL, fills, liquidations)",
+                    "traders_screened": len(holders),
                     "sharp_count": cls.get("sharp", 0),
                     "retail_count": cls.get("retail", 0),
                     "neutral_count": cls.get("neutral", 0),
                     "insufficient_data_count": cls.get("insufficient_data", 0),
-                    "traders": list(holders),
-                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "likely_market_maker_count": sum(1 for h in holders if h["likely_market_maker"]),
+                    "best_directional_edge": (
+                        {"user": directional[0]["user"], "coin_edge_bps": directional[0]["coin_edge_bps"]}
+                        if directional else None),
+                    "traders": holders,
+                    "generated_at": now.isoformat(),
                 }
                 # Same reasoning as pm-screen: a smaller answer than the one
                 # asked for has to announce itself, or it reads as "this coin
@@ -10600,7 +10682,7 @@ def build_app():
                         f"capped at {n}: the upstream top-traders feed serves at "
                         f"most {_N_CAP} per coin"
                     )
-                _log_request("x402-paid", f"hl-screen {coin} n={n}",
+                _log_request("x402-paid", f"hl-screen {coin} n={n} w={window}",
                              "hyperliquid-token-api", "high", "hyperliquid-token-api",
                              response=payload)
                 return _RouteJSON(payload)

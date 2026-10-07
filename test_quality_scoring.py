@@ -22,6 +22,7 @@ SERVER = Path(__file__).with_name("a2a_server.py")
 _WANTED = {
     "_DELIVERY_ENVELOPE_KEYS", "_EMPTY_STATUS_RE",
     "_delivery_leaves", "_delivery_filled", "_score_delivery",
+    "_RANK_LABEL_KEYS", "_RANK_SCORE_KEYS", "_flat_ranking",
 }
 
 
@@ -166,3 +167,38 @@ class TestDeliveryScoring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestFlatRanking(unittest.TestCase):
+    """A full list that ranks nothing must not take the top point (2026-10-06 hl-screen)."""
+
+    def _screen(self, labels, scores):
+        return {"recommendation": "hyperliquid-token-api", "coin": "BTC",
+                "traders_screened": len(labels),
+                "traders": [{"rank": i + 1, "user": f"0x{i:040x}", "coin_volume_usdc": 1e9 * (i + 1),
+                             "skill_score": sc, "classification": lb}
+                            for i, (lb, sc) in enumerate(zip(labels, scores))]}
+
+    def test_all_neutral_loses_top_point(self):
+        rec = self._screen(["neutral"] * 10, [50.1, 50.3, 49.8, 50.0, 50.2, 49.9, 50.4, 50.0, 49.7, 50.1])
+        score, _, sig = score_delivery(rec)
+        self.assertTrue(sig["flat_ranking"])
+        self.assertEqual(score, 4)
+
+    def test_same_label_but_spread_scores_is_still_flat(self):
+        rec = self._screen(["neutral"] * 6, [40, 45, 50, 55, 60, 65])
+        self.assertTrue(score_delivery(rec)[2]["flat_ranking"])
+
+    def test_differentiated_screen_scores_top(self):
+        rec = self._screen(["neutral", "retail", "sharp", "neutral", "retail"], [52, 30, 74, 48, 25])
+        score, _, sig = score_delivery(rec)
+        self.assertFalse(sig["flat_ranking"])
+        self.assertEqual(score, 5)
+
+    def test_short_lists_are_not_judged(self):
+        rec = self._screen(["neutral"] * 3, [50, 50, 50])
+        self.assertFalse(score_delivery(rec)[2]["flat_ranking"])
+
+
+if __name__ == "__main__":
+    unittest.main()
