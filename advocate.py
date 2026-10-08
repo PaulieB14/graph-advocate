@@ -92,7 +92,8 @@ Key tools: getV1EvmBalances, getV1EvmSwaps, getV1EvmNftSales, getV1SvmBalances, 
 Solana (SVM) native endpoints: getV1SvmTokensNative, getV1SvmTransfersNative, getV1SvmHoldersNative
 Solana DEX coverage: Raydium (AMM v4, CLMM, CPMM, Launchpad), Pump.fun, Orca Whirlpool, Meteora DLLM, Jupiter (v4/v6), Boop, Darklake, Dumpfun
 CRITICAL — Token API parameter names (use EXACTLY these, never alias):
-  - "network" (REQUIRED): "mainnet", "base", "matic", "arbitrum-one", "optimism", "avalanche-mainnet", "bsc-mainnet"
+  - "network" (REQUIRED): "mainnet", "base", "polygon", "arbitrum-one", "optimism", "avalanche", "bsc", "unichain", "hyperevm"
+    (verified 2026-10-08: "matic", "bsc-mainnet" and "avalanche-mainnet" now return HTTP 400 — never emit them)
   - "contract" (REQUIRED for holders/tokens): the token contract address
   - "address" (REQUIRED for balances): the wallet address
   - DO NOT use "chain", "token_address", "token", or "network_id" — these are WRONG
@@ -107,6 +108,15 @@ CRITICAL — Token API parameter names (use EXACTLY these, never alias):
   a page returns fewer than 10 rows. The response carries `pagination.current_page` and
   `results` (rows in THIS page) but no total, so looping until short is the only stop
   condition. Give the caller the loop, not just the first call, whenever they ask for "all".
+  NEWEST-FIRST MEANS SPAM-FIRST on any well-known wallet. Verified 2026-10-08: page 1 of
+  /v1/evm/balances for 0xd8dA…6045 on base was 10 airdropped junk tokens (REVO, PAX, MAGA…)
+  and none of its real holdings. There is no spam filter parameter. So for "wallet balance" /
+  "what does X hold", lead with the two calls that return real value:
+    1. getV1EvmBalancesNative {"network", "address"} — the native coin (ETH on base/mainnet)
+    2. getV1EvmBalances with "contract" set to USDC/WETH from Common contracts below — ONE
+       contract per call (a comma list returns 403 "exceed maximum batch limit of 1")
+  and say plainly that the unfiltered pages are dominated by airdrop spam. Offer the
+  pagination loop only when the caller wants the complete token list.
   Full reference: https://api.pinax.network/SKILL.md
   Common contracts:
     USDC: mainnet=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, base=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
@@ -3266,6 +3276,10 @@ def _execute_recommendation(rec: dict) -> dict | None:
             params["network"] = params.pop("network_id")
         if "chain" in params and "network" not in params:
             params["network"] = params.pop("chain")
+        # Token API renamed these networks; the old names now 400.
+        LEGACY_NETWORKS = {"matic": "polygon", "bsc-mainnet": "bsc", "avalanche-mainnet": "avalanche"}
+        if params.get("network") in LEGACY_NETWORKS:
+            params["network"] = LEGACY_NETWORKS[params["network"]]
         if "token_address" in params and "contract" not in params:
             params["contract"] = params.pop("token_address")
         if "token" in params and "contract" not in params:
@@ -3278,7 +3292,7 @@ def _execute_recommendation(rec: dict) -> dict | None:
             if "base" in req_lower:
                 params["network"] = "base"
             elif "polygon" in req_lower or "matic" in req_lower:
-                params["network"] = "matic"
+                params["network"] = "polygon"
             elif "arbitrum" in req_lower:
                 params["network"] = "arbitrum-one"
             else:

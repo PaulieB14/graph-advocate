@@ -373,7 +373,7 @@ _A2A_OUTPUT_EXAMPLES = {
         "best_venue": {"pair": "USDC/WETH", "fee_tier": 500, "tvl_usd": 360200000, "real_liquidity": True},
         "flow": {"buys": 19, "sells": 6, "two_way": True, "honeypot_risk": "low"},
         "trend": {"direction": "falling", "pct_vs_3day_avg": -28.5},
-        "verdict": {"tradeable": True, "risk": "medium"},
+        "verdict": {"tradeable": True, "risk": "low"},
     },
     "uniswap/basis": {
         "coin": "BTC",
@@ -11016,6 +11016,15 @@ def build_app():
                     "indexer_has_errors": meta.get("hasIndexingErrors", False),
                     "source": "graph-network:x402-base",
                     "subgraph_id": SUBGRAPH_ID,
+                    # Totals are a floor, not the address's full USDC intake. Measured
+                    # 2026-10-08 on GA's own payTo: subgraph 202 payments / $4.75 vs
+                    # Base USDC Transfer logs 399 / $9.17.
+                    "coverage": (
+                        "x402 settlements this subgraph attributes to a facilitator path only. "
+                        "USDC that reached the address any other way is not counted, so treat "
+                        "totals as a lower bound; for a complete count read Base USDC Transfer "
+                        "logs to the address."
+                    ),
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                 }
                 _log_request("x402-paid", f"onchain-x402-addr {addr_lower[:10]}",
@@ -11838,7 +11847,7 @@ def build_app():
                             input={"token": "WETH", "chain": "ethereum"},
                             input_schema={"type":"object","properties":{"token":{"type":"string"},"chain":{"type":"string"},"version":{"type":"string"}},"required":["token"]},
                             body_type="json",
-                            output=OutputConfig(example={"token":{"symbol":"WETH","price_usd":1859.05},"best_venue":{"pair":"USDC/WETH","fee_tier":500,"tvl_usd":360200000,"real_liquidity":True},"flow":{"buys":19,"sells":6,"two_way":True,"honeypot_risk":"low"},"trend":{"direction":"falling","pct_vs_3day_avg":-28.5},"verdict":{"tradeable":True,"risk":"medium"}},schema={"type":"object"}),
+                            output=OutputConfig(example={"token":{"symbol":"WETH","price_usd":1859.05},"best_venue":{"pair":"USDC/WETH","fee_tier":500,"tvl_usd":360200000,"real_liquidity":True},"flow":{"buys":19,"sells":6,"two_way":True,"honeypot_risk":"low"},"trend":{"direction":"falling","pct_vs_3day_avg":-28.5},"verdict":{"tradeable":True,"risk":"low"}},schema={"type":"object"}),
                         )},
                     ),
                     "POST /uniswap/basis": RouteConfig(

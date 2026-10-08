@@ -61,6 +61,8 @@ _VERSION_PREFERENCE = ("v3", "v4", "v2")
 
 _ADDR_PREFIX = "0x"
 _TIMEOUT = httpx.Timeout(12.0, connect=6.0)
+# Best-venue liquidity above which a falling-volume trend no longer raises pretrade risk.
+DEEP_VENUE_TVL_USD = 1_000_000
 
 
 class UniswapIntelError(RuntimeError):
@@ -296,10 +298,15 @@ async def uniswap_pretrade(token: str, chain: str = "ethereum", version: str | N
     if price_usd is None:
         reasons.append("no priced pool path to the native asset — USD price underivable here")
 
+    # A volume dip only matters when the venue is shallow; on a deep pool (WETH's
+    # $400M USDC/WETH) a -47% day still fills any realistic size, so it is reported
+    # but doesn't raise risk.
+    deep_venue = tvl >= DEEP_VENUE_TVL_USD
+    risk_reasons = [r for r in reasons if not (deep_venue and r.startswith("volume falling"))]
     risk = "low"
     if flow.get("honeypot_risk") == "high" or not real_liquidity or price_usd is None:
         risk = "high"
-    elif reasons:
+    elif risk_reasons:
         risk = "medium"
     tradeable = risk != "high"
     if not reasons:
