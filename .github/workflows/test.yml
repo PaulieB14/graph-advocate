@@ -27,6 +27,14 @@ jobs:
           ANTHROPIC_API_KEY: dummy-not-needed-for-routing-tests
         run: python test_advocate_routing.py
 
+      - name: Run row-count, model-tier and x402-reject tests
+        env:
+          ANTHROPIC_API_KEY: dummy-not-needed-for-routing-tests
+        run: |
+          python test_subgraph_exec.py
+          python test_model_tiers.py
+          python test_x402_reject.py
+
       - name: Smoke-import server modules
         run: |
           python -c "import advocate"

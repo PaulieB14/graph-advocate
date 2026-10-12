@@ -116,20 +116,66 @@ def extract_runnable(rec: dict) -> tuple[str, str] | None:
     return subgraph_id.strip(), gql.strip()
 
 
-def _truncate(data: dict, max_rows: int) -> tuple[dict, int, bool]:
-    """Cap list-valued fields. Returns (data, total_rows, was_truncated)."""
-    total = 0
-    truncated = False
-    out: dict[str, Any] = {}
+_META_KEYS = {"_meta"}
+
+
+def _cap_lists(value: Any, max_rows: int, flag: list) -> Any:
+    """Recursively cap every list at max_rows; flag[0] is set if anything was cut."""
+    if isinstance(value, list):
+        if len(value) > max_rows:
+            flag[0] = True
+            value = value[:max_rows]
+        return [_cap_lists(v, max_rows, flag) for v in value]
+    if isinstance(value, dict):
+        return {k: _cap_lists(v, max_rows, flag) for k, v in value.items()}
+    return value
+
+
+def _count_nested(value: Any) -> int:
+    """Count list items found *inside* entities (e.g. pool { swaps { … } })."""
+    n = 0
+    if isinstance(value, dict):
+        for v in value.values():
+            if isinstance(v, list):
+                n += len(v) + sum(_count_nested(x) for x in v)
+            elif isinstance(v, dict):
+                n += _count_nested(v)
+    elif isinstance(value, list):
+        n += sum(_count_nested(x) for x in value)
+    return n
+
+
+def _count_rows(data: dict) -> tuple[int, int]:
+    """(row_count, nested_row_count) for a GraphQL `data` block.
+
+    row_count counts top-level entities: len(list) for collection fields, 1 for
+    a non-null single-entity field (`pool(id: …)`), 0 for null. `_meta` is never
+    a row. Before 2026-10-12 only lists were counted, so every by-id lookup was
+    reported as rows=0 with a "matched no entities" note sitting on top of the
+    real entity (Base Uniswap V3 pool lookups, 2026-10-11).
+    """
+    rows = nested = 0
     for key, value in data.items():
+        if key in _META_KEYS or value is None:
+            continue
         if isinstance(value, list):
-            total += len(value)
-            if len(value) > max_rows:
-                out[key] = value[:max_rows]
-                truncated = True
-                continue
-        out[key] = value
-    return out, total, truncated
+            rows += len(value)
+            nested += sum(_count_nested(v) for v in value)
+        elif isinstance(value, dict):
+            rows += 1 if value else 0
+            nested += _count_nested(value)
+        else:  # scalar top-level field — still an answer
+            rows += 1
+    return rows, nested
+
+
+def _truncate(data: dict, max_rows: int) -> tuple[dict, int, bool]:
+    """Cap list-valued fields at every depth. Returns (data, row_count, truncated)."""
+    flag = [False]
+    out = {k: (v if k in _META_KEYS else _cap_lists(v, max_rows, flag))
+           for k, v in data.items()}
+    rows, _ = _count_rows(data)  # count BEFORE capping so the true size is reported
+    return out, rows, flag[0]
 
 
 async def execute_query_ready(
@@ -247,6 +293,7 @@ async def execute_query_ready(
             "elapsed_ms": elapsed_ms,
         }
 
+    _, nested_row_count = _count_rows(data)
     data, row_count, truncated = _truncate(data, max_rows)
     if meta is None:
         meta = data.get("_meta")
@@ -257,13 +304,14 @@ async def execute_query_ready(
         "gql": gql,
         "data": data,
         "row_count": row_count,
+        "nested_row_count": nested_row_count,
         "elapsed_ms": elapsed_ms,
         "source": f"The Graph gateway — subgraph {subgraph_id}",
     }
     if truncated:
         executed["truncated_to"] = max_rows
         executed["truncation_note"] = (
-            f"Result capped at {max_rows} rows per field. Re-run the query "
+            f"Result capped at {max_rows} rows per list (at any depth). Re-run the query "
             f"with a smaller `first:` or paginate with `skip:` for the rest."
         )
     if isinstance(meta, dict):
@@ -278,7 +326,12 @@ async def execute_query_ready(
     if row_count == 0:
         # Zero rows is a legitimate answer to a filtered query. Say so plainly
         # rather than letting it read as a failure.
+        single_lookup = any(
+            v is None for k, v in data.items() if k not in _META_KEYS
+        )
         executed["empty_result_note"] = (
+            "The query ran successfully and found no entity with that id at this block."
+            if single_lookup else
             "The query ran successfully and matched no entities. This is a real "
             "result, not an error — the filters excluded everything at this block."
         )

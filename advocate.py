@@ -2954,11 +2954,64 @@ _CALLER_JSON_ONLY_RE = re.compile(
 )
 
 
+# ── Model tiers ───────────────────────────────────────────────────────────────
+# The system prompts are static, so they are sent as a cached block
+# (cache_control: ephemeral, 5-minute TTL). Cache reads bill at 0.1x input.
+# Live search results go in the user message, so the cached prefix is stable.
+SYSTEM_BLOCKS = [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}]
+
+_MODEL_TIERS = {
+    "haiku": dict(model=os.environ.get("GA_MODEL_HAIKU", "claude-haiku-4-5-20251001"),
+                  max_tokens=2000),
+    # 2500 leaves room for two-part answers without the 2026-10-05 mid-JSON
+    # truncation; thinking stays off below Opus.
+    "sonnet": dict(model=os.environ.get("GA_MODEL_SONNET", "claude-sonnet-4-6"),
+                   max_tokens=2500),
+    # Thinking and the answer share this budget (see 2026-10-05 note: 2000 hit
+    # max_tokens mid-JSON).
+    "opus": dict(model=os.environ.get("GA_MODEL_OPUS", "claude-opus-4-6"),
+                 max_tokens=8000, thinking={"type": "adaptive"}),
+}
+
+# Word-boundary matches: the old substring list escalated "designated" (design),
+# and anything containing "vs".
+_STRONG_COMPLEX_RE = re.compile(r"\b(compare|comparison|versus|vs\.?|trade-?offs?|pros and cons)\b", re.I)
+_ANALYTIC_RE = re.compile(
+    r"\b(explain why|how does|architecture|strategy|optimi[sz]e|roadmap|overview|"
+    r"ecosystem|cross-chain|which is better)\b", re.I)
+
+
+def _pick_tier(request: str, paid: bool = False, premium: bool = False) -> str:
+    """Return "haiku" | "sonnet" | "opus". Rule, first match wins:
+
+    1. premium (caller explicitly paid/asked for premium)     -> opus
+    2. explicit comparison / trade-off                        -> opus if paid, else sonnet
+    3. paid                                                   -> sonnet
+       (request length is NOT complexity: caller-dictated JSON jobs are long)
+    4. free with an analytic signal                           -> sonnet
+    5. everything else                                        -> haiku
+
+    Set GA_PAID_TIER=opus to restore the old paid=Opus behaviour without a deploy.
+    """
+    req = request or ""
+    if premium:
+        return "opus"
+    if _STRONG_COMPLEX_RE.search(req):
+        return "opus" if paid else "sonnet"
+    if paid:
+        forced = os.environ.get("GA_PAID_TIER", "").strip().lower()
+        return forced if forced in _MODEL_TIERS else "sonnet"
+    if _ANALYTIC_RE.search(req):
+        return "sonnet"
+    return "haiku"
+
+
 def ask_graph_advocate(
     request: str,
     history: list = None,
     requesting_agent: str = "unknown",
     priority: bool = False,
+    premium: bool = False,
 ) -> tuple[dict, list]:
     import logging
     log = logging.getLogger("graph-advocate")
@@ -2994,55 +3047,26 @@ def ask_graph_advocate(
 
     messages = (history or []) + [{"role": "user", "content": augmented_request}]
 
-    # Determine complexity: simple routing → Haiku, complex analysis → Opus
-    req_lower = request.lower()
-    COMPLEX_SIGNALS = [
-        "compare", "vs", "versus", "which is better", "trade-off", "tradeoff",
-        "explain why", "how does", "architecture", "design", "recommend",
-        "pros and cons", "strategy", "optimize", "multiple", "cross-chain",
-        "ecosystem", "roadmap", "what's new", "overview",
-    ]
-    # Strong signals — if any of these appear, Opus regardless of length
-    STRONG_COMPLEX_SIGNALS = {"compare", "vs", "versus", "tradeoff", "trade-off"}
-    has_strong_signal = any(sig in req_lower for sig in STRONG_COMPLEX_SIGNALS)
+    # Model tier — see _pick_tier for the rule. Paid calls used to be forced
+    # onto Opus with adaptive thinking (8k tokens): ~$0.10+ of tokens to earn
+    # $0.01, and 20-40s replies. Paid now defaults to Sonnet; Opus is reserved
+    # for explicit comparisons and premium callers.
+    tier = _pick_tier(request, paid=priority, premium=premium)
 
-    is_complex = (
-        any(sig in req_lower for sig in COMPLEX_SIGNALS)
-        or len(request) > 600  # long queries need more reasoning
-        or (search_context and len(search_context) > 4000)  # lots of search results to synthesize
-    )
-
-    # Short queries (≤30 chars) almost never need Opus. A 4-word non-English
-    # query like "Vat dit samen" was escalating to Opus via fuzzy search-context
-    # growth — ~15x cost for no benefit. Downgrade unless a strong signal is present.
-    if len(request) <= 30 and not has_strong_signal:
-        is_complex = False
-
-    # Paid (x402) requests always get Opus — they paid for premium quality.
-    if priority:
-        is_complex = True
-
-    def _call_claude(msgs):
-        if is_complex:
-            return client.messages.create(
-                model="claude-opus-4-6",
-                system=SYSTEM,
-                messages=msgs,
-                # Thinking and the answer share this budget. At 2000, a two-part
-                # question ("rank an approach for EACH need") hit max_tokens
-                # mid-JSON on both the call and the retry, and the caller got
-                # the keyword fallback instead of the answer (2026-10-05).
-                max_tokens=8000,
-                thinking={"type": "adaptive"},
+    def _call_claude(msgs, _tier=None):
+        cfg = _MODEL_TIERS[_tier or tier]
+        response = client.messages.create(system=SYSTEM_BLOCKS, messages=msgs, **cfg)
+        u = getattr(response, "usage", None)
+        if u is not None:
+            log.info(
+                f"USAGE    model={cfg['model']} in={getattr(u, 'input_tokens', 0)} "
+                f"cache_read={getattr(u, 'cache_read_input_tokens', 0) or 0} "
+                f"cache_write={getattr(u, 'cache_creation_input_tokens', 0) or 0} "
+                f"out={getattr(u, 'output_tokens', 0)}"
             )
-        return client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            system=SYSTEM,
-            messages=msgs,
-            max_tokens=2000,
-        )
+        return response
 
-    log.info(f"MODEL    using {'Opus (complex query)' if is_complex else 'Haiku (simple routing)'}")
+    log.info(f"MODEL    tier={tier} model={_MODEL_TIERS[tier]['model']}")
     response = _call_claude(messages)
     raw = next((b.text for b in response.content if b.type == "text"), "")
     messages.append({"role": "assistant", "content": response.content})
@@ -3058,7 +3082,8 @@ def ask_graph_advocate(
             "content": "Your previous response could not be parsed as JSON. Reply with ONLY a single valid JSON object matching the schema — no prose, no code fences, no explanation.",
         })
         try:
-            response = _call_claude(messages)
+            # JSON repair never needs Opus.
+            response = _call_claude(messages, "haiku" if tier == "haiku" else "sonnet")
             raw = next((b.text for b in response.content if b.type == "text"), "")
             messages.append({"role": "assistant", "content": response.content})
             rec = _extract_json(raw)
@@ -3142,7 +3167,7 @@ def ask_graph_advocate(
                             "only fields that exist in this schema. JSON only."
                         ),
                     })
-                    response = _call_claude(messages)
+                    response = _call_claude(messages, "opus" if tier == "opus" else "sonnet")
                     raw = next((b.text for b in response.content if b.type == "text"), "")
                     messages.append({"role": "assistant", "content": response.content})
                     fixed = _extract_json(raw)
@@ -3702,6 +3727,8 @@ Rules:
 
   Always recommend Option 1 (HTTP) as the easiest universal option.
 """
+# Static, so cached like SYSTEM (see SYSTEM_BLOCKS).
+CHAT_SYSTEM_BLOCKS = [{"type": "text", "text": CHAT_SYSTEM, "cache_control": {"type": "ephemeral"}}]
 
 CHAT_TOOLS = [
     {
@@ -3935,6 +3962,11 @@ def _search_subgraphs(keyword: str, chain_hint_source: str = "") -> str:
         # hallucinations. The downstream reader already wraps r["query_hint"]
         # in try/except (IndexError, KeyError), so omitting it is safe.
         #
+        # Indexer redundancy ranks above volume: a 1-indexer subgraph is a
+        # single point of failure for a paid, executed query (2026-10-11 paid
+        # Uniswap V3 Base jobs ran on a 1-indexer subgraph while a 5-indexer
+        # equivalent existed).
+        #
         # ORDER BY: chain_match first (when caller named a chain) so mainnet
         # entries surface for an Ethereum question even if Base+Arbitrum have
         # higher absolute volume. Then volume within each chain group. LIMIT
@@ -3955,7 +3987,9 @@ def _search_subgraphs(keyword: str, chain_hint_source: str = "") -> str:
                    WHERE active_allocation_count > 0
                      AND (display_name LIKE ? OR description LIKE ? OR domain LIKE ?
                           OR categories LIKE ? OR auto_description LIKE ?)
-                   ORDER BY chain_match DESC, query_volume_30d DESC
+                   ORDER BY chain_match DESC,
+                            (active_allocation_count >= 2) DESC,
+                            query_volume_30d DESC
                    LIMIT 12""",
                 (chain_value, chain_value) + params_like,
             ).fetchall()
@@ -4947,7 +4981,7 @@ def ask_graph_advocate_chat(
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            system=CHAT_SYSTEM,
+            system=CHAT_SYSTEM_BLOCKS,
             messages=messages,
             max_tokens=1500,
             tools=CHAT_TOOLS,
@@ -4997,7 +5031,7 @@ def ask_graph_advocate_chat(
 
             response = client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                system=CHAT_SYSTEM,
+                system=CHAT_SYSTEM_BLOCKS,
                 messages=messages,
                 max_tokens=1500,
                 tools=CHAT_TOOLS,
@@ -5039,7 +5073,7 @@ def ask_graph_advocate_chat(
                 try:
                     fix = client.messages.create(
                         model="claude-haiku-4-5-20251001",
-                        system=CHAT_SYSTEM,
+                        system=CHAT_SYSTEM_BLOCKS,
                         messages=[
                             {"role": "user", "content": request},
                             {"role": "assistant", "content": reply},
