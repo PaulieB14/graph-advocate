@@ -60,7 +60,39 @@ DAILY_FREE_QUERIES = 3
 _daily_query_counts: dict[str, dict] = {}  # {sender: {"date": "2026-03-27", "count": 5}}
 
 X402_WALLET = os.environ.get("X402_PAY_TO", "0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86")  # Ampersend smart account
-X402_PRICE_CENTS = int(os.environ.get("X402_PRICE_CENTS", "1"))  # $0.01 per query after free tier
+# $0.01 per query after free tier. Pricing hook: set X402_PRICE_CENTS to change
+# the /route price without a code change (also update the "$0.01" copy in the
+# agent card, llms.txt and /.well-known/x402). Estimated model cost per paid
+# call after the 2026-10-12 tiering is ~$0.02 (Sonnet, cached) vs ~$0.11 (Opus).
+X402_PRICE_CENTS = int(os.environ.get("X402_PRICE_CENTS", "1"))
+
+
+def _facilitator_rejection(exc: Exception):
+    """(stage, reason, payer) if exc is the x402 client's facilitator rejection, else None.
+
+    x402's facilitator client raises ValueError("Facilitator verify failed (400): {json}")
+    (or "settle failed") for forged signatures, wrong amounts and insufficient funds.
+    That is a bad payment, not a server fault - callers answer 402, not 500.
+    """
+    if not isinstance(exc, ValueError):
+        return None
+    msg = str(exc)
+    if not msg.startswith(("Facilitator verify failed", "Facilitator settle failed")):
+        return None
+    # Only a 4xx is a verdict on the payment. A facilitator 5xx/timeout is an
+    # outage and must stay loud (500 + traceback).
+    m = re.match(r"Facilitator (?:verify|settle) failed \((\d{3})\)", msg)
+    if not m or not m.group(1).startswith("4"):
+        return None
+    stage = "settle" if msg.startswith("Facilitator settle failed") else "verify"
+    reason, payer = "invalid_payment", "?"
+    try:
+        detail = json.loads(msg.split(": ", 1)[1])
+        reason = detail.get("invalidReason") or detail.get("errorReason") or reason
+        payer = detail.get("payer") or payer
+    except Exception:
+        pass
+    return stage, reason, payer
 X402_NETWORK = os.environ.get("X402_NETWORK", "base")
 
 # ── x402 Payment Verification (via x402 library v2.6+) ──────────────────────
@@ -2403,7 +2435,8 @@ try:
         async def _on_fetch_message(ctx: _UCtx, sender: str, msg: _FetchMsg) -> None:
             log.info(f"FETCH    sender={sender[:24]} | {msg.text[:80]}")
             try:
-                rec, _ = ask_graph_advocate(
+                rec, _ = await asyncio.to_thread(
+                    ask_graph_advocate,
                     msg.text,
                     requesting_agent=f"fetch:{sender}",
                 )
@@ -2440,7 +2473,8 @@ try:
                     acknowledged_msg_id=msg.msg_id,
                 ))
                 try:
-                    rec, _ = ask_graph_advocate(text, requesting_agent=f"asi:{sender}")
+                    rec, _ = await asyncio.to_thread(
+                        ask_graph_advocate, text, requesting_agent=f"asi:{sender}")
                     _log_request(
                         sender, text,
                         rec.get("recommendation", "unknown"),
@@ -3645,7 +3679,10 @@ class GraphAdvocateExecutor(AgentExecutor):
             await event_queue.enqueue_event(new_agent_text_message(json.dumps(_pf)))
             return
 
-        rec, updated_history = ask_graph_advocate(
+        # Off the event loop: the Anthropic client is synchronous, and a 20-40s
+        # Opus call used to stall every other request on this single process.
+        rec, updated_history = await asyncio.to_thread(
+            ask_graph_advocate,
             user_text,
             history=history,
             requesting_agent=f"a2a:{task_id}",
@@ -9678,7 +9715,12 @@ def build_app():
                 }, status_code=400)
 
             try:
-                rec, _ = ask_graph_advocate(user_text, requesting_agent="x402-paid")
+                # Paid -> Sonnet tier by default; {"premium": true} selects Opus.
+                # Pricing is unchanged (X402_PRICE_CENTS); a separately priced
+                # premium resource is the intended hook before relying on it.
+                rec, _ = await asyncio.to_thread(
+                    ask_graph_advocate, user_text, requesting_agent="x402-paid",
+                    priority=True, premium=bool(req_data.get("premium")))
 
                 # The caller paid. If the routing answer carries a runnable
                 # subgraph query, run it and hand back rows instead of
@@ -9701,7 +9743,7 @@ def build_app():
                                 rec.get("reason", ""))
                             log.info(
                                 f"X402-ROUTE executed {executed['subgraph_id'][:12]}… "
-                                f"rows={executed['row_count']} "
+                                f"rows={executed['row_count']} nested={executed.get('nested_row_count', 0)} "
                                 f"in {executed['elapsed_ms']}ms"
                             )
                         else:
@@ -12127,7 +12169,39 @@ def build_app():
                         return
                     await send(msg)
 
-                await _x402_raw_app(scope, receive, _wrapped_send)
+                try:
+                    await _x402_raw_app(scope, receive, _wrapped_send)
+                except ValueError as exc:
+                    # The x402 facilitator client raises ValueError when the
+                    # facilitator rejects a payment (forged signature, wrong
+                    # amount, insufficient funds). Uncaught, that was a ~90-line
+                    # traceback and a 500. It is a bad payment, not a server
+                    # fault: answer 402 and log one line. Anything else - or a
+                    # response that has already started - still raises.
+                    rejection = _facilitator_rejection(exc)
+                    if state["status"] or rejection is None:
+                        raise
+                    stage, reason, payer = rejection
+                    log.info(
+                        f"X402-REJECT path={scope.get('path')} stage={stage} "
+                        f"reason={reason} payer={payer}"
+                    )
+                    body = json.dumps({
+                        "x402Version": 2,
+                        "error": "invalid_payment",
+                        "reason": reason,
+                        "hint": "Payment was rejected by the facilitator. Re-sign a valid "
+                                "payment for the `accepts` in the 402 challenge.",
+                    }).encode()
+                    await send({
+                        "type": "http.response.start",
+                        "status": 402,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            (b"content-length", str(len(body)).encode()),
+                        ],
+                    })
+                    await send({"type": "http.response.body", "body": body, "more_body": False})
 
             _x402_route_app = _x402_route_app_with_example_body
         else:
@@ -12444,7 +12518,8 @@ def build_app():
                 log.info(f"[agent-exchange] accept job={job_id} status={accept_resp.status_code}")
                 # 2. Route through GA's normal logic
                 from advocate import ask_graph_advocate
-                result, _ = ask_graph_advocate(
+                result, _ = await asyncio.to_thread(
+                    ask_graph_advocate,
                     query, history=None,
                     requesting_agent="agent-exchange",
                 )
