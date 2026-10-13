@@ -19,7 +19,7 @@ from pathlib import Path
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, HTMLResponse, PlainTextResponse
+from starlette.responses import JSONResponse, HTMLResponse, PlainTextResponse, Response
 from starlette.routing import Mount, Route
 
 
@@ -2018,6 +2018,61 @@ def _normalize_service(service: str | None) -> str:
     return s
 
 
+# ── Bazaar service metadata (serviceName / tags / iconUrl) ──────────────────
+# The x402 Bazaar spec lets a resource server publish provider metadata on the
+# top-level `resource` object of the 402 PaymentRequired; facilitators (CDP)
+# index it for search and list cards, and clients echo `resource` back in the
+# PaymentPayload. The pinned SDK (x402 2.8.x) has no RouteConfig field for it
+# (ResourceInfo drops unknown keys), so it is injected into the
+# `payment-required` header by the 402 wrapper. Limits per spec: serviceName
+# <=32 printable ASCII, <=5 tags each <=32 chars, absolute http(s) iconUrl.
+BAZAAR_SERVICE_NAME = "Graph Advocate"
+BAZAAR_ICON_URL = "https://graphadvocate.com/graphadvocate.png"
+_BAZAAR_TAGS_BY_PREFIX = (
+    ("/route", ["onchain data", "subgraph", "the graph", "graphql", "blockchain"]),
+    ("/tip", ["tip", "the graph", "onchain data"]),
+    ("/ask", ["x402", "analytics", "base", "onchain data", "sql"]),
+    ("/onchain-x402/", ["x402", "payments", "base", "wallet", "onchain data"]),
+    ("/polymarket/", ["polymarket", "prediction markets", "trader pnl", "onchain data", "the graph"]),
+    ("/hyperliquid/", ["hyperliquid", "perps", "trader pnl", "defi", "onchain data"]),
+    ("/kalshi-polymarket/", ["kalshi", "polymarket", "prediction markets", "arbitrage", "spread"]),
+    ("/kalshi/", ["kalshi", "prediction markets", "sports", "odds", "onchain data"]),
+    ("/predmarket/", ["prediction markets", "polymarket", "kalshi", "arbitrage", "spread"]),
+    ("/narrative/", ["narrative", "social", "uniswap", "token flows", "onchain data"]),
+    ("/uniswap/", ["uniswap", "dex", "defi", "token risk", "onchain data"]),
+    ("/agent/", ["erc-8004", "agent reputation", "base", "wallet score", "x402"]),
+)
+
+
+def _bazaar_service_metadata(path: str) -> dict:
+    """serviceName/tags/iconUrl for a paid path (spec-valid, <=5 tags)."""
+    tags = ["onchain data", "the graph"]
+    for prefix, t in _BAZAAR_TAGS_BY_PREFIX:
+        if path == prefix or (prefix.endswith("/") and path.startswith(prefix)):
+            tags = t
+            break
+    return {"serviceName": BAZAAR_SERVICE_NAME, "tags": tags[:5], "iconUrl": BAZAAR_ICON_URL}
+
+
+def _add_bazaar_service_metadata(pr_b64: bytes, path: str) -> bytes:
+    """Return the base64 PaymentRequired header with service metadata merged
+    into `resource`. Never alters accepts/prices; on any decode error returns
+    the header unchanged."""
+    import base64 as _b64m
+    try:
+        decoded = json.loads(_b64m.b64decode(pr_b64))
+        if not isinstance(decoded, dict):
+            return pr_b64
+        res = decoded.get("resource")
+        if not isinstance(res, dict):
+            return pr_b64
+        for k, v in _bazaar_service_metadata(path).items():
+            res.setdefault(k, v)
+        return _b64m.b64encode(json.dumps(decoded, separators=(",", ":")).encode())
+    except Exception:
+        return pr_b64
+
+
 # ContextVar holding the recovered EVM signer address of the current x402
 # paid request, populated by _payer_capture_middleware just after x402's
 # PaymentMiddlewareASGI verifies the X-PAYMENT header. _log_request reads
@@ -3830,6 +3885,8 @@ agent_card = AgentCard(
     ),
     skills=SKILLS,
     documentation_url="https://docs.graphadvocate.com/",
+    icon_url=f"{PUBLIC_URL}/graphadvocate.png",
+    preferred_transport="JSONRPC",
     provider={
         "organization": "PaulieB14",
         "url": f"{PUBLIC_URL}/",
@@ -4827,6 +4884,27 @@ async def skill_md_endpoint(request: Request):
         media_type="text/markdown; charset=utf-8",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+import discovery_files as _disc
+
+_DISC_HEADERS = {"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600"}
+
+
+async def _robots_endpoint(request: Request):
+    return PlainTextResponse(_disc.robots_txt(), headers=_DISC_HEADERS)
+
+
+async def _sitemap_endpoint(request: Request):
+    return Response(_disc.sitemap_xml(), media_type="application/xml", headers=_DISC_HEADERS)
+
+
+async def _mcp_server_json_endpoint(request: Request):
+    return JSONResponse(_disc.mcp_server_json(), headers=_DISC_HEADERS)
+
+
+async def _ard_json_endpoint(request: Request):
+    return JSONResponse(_disc.ard_json(), headers=_DISC_HEADERS)
 
 
 async def llms_txt_endpoint(request: Request):
@@ -8768,7 +8846,34 @@ def build_app():
                     },
                 },
             },
+            "/tip": {
+                "post": {
+                    "operationId": "tip",
+                    "summary": "Tip Graph Advocate",
+                    "description": (
+                        "Optional $0.01 USDC tip via x402 on Base to support the free "
+                        "routing tier. Returns a thank-you message; no data payload."
+                    ),
+                    "requestBody": {
+                        "required": False,
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    },
+                    "responses": {
+                        "200": {"description": "Tip received",
+                                "content": {"application/json": {"schema": {"type": "object"}}}},
+                        "402": {"description": "Payment required",
+                                "content": {"application/json": {"schema": {"type": "object"}}}},
+                    },
+                    "x-payment-info": {
+                        "protocols": [{"x402": {}}],
+                        "price": {"mode": "fixed", "currency": "USD", "amount": "0.01"},
+                    },
+                },
+            },
         }
+
+        # /tip is declared beside "paths" above for readability; file it under paths.
+        spec["paths"]["/tip"] = spec.pop("/tip")
 
         # Trader-intelligence endpoints — paid x402 services. Documented here
         # so x402scan and other OpenAPI crawlers discover the full surface,
@@ -12118,11 +12223,13 @@ def build_app():
                         accepts = None
                         example = None
                         description = None
+                        resource_obj = None
                         if pr_b64:
                             try:
                                 decoded = json.loads(_b64hook.b64decode(pr_b64))
                                 accepts = decoded.get("accepts")
                                 description = (decoded.get("resource") or {}).get("description")
+                                resource_obj = decoded.get("resource") if isinstance(decoded.get("resource"), dict) else None
                                 example = (
                                     decoded.get("extensions", {})
                                     .get("bazaar", {})
@@ -12134,6 +12241,7 @@ def build_app():
                                 pass
                         if description:
                             enriched["description"] = description
+                        enriched["resource"] = {**(resource_obj or {}), **_bazaar_service_metadata(scope.get("path", ""))}
                         if accepts:
                             enriched["accepts"] = accepts
                         if example is not None:
@@ -12153,8 +12261,13 @@ def build_app():
                         # Rewrite Content-Length so the new body is delivered correctly.
                         new_headers = [
                             (k, v) for k, v in state["headers"]
-                            if k.lower() != b"content-length"
+                            if k.lower() not in (b"content-length", b"payment-required")
                         ]
+                        if pr_b64:
+                            new_headers.append((
+                                b"payment-required",
+                                _add_bazaar_service_metadata(pr_b64, scope.get("path", "")),
+                            ))
                         new_headers.append((b"content-length", str(len(body)).encode()))
                         await send({
                             "type": "http.response.start",
@@ -12713,6 +12826,12 @@ def build_app():
         # x402scan discovery routes
         Route("/.well-known/x402", well_known_x402_endpoint),
         Route("/openapi.json", openapi_endpoint),
+        # Crawler / registry discovery (discovery_files.py)
+        Route("/robots.txt", _robots_endpoint),
+        Route("/sitemap.xml", _sitemap_endpoint),
+        Route("/.well-known/mcp/server.json", _mcp_server_json_endpoint),
+        Route("/.well-known/mcp.json", _mcp_server_json_endpoint),
+        Route("/.well-known/ard.json", _ard_json_endpoint),
         # Landing page + static assets (for x402scan listing card)
         Route("/", landing_endpoint, methods=["GET"]),
         Route("/hyperliquid", hyperliquid_catalog_endpoint, methods=["GET"]),
@@ -13008,7 +13127,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/health", "/healthz", "/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/quota", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/robots.txt", "/sitemap.xml", "/.well-known/mcp/server.json", "/.well-known/mcp.json", "/.well-known/ard.json", "/health", "/healthz", "/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/quota", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip", "/ask")

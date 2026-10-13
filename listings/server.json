@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.PaulieB14/graph-advocate",
+  "title": "Graph Advocate",
+  "description": "Routes plain-English onchain data questions to the right subgraph or API, with a query.",
+  "version": "1.0.0",
+  "websiteUrl": "https://graphadvocate.com",
+  "repository": {
+    "url": "https://github.com/PaulieB14/graph-advocate",
+    "source": "github"
+  },
+  "icons": [
+    {
+      "src": "https://graphadvocate.com/graphadvocate.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "1024x1024"
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://graphadvocate.com/mcp"
+    },
+    {
+      "type": "sse",
+      "url": "https://graphadvocate.com/mcp/sse"
+    }
+  ]
+}
