@@ -7286,7 +7286,7 @@ async def dashboard_endpoint(request: Request):
         <button class="feed-chip" data-cat="intro" title="Handshake / introduction / pings">👋 Intro <span class="chip-count" id="cnt-intro">0</span></button>
         <button class="feed-chip" data-cat="noise" title="Out-of-scope / rate-limited / unclear">🔇 Noise <span class="chip-count" id="cnt-noise">0</span></button>
         <button class="feed-chip" data-cat="blocked" title="Senders/payloads dropped by the blocklist (drain injections, spam)">🚫 Blocked <span class="chip-count" id="cnt-blocked">0</span></button>
-        <button class="feed-chip" data-cat="all" title="Everything">All <span class="chip-count" id="cnt-all">0</span></button>
+        <button class="feed-chip" data-cat="all" title="Everything except blocked">All <span class="chip-count" id="cnt-all">0</span></button>
       </div>
       <style>
         .feed-chip{padding:6px 12px;border-radius:999px;font-size:0.78rem;font-weight:600;
@@ -7710,7 +7710,7 @@ function renderFeed(recent) {
     return;
   }
   let html = '';
-  recent.slice(0, 25).forEach((r, idx) => {
+  recent.slice(0, 50).forEach((r, idx) => {
     // Every row is clickable. When there is no recorded detail, the expanded
     // panel shows a small "no response captured" hint so old rows degrade
     // cleanly instead of looking broken.
@@ -7805,7 +7805,8 @@ let _feedCat = (function(){
 })();
 function _matchesCat(r, cat) {
   const c = r.category || 'query';
-  if (cat === 'all') return true;
+  // 'All' hides blocklist spam (it can be most of the window); the Blocked chip still lists it.
+  if (cat === 'all') return c !== 'blocked';
   if (cat === 'real') return c === 'paid' || c === 'query' || c === 'chat';
   if (cat === 'paid') return c === 'paid';
   if (cat === 'intro') return c === 'intro';
@@ -7835,14 +7836,14 @@ function applyFeedFilter() {
   renderFeed(filtered);
 }
 function _updateChipCounts() {
-  const tally = { real: 0, paid: 0, intro: 0, noise: 0, blocked: 0, all: _feedCache.length };
+  const tally = { real: 0, paid: 0, intro: 0, noise: 0, blocked: 0, all: 0 };
   _feedCache.forEach(r => {
     const c = r.category || 'query';
     if (c === 'paid' || c === 'query' || c === 'chat') tally.real++;
     if (c === 'paid') tally.paid++;
     if (c === 'intro') tally.intro++;
     if (c === 'noise' || c === 'challenge') tally.noise++;
-    if (c === 'blocked') tally.blocked++;
+    if (c === 'blocked') tally.blocked++; else tally.all++;
   });
   Object.keys(tally).forEach(k => {
     const el = document.getElementById('cnt-' + k);
