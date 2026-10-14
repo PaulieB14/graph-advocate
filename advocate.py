@@ -2981,6 +2981,120 @@ _ANALYTIC_RE = re.compile(
     r"ecosystem|cross-chain|which is better)\b", re.I)
 
 
+
+# ── Grounded caller-JSON path ───────────────────────────────────────────────
+_QUERY_CLAIM_KEYS = ("query_used", "query", "source_query", "graphql_query", "query_executed")
+
+
+def _grounding_disabled() -> bool:
+    return os.environ.get("GA_GROUNDED_CALLER_JSON", "1") == "0"
+
+
+def _strip_unexecuted_query_claims(rec: dict) -> dict:
+    """Drop query claims from a reply whose path executed no query."""
+    if not isinstance(rec, dict):
+        return rec
+    return {k: v for k, v in rec.items() if k.lower() not in _QUERY_CLAIM_KEYS}
+
+
+def _strip_caller_json_instruction(request: str) -> str:
+    m = _CALLER_JSON_ONLY_RE.search(request or "")
+    return (request[:m.start()].rstrip() if m else request) or request
+
+
+def _execution_ok(er: dict | None) -> bool:
+    if not isinstance(er, dict) or er.get("error"):
+        return False
+    data = er.get("data")
+    if isinstance(data, dict) and isinstance(data.get("data"), dict):
+        data = data["data"]
+    return bool(data)
+
+
+def _executed_query_text(rec: dict) -> str | None:
+    qr = rec.get("query_ready") if isinstance(rec.get("query_ready"), dict) else {}
+    args = qr.get("args") if isinstance(qr.get("args"), dict) else {}
+    q = args.get("query")
+    if q:
+        return q
+    if qr.get("tool"):
+        return json.dumps({"tool": qr.get("tool"), "args": args}, separators=(",", ":"))
+    return None
+
+
+def _compose_from_results(request: str, keys: list, er: dict, query: str) -> dict | None:
+    """Fill the caller's shape from executed results with Sonnet. None on failure."""
+    prompt = (
+        f"Caller request:\n{request}\n\n"
+        f"Executed query:\n{query}\n\n"
+        f"Result (the ONLY permitted source of facts):\n{json.dumps(er.get('data'))[:12000]}\n\n"
+        "Reply with ONLY the JSON object the caller asked for. Every value must come from the "
+        "result above; use null for anything the result does not contain. Do not add a query field."
+    )
+    cfg = dict(_MODEL_TIERS["sonnet"])
+    try:
+        resp = client.messages.create(messages=[{"role": "user", "content": prompt}], **cfg)
+        raw = next((b.text for b in resp.content if b.type == "text"), "")
+    except Exception:
+        return None
+    out = _extract_json(raw)
+    if out.get("parse_error"):
+        return None
+    out = _strip_unexecuted_query_claims(out)
+    return out
+
+
+def _grounded_caller_json(request, history, requesting_agent, priority, premium):
+    """Return (reply, messages) for a caller-JSON data lookup, or None to fall
+    through to the normal path (non-lookup caller-JSON, e.g. a plan or verdict)."""
+    import logging
+    import grounded_lookup as _gl
+    log = logging.getLogger("graph-advocate")
+
+    keys = _gl.requested_keys(request)
+    direct = _gl.answer(request)
+    if direct is not None:
+        executed = direct.get("_grounding", {}).get("executed")
+        _log(requesting_agent, request, {
+            **direct, "recommendation": "caller-schema-grounded" if executed else "caller-schema-undetermined",
+            "confidence": "high" if executed else "n/a"})
+        log.info(f"ROUTED   caller-schema grounded executed={executed}")
+        return direct, []
+
+    if not _gl.is_data_lookup(request):
+        return None
+
+    # Generic lookup: route the question without the reply-shape instruction so
+    # the normal router picks a service and EXECUTES its query, then fill the
+    # caller's shape from that result only.
+    stripped = _strip_caller_json_instruction(request)
+    if _CALLER_JSON_ONLY_RE.search(stripped):
+        return _gl.could_not_determine(keys, "could not isolate the lookup from the reply-shape instruction"), []
+    try:
+        rec, msgs = ask_graph_advocate(stripped, history, requesting_agent,
+                                       priority=priority, premium=premium)
+    except Exception as e:
+        log.warning(f"Grounded routing failed: {e}")
+        rec, msgs = {}, []
+    er = rec.get("execution_result") if isinstance(rec, dict) else None
+    query = _executed_query_text(rec) if _execution_ok(er) else None
+    if not query:
+        out = _gl.could_not_determine(
+            keys, "could not route this lookup to a data source that returned results")
+        _log(requesting_agent, request, {**out, "recommendation": "caller-schema-undetermined",
+                                         "confidence": "n/a"})
+        return out, msgs
+    out = _compose_from_results(request, keys, er, query)
+    if out is None:
+        out = _gl.could_not_determine(keys, "query ran but its result could not be mapped to the requested shape")
+    else:
+        out["query_used"] = query
+        out["_grounding"] = {"executed": True, "service": rec.get("recommendation"),
+                             "subgraph_id": (er.get("routing") or {}).get("subgraph_id")}
+    _log(requesting_agent, request, {**out, "recommendation": "caller-schema-grounded",
+                                     "confidence": "medium"})
+    return out, msgs
+
 def _pick_tier(request: str, paid: bool = False, premium: bool = False) -> str:
     """Return "haiku" | "sonnet" | "opus". Rule, first match wins:
 
@@ -3025,6 +3139,17 @@ def ask_graph_advocate(
     if not request:
         return {"recommendation": "out-of-scope", "reason": "Empty request", "confidence": "high", "query_ready": None, "alternatives": []}, []
 
+    # Caller-dictated JSON data lookups ("...Reply with only a JSON object {...}")
+    # are answered from an executed query, never from model memory. Before
+    # 2026-10-14 these went straight to the model (Haiku), logged `ROUTED
+    # unknown`, ran no subgraph call, and returned invented pool tokens with a
+    # `query_used` that was never executed.
+    _caller_json = bool(_CALLER_JSON_ONLY_RE.search(request))
+    if _caller_json and not _grounding_disabled():
+        grounded = _grounded_caller_json(request, history, requesting_agent, priority, premium)
+        if grounded is not None:
+            return grounded
+
     # Run real searches and inject results as context
     search_context = ""
     try:
@@ -3052,6 +3177,9 @@ def ask_graph_advocate(
     # $0.01, and 20-40s replies. Paid now defaults to Sonnet; Opus is reserved
     # for explicit comparisons and premium callers.
     tier = _pick_tier(request, paid=priority, premium=premium)
+    if _caller_json and tier == "haiku":
+        # A model composing a caller-shaped answer is never Haiku.
+        tier = "sonnet"
 
     def _call_claude(msgs, _tier=None):
         cfg = _MODEL_TIERS[_tier or tier]
@@ -3097,6 +3225,8 @@ def ask_graph_advocate(
     # unrelated Uniswap curl example, for a caller that asked for nothing else.
     if (not rec.get("parse_error") and not rec.get("recommendation")
             and _CALLER_JSON_ONLY_RE.search(request or "")):
+        # Nothing was executed on this path, so the model may not claim a query.
+        rec = _strip_unexecuted_query_claims(rec)
         _log(requesting_agent, request, {**rec, "recommendation": "caller-schema", "confidence": "n/a"})
         return rec, messages
 

@@ -1915,6 +1915,7 @@ _NON_ROUTING_SERVICES = {
     # A reply in a shape the caller dictated, not a routing answer — the
     # subgraph rubric would score a correct one ~1-3.
     "caller-schema",
+    "caller-schema-grounded", "caller-schema-undetermined",
 }
 
 # The read-side headline filter MUST be a superset of the write-side skip.
