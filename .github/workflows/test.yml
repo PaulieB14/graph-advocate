@@ -36,6 +36,7 @@ jobs:
           python test_x402_reject.py
           python test_discovery.py
           python test_grounded_caller_json.py
+          python test_pinax_paging.py
 
       - name: Smoke-import server modules
         run: |

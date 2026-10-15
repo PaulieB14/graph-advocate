@@ -89,8 +89,22 @@ async def _pinax(path: str, **params: Any) -> Any:
     is_free_path = path == "/markets"
     headers = {} if is_free_path else ({"Authorization": f"Bearer {key}"} if key else {})
     url = f"{_pinax_base()}{path}"
+    import pinax_paging as _pp
+
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-        r = await client.get(url, headers=headers, params=params)
+        async def _once(p: dict):
+            resp = await client.get(url, headers=headers, params=p)
+            try:
+                body = resp.json()
+            except Exception:
+                body = None
+            return resp.status_code, body, resp.text
+
+        # limit is clamped to the plan's 10/request and paged above that.
+        status, body, text = await _pp.fetch_async(_once, params)
+
+    from types import SimpleNamespace
+    r = SimpleNamespace(status_code=status, text=text or "")
     if r.status_code >= 400:
         # Surface which JWT source we used for fast triage (env vs free fallback).
         if os.environ.get("TOKEN_API_JWT"):
@@ -106,7 +120,7 @@ async def _pinax(path: str, **params: Any) -> Any:
         raise RuntimeError(
             f"pinax {path} {r.status_code} (jwt={key_state}): {r.text[:200]}"
         )
-    return r.json()
+    return body
 
 
 def _data(resp: Any) -> list:

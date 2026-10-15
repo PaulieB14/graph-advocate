@@ -108,6 +108,8 @@ CRITICAL — Token API parameter names (use EXACTLY these, never alias):
   a page returns fewer than 10 rows. The response carries `pagination.current_page` and
   `results` (rows in THIS page) but no total, so looping until short is the only stop
   condition. Give the caller the loop, not just the first call, whenever they ask for "all".
+  For "top N" requests (holders, swaps, transfers…), set "limit": N in query_ready args —
+  the executor pages it 10 at a time server-side (up to 100) and returns N rows in order.
   NEWEST-FIRST MEANS SPAM-FIRST on any well-known wallet. Verified 2026-10-08: page 1 of
   /v1/evm/balances for 0xd8dA…6045 on base was 10 airdropped junk tokens (REVO, PAX, MAGA…)
   and none of its real holdings. There is no spam filter parameter. So for "wallet balance" /
@@ -3471,26 +3473,50 @@ def _execute_recommendation(rec: dict) -> dict | None:
                         break
 
         try:
-            r = httpx.get(
-                f"https://api.pinax.network{path}",
-                params=params,
-                headers={"Authorization": f"Bearer {jwt}"},
-                timeout=15,
-            )
-            data = r.json()
-            # Truncate large responses to avoid bloating A2A messages
-            if isinstance(data.get("data"), list) and len(data["data"]) > 20:
-                data["data"] = data["data"][:20]
+            import pinax_paging as _pp
+
+            def _fetch_once(p):
+                resp = httpx.get(
+                    f"https://api.pinax.network{path}",
+                    params=p,
+                    headers={"Authorization": f"Bearer {jwt}"},
+                    timeout=15,
+                )
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = None
+                return resp.status_code, body, resp.text
+
+            # Plan caps `limit` at 10 per request (403 above that). Clamp and
+            # page so "top 20 holders" returns 20 instead of failing.
+            status_code, data, _text = _pp.fetch_sync(_fetch_once, params)
+            if not isinstance(data, dict):
+                data = {"raw": (_text or "")[:500]}
+            # Truncate large responses to avoid bloating A2A messages — but
+            # never below what the caller explicitly asked for (cap 100).
+            _keep = max(20, min(_pp.requested_limit(params) or 0, _pp.TOTAL_CAP))
+            if isinstance(data.get("data"), list) and len(data["data"]) > _keep:
+                data["data"] = data["data"][:_keep]
                 data["_truncated"] = True
-            log.info(f"EXECUTE  token-api {tool} -> {r.status_code}")
-            if r.status_code == 429 or r.status_code == 401:
+            log.info(f"EXECUTE  token-api {tool} -> {status_code}"
+                     + (f" pages={data['_paging']['pages']} rows={data['_paging']['returned']}"
+                        if isinstance(data.get("_paging"), dict) else ""))
+            if _pp.is_limit_error(status_code, _text):
                 return {
                     "source": "token-api",
-                    "status": r.status_code,
+                    "status": status_code,
+                    "error": f"Token API plan caps results at {_pp.PAGE_MAX} per request.",
+                    "data": data,
+                }
+            if status_code == 429 or status_code == 401:
+                return {
+                    "source": "token-api",
+                    "status": status_code,
                     "error": "Rate limit or auth exceeded. Get your own free JWT at https://thegraph.market/auth/tokenapi-env",
                     "data": data,
                 }
-            return {"source": "token-api", "status": r.status_code, "data": data,
+            return {"source": "token-api", "status": status_code, "data": data,
                     "executed_query": {"endpoint": f"https://api.pinax.network{path}", "params": params}}
         except Exception as e:
             log.error(f"Token API call failed: {e}")
