@@ -923,6 +923,16 @@ def build_candidates(
     return ready, stats
 
 
+def erc8004_mode() -> str:
+    """OUTREACH_8004_SOURCE = off (default) | dry-run | on."""
+    v = (os.environ.get("OUTREACH_8004_SOURCE") or "off").strip().lower()
+    if v in ("on", "live", "1", "true"):
+        return "on"
+    if v in ("dry-run", "dryrun", "dry"):
+        return "dry-run"
+    return "off"
+
+
 def run() -> None:
     print(f"\n{'=' * 60}")
     print(f"GRAPH ADVOCATE OUTREACH (inbound) — {_utc_now().strftime('%Y-%m-%d %H:%M UTC')}")
@@ -977,6 +987,29 @@ def run() -> None:
                 have.add(c["url"])
         for k, v in extra_stats.items():
             stats[k] = stats.get(k, 0) + v
+
+    # ERC-8004 registry source (Base + Arbitrum). Default OFF; dry-run only logs.
+    mode = erc8004_mode()
+    if mode != "off":
+        try:
+            import outreach_8004
+            reg = outreach_8004.collect(set(contacted.keys()), max_details=60, per_chain=150)
+        except Exception as exc:
+            reg = []
+            print(f"8004 source error: {str(exc)[:120]}")
+        save_json(data_dir / "outreach_8004_candidates.json", reg)
+        print(f"8004 source mode={mode}: {len(reg)} candidates")
+        for c in reg:
+            print(f"  [8004 {mode}] would contact {c['name']} {c['agent_id']} {c['endpoint']} -> {c['suggested_endpoint']}")
+        if mode == "on":
+            have = {c["url"] for c in candidates}
+            for c in reg:
+                if c["endpoint_type"] == "a2a" and c["endpoint"] not in have and c["endpoint"] not in contacted:
+                    candidates.append({"name": c["name"], "url": c["endpoint"], "wallet": c["wallet"],
+                                       "source": "8004", "score": c["score"], "x402": True, "a2a": True,
+                                       "chain_id": c["agent_id"].split(":")[0],
+                                       "token_id": c["agent_id"].split(":")[1]})
+                    have.add(c["endpoint"])
 
     print(f"candidates sendable: {len(candidates)} (daily cap {daily_limit})")
 
