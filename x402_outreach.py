@@ -406,3 +406,38 @@ async def pay_graph_gateway_once(query: str, max_units: int = GRAPH_X402_MAX_UNI
     log.info(f"X402-GRAPH-TEST status={resp.status_code} latency_ms={latency_ms} "
              f"settled={'payment_response' in out} wallet={wallet[:10]}…")
     return out
+
+
+# One-shot boot trigger for the approved Graph x402 test (run id pinned below).
+# Runs only on the graph-advocate service, only if the marker file on the
+# volume is absent; the marker is written BEFORE paying so a crash/restart
+# can never cause a second payment. Result is logged as one JSON line.
+GRAPH_X402_BOOT_RUN_ID = "2026-10-16-pools-top3"
+
+
+async def graph_x402_boot_once() -> None:
+    import asyncio as _asyncio
+    if os.environ.get("RAILWAY_SERVICE_NAME") != "graph-advocate":
+        return
+    vol = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or "/data"
+    marker = os.path.join(vol, f"x402_graph_test_{GRAPH_X402_BOOT_RUN_ID}.json")
+    if not os.path.isdir(vol) or os.path.exists(marker):
+        return
+    try:
+        with open(marker, "x") as fh:  # exclusive create — loses any race
+            fh.write(json.dumps({"state": "started", "ts": time.time()}))
+    except Exception:
+        return
+    await _asyncio.sleep(30)  # let the deploy go healthy first
+    q = ("{ pools(first:3, orderBy: totalValueLockedUSD, orderDirection: desc)"
+         "{ id token0{symbol} token1{symbol} feeTier totalValueLockedUSD } }")
+    try:
+        result = await pay_graph_gateway_once(q)
+    except Exception as exc:
+        result = {"ok": False, "stage": "boot", "error": f"{type(exc).__name__}: {exc}"}
+    try:
+        with open(marker, "w") as fh:
+            fh.write(json.dumps({"state": "done", "ts": time.time(), "result": result}))
+    except Exception:
+        pass
+    log.info("X402-GRAPH-TEST-RESULT " + json.dumps(result, default=str))

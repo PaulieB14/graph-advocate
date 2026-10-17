@@ -12940,6 +12940,12 @@ def build_app():
                         log.info("x402 dashboard refresh loop started (24h interval)")
                     except Exception as e:
                         log.warning(f"x402_dashboard not started: {e}")
+                    # One-shot approved paid test (marker-guarded, see x402_outreach)
+                    try:
+                        from x402_outreach import graph_x402_boot_once
+                        asyncio.create_task(graph_x402_boot_once())
+                    except Exception as e:
+                        log.warning(f"graph x402 boot test not scheduled: {e}")
                     await send({"type": "lifespan.startup.complete"})
                 elif message["type"] == "lifespan.shutdown":
                     # daemon thread will die with the process
