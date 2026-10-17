@@ -18,6 +18,7 @@ SITEMAP_PATHS = (
     "/llms.txt", "/SKILL.md", "/openapi.json",
     "/.well-known/agent-card.json", "/.well-known/x402",
     "/.well-known/mcp/server.json", "/.well-known/ard.json",
+    "/.well-known/agent-registration.json",
     "/agents/index.json", "/agents/capabilities.json", "/mcp/catalog",
 )
 
@@ -107,3 +108,46 @@ def ard_json() -> dict:
             },
         ],
     }
+
+
+# ERC-8004 endpoint-domain verification. The spec (Identity Registry,
+# "Endpoint Domain Verification") lets a registry treat graphadvocate.com as
+# verified when https://graphadvocate.com/.well-known/agent-registration.json
+# lists a `registrations` entry matching the on-chain agentRegistry + agentId.
+# We serve the full registration file (same source as the IPFS agentURI) and
+# guarantee both live registrations are present.
+import json as _json
+import os as _os
+
+ERC8004_REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+ERC8004_REGISTRATIONS = (
+    {"agentId": 734, "agentRegistry": f"eip155:42161:{ERC8004_REGISTRY}"},    # Arbitrum One
+    {"agentId": 41034, "agentRegistry": f"eip155:8453:{ERC8004_REGISTRY}"},   # Base
+)
+_REG_FILE = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "erc8004-registration.json")
+
+
+def agent_registration_json() -> dict:
+    try:
+        with open(_REG_FILE, encoding="utf-8") as f:
+            doc = _json.load(f)
+    except (OSError, ValueError):
+        doc = {
+            "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+            "name": "Graph Advocate",
+            "image": ICON_URL,
+            "active": True,
+            "x402Support": True,
+            "services": [
+                {"name": "MCP", "endpoint": f"{SITE}/mcp", "version": "2025-06-18"},
+                {"name": "A2A", "endpoint": f"{SITE}/.well-known/agent-card.json", "version": "0.3.0"},
+            ],
+            "supportedTrust": ["reputation", "crypto-economic"],
+        }
+    regs = list(doc.get("registrations") or [])
+    have = {(str(r.get("agentRegistry", "")).lower(), str(r.get("agentId"))) for r in regs}
+    for r in ERC8004_REGISTRATIONS:
+        if (r["agentRegistry"].lower(), str(r["agentId"])) not in have:
+            regs.append(dict(r))
+    doc["registrations"] = regs
+    return doc

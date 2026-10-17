@@ -4939,6 +4939,11 @@ async def _ard_json_endpoint(request: Request):
     return JSONResponse(_disc.ard_json(), headers=_DISC_HEADERS)
 
 
+async def _agent_registration_endpoint(request: Request):
+    """ERC-8004 endpoint-domain verification file (8004scan et al.)."""
+    return JSONResponse(_disc.agent_registration_json(), headers=_DISC_HEADERS)
+
+
 async def llms_txt_endpoint(request: Request):
     """GET /llms.txt — compact discovery file for LLM-driven dev tools.
 
@@ -12866,6 +12871,7 @@ def build_app():
         Route("/.well-known/mcp/server.json", _mcp_server_json_endpoint),
         Route("/.well-known/mcp.json", _mcp_server_json_endpoint),
         Route("/.well-known/ard.json", _ard_json_endpoint),
+        Route("/.well-known/agent-registration.json", _agent_registration_endpoint),
         # Landing page + static assets (for x402scan listing card)
         Route("/", landing_endpoint, methods=["GET"]),
         Route("/hyperliquid", hyperliquid_catalog_endpoint, methods=["GET"]),

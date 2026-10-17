@@ -22,6 +22,15 @@ ASCII = re.compile(r"^[\x20-\x7e]{1,32}$")
 
 
 class TestStaticFiles(unittest.TestCase):
+    def test_agent_registration_lists_both_chains(self):
+        r = d.agent_registration_json()
+        self.assertEqual(r["type"], "https://eips.ethereum.org/EIPS/eip-8004#registration-v1")
+        regs = {(x["agentRegistry"], x["agentId"]) for x in r["registrations"]}
+        reg = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+        self.assertIn((f"eip155:8453:{reg}", 41034), regs)
+        self.assertIn((f"eip155:42161:{reg}", 734), regs)
+        self.assertTrue(any(s["name"] == "MCP" for s in r["services"]))
+
     def test_robots(self):
         r = d.robots_txt()
         self.assertIn("User-agent: *", r)

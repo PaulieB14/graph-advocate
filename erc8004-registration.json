@@ -5,8 +5,12 @@
   "image": "https://raw.githubusercontent.com/PaulieB14/graph-advocate/main/avatar.png",
   "active": true,
   "x402Support": true,
-  "updatedAt": "2026-06-14T19:00:00Z",
-  "mcpTools": ["find_subgraph", "write_query", "onchain_data"],
+  "updatedAt": "2026-10-17T19:30:00Z",
+  "mcpTools": [
+    "find_subgraph",
+    "write_query",
+    "onchain_data"
+  ],
   "a2aSkills": [
     "find_subgraph",
     "write_query",
@@ -183,7 +187,14 @@
     {
       "agentId": 734,
       "agentRegistry": "eip155:42161:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+    },
+    {
+      "agentId": 41034,
+      "agentRegistry": "eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
     }
   ],
-  "supportedTrust": ["reputation", "crypto-economic"]
+  "supportedTrust": [
+    "reputation",
+    "crypto-economic"
+  ]
 }
