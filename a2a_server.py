@@ -4302,6 +4302,37 @@ async def self_test_paid_endpoint(request: Request):
     return JSONResponse(out)
 
 
+_DEFAULT_GRAPH_TEST_QUERY = (
+    "{ pools(first:3, orderBy: totalValueLockedUSD, orderDirection: desc)"
+    "{ id token0{symbol} token1{symbol} feeTier totalValueLockedUSD } }"
+)
+
+
+async def x402_graph_test_endpoint(request: Request):
+    """POST /admin/x402-graph-test — one capped paid call to The Graph's x402 gateway.
+
+    Target, payee, network and cap ($0.02) are pinned in
+    x402_outreach.pay_graph_gateway_once. Pays at most once per process.
+    Body (optional): {"query": "<graphql>"}
+    """
+    if not _check_admin(request):
+        return _unauthorized()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    query = (body.get("query") if isinstance(body, dict) else None) or _DEFAULT_GRAPH_TEST_QUERY
+    if not isinstance(query, str) or len(query) > 4000:
+        return JSONResponse({"error": "query must be a string <= 4000 chars"}, status_code=400)
+    try:
+        from x402_outreach import pay_graph_gateway_once
+        result = await pay_graph_gateway_once(query)
+    except Exception as exc:
+        log.error(f"x402-graph-test failed: {type(exc).__name__}")
+        return JSONResponse({"ok": False, "error": str(exc), "stage": "dispatch"}, status_code=500)
+    return JSONResponse(result)
+
+
 # ── Feedback endpoint ────────────────────────────────────────────────────────
 
 async def feedback_endpoint(request: Request):
@@ -12807,6 +12838,7 @@ def build_app():
         Route("/export/stats", export_stats_endpoint),
         Route("/admin/outreach-pay", outreach_pay_endpoint, methods=["POST"]),
         Route("/admin/self-test-paid", self_test_paid_endpoint, methods=["POST"]),
+        Route("/admin/x402-graph-test", x402_graph_test_endpoint, methods=["POST"]),
         Route("/feedback", feedback_endpoint, methods=["POST"]),
         Route("/feedback/stats", feedback_stats_endpoint),
         Route("/quality", quality_stats_endpoint),
@@ -13129,7 +13161,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/robots.txt", "/sitemap.xml", "/.well-known/mcp/server.json", "/.well-known/mcp.json", "/.well-known/ard.json", "/health", "/healthz", "/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/quota", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/robots.txt", "/sitemap.xml", "/.well-known/mcp/server.json", "/.well-known/mcp.json", "/.well-known/ard.json", "/health", "/healthz", "/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/quota", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/x402-graph-test", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip", "/ask")

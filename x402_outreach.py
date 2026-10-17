@@ -237,3 +237,172 @@ async def send_paid_a2a(
     if pay_resp:
         out["settlement"] = pay_resp
     return out
+
+
+# ── One-shot paid test against The Graph's x402 gateway (admin-only) ─────────
+# Used by POST /admin/x402-graph-test. Deliberately NOT generic: the target URL,
+# network, payee and spend cap are pinned here so the route can't be pointed at
+# an arbitrary payee. Pays at most once per process and never retries after
+# a payment has been signed.
+
+GRAPH_X402_TEST_URL = (
+    "https://gateway.thegraph.com/api/x402/subgraphs/id/"
+    "96eJ9Go8gFjySRGnndG7EYxThaiwVDV8BYPp1TMDcoYh"
+)
+GRAPH_X402_EXPECTED_PAYTO = "0x79DC34E41B2b591078d3dE222C43EcaaBD52FcCB"
+GRAPH_X402_EXPECTED_SIGNER = "0xe121e3a8611E1f44f7cC52892eE1117fdDC8F734"
+GRAPH_X402_NETWORK = "eip155:8453"
+GRAPH_X402_USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+GRAPH_X402_MAX_UNITS = 20000  # 0.02 USDC (6 decimals)
+
+_graph_test_paid = False
+
+
+def _trim(obj: Any, limit: int = 4000) -> Any:
+    try:
+        s = json.dumps(obj)
+    except Exception:
+        s = str(obj)
+    return obj if len(s) <= limit else s[:limit] + "…"
+
+
+async def pay_graph_gateway_once(query: str, max_units: int = GRAPH_X402_MAX_UNITS) -> dict:
+    """Probe The Graph x402 endpoint, validate the offer, pay once, return result.
+
+    Never raises. Refuses to pay unless: x402 v2 exact offer, network Base,
+    asset canonical USDC, amount <= max_units (and <= GRAPH_X402_MAX_UNITS),
+    payTo == GRAPH_X402_EXPECTED_PAYTO, and our signer == expected hot wallet.
+    """
+    global _graph_test_paid
+    import httpx as _httpx
+
+    if _graph_test_paid:
+        return {"ok": False, "stage": "already-paid",
+                "error": "a paid test already ran in this process; redeploy/restart to run again"}
+
+    max_units = min(int(max_units), GRAPH_X402_MAX_UNITS)
+
+    try:
+        client, _http_unused, wallet = _bootstrap()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "stage": "bootstrap"}
+
+    if wallet.lower() != GRAPH_X402_EXPECTED_SIGNER.lower():
+        return {"ok": False, "stage": "signer-mismatch", "wallet": wallet,
+                "error": f"signer {wallet} != expected {GRAPH_X402_EXPECTED_SIGNER}; refusing to pay"}
+
+    from x402.http import x402HTTPClient
+    from x402.http.utils import decode_payment_required_header, decode_payment_response_header
+    from x402.schemas import PaymentRequired
+
+    payload = {"query": query}
+    headers = {"Content-Type": "application/json", "User-Agent": "graph-advocate-x402-test/1.0"}
+
+    async with _httpx.AsyncClient(timeout=60.0, follow_redirects=False) as hc:
+        # 1) Unpaid probe
+        try:
+            pre = await hc.post(GRAPH_X402_TEST_URL, json=payload, headers=headers)
+        except Exception as exc:
+            return {"ok": False, "stage": "preflight", "error": str(exc), "wallet": wallet}
+        if pre.status_code != 402:
+            return {"ok": False, "stage": "preflight", "status": pre.status_code, "paid": False,
+                    "wallet": wallet, "error": "expected 402 offer; not paying",
+                    "body": pre.text[:1000]}
+        hdr = pre.headers.get("payment-required")
+        if not hdr:
+            return {"ok": False, "stage": "offer", "wallet": wallet,
+                    "error": "402 without PAYMENT-REQUIRED header; not paying",
+                    "body": pre.text[:1000]}
+        try:
+            offer = decode_payment_required_header(hdr)
+        except Exception as exc:
+            return {"ok": False, "stage": "offer", "wallet": wallet, "error": f"bad offer: {exc}"}
+        if not isinstance(offer, PaymentRequired):
+            return {"ok": False, "stage": "offer", "wallet": wallet,
+                    "error": "offer is not x402 v2; not paying"}
+
+        # 2) Validate — pick exactly one acceptable requirement
+        rejected = []
+        chosen = None
+        for r in offer.accepts:
+            why = []
+            if r.scheme != "exact":
+                why.append(f"scheme={r.scheme}")
+            if str(r.network) != GRAPH_X402_NETWORK:
+                why.append(f"network={r.network}")
+            if r.asset.lower() != GRAPH_X402_USDC_BASE.lower():
+                why.append(f"asset={r.asset}")
+            if r.pay_to.lower() != GRAPH_X402_EXPECTED_PAYTO.lower():
+                why.append(f"payTo={r.pay_to}")
+            try:
+                amt = int(r.amount)
+            except Exception:
+                amt = -1
+            if amt <= 0 or amt > max_units:
+                why.append(f"amount={r.amount} (cap {max_units})")
+            if why:
+                rejected.append(why)
+            elif chosen is None:
+                chosen = r
+        offer_summary = [
+            {"scheme": r.scheme, "network": str(r.network), "amount": r.amount,
+             "payTo": r.pay_to, "asset": r.asset} for r in offer.accepts
+        ]
+        if chosen is None:
+            return {"ok": False, "stage": "offer-rejected", "paid": False, "wallet": wallet,
+                    "offer": offer_summary, "rejected": rejected,
+                    "error": "no offer matched the pinned network/payTo/asset/cap; not paying"}
+
+        pinned = offer.model_copy(update={"accepts": [chosen]})
+
+        # 3) Sign (one payload) and send exactly once — no retries from here on.
+        hclient = x402HTTPClient(client)
+        try:
+            pay_payload = await hclient.create_payment_payload(pinned)
+            pay_headers = hclient.encode_payment_signature_header(pay_payload)
+        except Exception as exc:
+            return {"ok": False, "stage": "sign", "wallet": wallet, "error": str(exc)}
+
+        _graph_test_paid = True  # mark before sending: never send a second signed payment
+        t0 = time.monotonic()
+        try:
+            resp = await hc.post(GRAPH_X402_TEST_URL, json=payload,
+                                 headers={**headers, **pay_headers})
+        except Exception as exc:
+            return {"ok": False, "stage": "paid-request", "wallet": wallet,
+                    "error": f"{type(exc).__name__}: {exc}", "signed": True,
+                    "latency_ms": int((time.monotonic() - t0) * 1000),
+                    "note": "payment was signed; check chain before re-running"}
+        latency_ms = int((time.monotonic() - t0) * 1000)
+
+    out: dict = {
+        "ok": 200 <= resp.status_code < 300,
+        "status": resp.status_code,
+        "wallet": wallet,
+        "latency_ms": latency_ms,
+        "paid_amount_units": chosen.amount,
+        "pay_to": chosen.pay_to,
+        "network": str(chosen.network),
+    }
+    raw_pr = resp.headers.get("payment-response") or resp.headers.get("x-payment-response")
+    if raw_pr:
+        try:
+            settle = decode_payment_response_header(raw_pr)
+            out["payment_response"] = json.loads(settle.model_dump_json(by_alias=True, exclude_none=True))
+        except Exception:
+            out["payment_response_raw"] = raw_pr[:500]
+    if resp.status_code == 402 and resp.headers.get("payment-required"):
+        try:
+            out["error"] = decode_payment_required_header(resp.headers["payment-required"]).error
+        except Exception:
+            pass
+    try:
+        body = resp.json()
+    except Exception:
+        body = resp.text[:2000]
+    out["data"] = _trim(body.get("data") if isinstance(body, dict) and "data" in body else body)
+    if isinstance(body, dict) and body.get("errors"):
+        out["errors"] = _trim(body["errors"], 1000)
+    log.info(f"X402-GRAPH-TEST status={resp.status_code} latency_ms={latency_ms} "
+             f"settled={'payment_response' in out} wallet={wallet[:10]}…")
+    return out
