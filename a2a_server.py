@@ -3329,6 +3329,13 @@ class GraphAdvocateExecutor(AgentExecutor):
                     log.info(f"X402-PAID task={task_id} | payment verified, priority treatment")
                     _log_request(task_id, user_text, "x402-paid", "high", "verified")
                     _is_paid_request = True
+                    # Settled payment: invite ERC-8004 feedback on the reply
+                    # (GA_FEEDBACK_INVITE=0 disables). See feedback_invite.py.
+                    try:
+                        from feedback_invite import PaidEventQueue as _PaidEQ
+                        event_queue = _PaidEQ(event_queue, user_text)
+                    except Exception as _fe:
+                        log.warning(f"feedback invite wrap failed: {_fe}")
                     # Continue to normal processing with priority flag
                 else:
                     log.info(f"X402-FAIL task={task_id} | payment verification failed")
@@ -12355,6 +12362,13 @@ def build_app():
                     await send({"type": "http.response.body", "body": body, "more_body": False})
 
             _x402_route_app = _x402_route_app_with_example_body
+            # Outermost: add the ERC-8004 feedback invite to 2xx responses that
+            # carry a successful PAYMENT-RESPONSE (settled) header only.
+            try:
+                from feedback_invite import PaidFeedbackASGI as _PaidFB
+                _x402_route_app = _PaidFB(_x402_route_app)
+            except Exception as _fe:
+                log.warning(f"feedback invite middleware not installed: {_fe}")
         else:
             log.warning("x402 server not available — /route will return 402 without verification capability")
     except Exception as e:
