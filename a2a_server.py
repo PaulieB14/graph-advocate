@@ -2429,7 +2429,9 @@ _init_activity_db()
 
 
 # ── Fetch.ai uAgents integration (optional) ───────────────────────────────────
-# Enabled automatically when AGENTVERSE_API_KEY is set.
+# Opt-in: runs only when AGENTVERSE_ENABLED=1 AND AGENTVERSE_API_KEY is set.
+# (Disabled by default since 2026-10-19 — the operator doesn't use Agentverse and
+# the idle mailbox poll was spamming "Failed to retrieve messages 503" logs.)
 # The agent runs in mailbox mode — no extra port, polls Agentverse as a
 # background asyncio task alongside the existing uvicorn server.
 
@@ -2450,7 +2452,8 @@ _FETCH_ENABLED = False
 
 try:
     _agentverse_key = os.environ.get("AGENTVERSE_API_KEY", "")
-    if _agentverse_key:
+    _agentverse_enabled = os.environ.get("AGENTVERSE_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
+    if _agentverse_enabled and _agentverse_key:
         from uagents import Agent as _UAgent, Context as _UCtx, Model as _UModel, Protocol as _UProtocol  # type: ignore
         # Standard ASI:One chat protocol — required for Agentverse chat eval
         # to actually reach the agent. Falls back to legacy _FetchMsg for
@@ -2581,8 +2584,10 @@ try:
         _FETCH_ENABLED = True
         log.info(f"Fetch.ai uAgent initialised — address: {_fetch_agent.address}")
     else:
-        matching = [k for k in os.environ if "AGENTVERSE" in k.upper() or "FETCH" in k.upper()]
-        log.info(f"AGENTVERSE_API_KEY not set (len={len(_agentverse_key)}) — matching env keys: {matching}")
+        log.info(
+            "Fetch.ai/Agentverse uAgent disabled (set AGENTVERSE_ENABLED=1 and "
+            f"AGENTVERSE_API_KEY to enable; enabled={_agentverse_enabled}, key_set={bool(_agentverse_key)})"
+        )
 except ImportError:
     log.warning("uagents package not installed — Fetch.ai integration disabled")
 except Exception as _fe:
@@ -7498,7 +7503,7 @@ function renderHero(d) {
     <div class="hero-card">
       <div class="label"><span class="icon">🤖</span>Fetch.ai uAgent</div>
       <div class="value" style="font-size:0.85rem;font-family:'JetBrains Mono',monospace;color:${d.fetch_enabled ? 'var(--green)' : 'var(--text-dim)'};word-break:break-all">${d.fetch_address || 'disabled'}</div>
-      <div class="sub">${d.fetch_enabled ? '✓ Connected to Agentverse' : 'Set AGENTVERSE_API_KEY'}</div>
+      <div class="sub">${d.fetch_enabled ? '✓ Connected to Agentverse' : 'Disabled (AGENTVERSE_ENABLED=1 + AGENTVERSE_API_KEY to enable)'}</div>
     </div>
   `;
 }
