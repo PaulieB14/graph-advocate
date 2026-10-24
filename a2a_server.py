@@ -523,6 +523,14 @@ _PAID_NOTES = {
 }
 
 
+def _price_for_path(path: str) -> str:
+    """x402 price for a paid path from `_PAID_CATALOG` ('' if unknown)."""
+    for _e in _PAID_CATALOG.values():
+        if _e.get("path") == path:
+            return _e.get("price") or ""
+    return ""
+
+
 def _render_paid_price_rows() -> str:
     """The llms.txt price table, priced from `_PAID_CATALOG`.
 
@@ -4930,6 +4938,11 @@ async def skill_md_endpoint(request: Request):
             "https://github.com/PaulieB14/graph-advocate/blob/main/"
             "openclaw-skill/graph-advocate/SKILL.md\n"
         )
+    try:
+        import sample_answers as _sa
+        _body = _body.rstrip("\n") + "\n\n" + _sa.render(_price_for_path) + "\n"
+    except Exception as _sae:
+        log.warning(f"SKILL.md sample answers failed: {_sae}")
     return PlainTextResponse(
         _body,
         media_type="text/markdown; charset=utf-8",
@@ -5066,6 +5079,11 @@ curl -X POST https://graphadvocate.com \\
     # /.well-known/x402 derive from - so this table cannot quote a price the
     # middleware does not charge. See `_render_paid_price_rows`.
     body = body.replace("__PAID_PRICE_ROWS__", _render_paid_price_rows())
+    try:
+        import sample_answers as _sa
+        body = body.replace("## Routing services", _sa.render(_price_for_path) + "\n## Routing services", 1)
+    except Exception as _sae:
+        log.warning(f"llms.txt sample answers failed: {_sae}")
     return PlainTextResponse(body)
 
 
@@ -12346,7 +12364,7 @@ def build_app():
                             except Exception:
                                 pass
                             _ip = dict(scope.get("headers") or []).get(b"x-forwarded-for", b"").split(b",")[0].strip().decode() or (scope.get("client") or ("?",))[0]
-                            _prev = _fp.build(_q, f"ip:{_ip}", pay_url=f"https://graphadvocate.com{scope.get('path', '/route')}")
+                            _prev = _fp.build(_q, f"ip:{_ip}", pay_url=f"https://graphadvocate.com{scope.get('path', '/route')}", price=(_price_for_path(scope.get('path', '/route')) or "$0.01"))
                             if _prev:
                                 enriched["free_preview"] = _prev
                         except Exception as _fpe:
