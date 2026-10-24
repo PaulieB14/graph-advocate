@@ -3365,6 +3365,13 @@ class GraphAdvocateExecutor(AgentExecutor):
                 _pr = _x402_payment_required_response(
                     anonymous=sender_is_anonymous, user_text=user_text,
                 )
+                try:
+                    import free_preview as _fp
+                    _prev = _fp.build(user_text, f"a2a:{sender_id or 'anon'}")
+                    if _prev:
+                        _pr["free_preview"] = _prev
+                except Exception as _fpe:
+                    log.warning(f"free preview failed: {_fpe}")
                 _log_request(task_id, user_text, "payment-required", "high", "x402",
                              response=_pr)
                 await event_queue.enqueue_event(
@@ -12244,6 +12251,28 @@ def build_app():
                     return
 
                 state = {"status": 0, "headers": [], "buf": bytearray()}
+                # Buffer the request body (the x402 middleware 402s without
+                # reading it) so the free preview can see the question, then
+                # replay it verbatim to the inner app.
+                _req_chunks: list = []
+                _orig_receive = receive
+                if scope.get("method") == "POST":
+                    while True:
+                        _m = await _orig_receive()
+                        if _m.get("type") != "http.request":
+                            _pending = [_m]
+                            break
+                        _req_chunks.append(_m.get("body") or b"")
+                        if not _m.get("more_body"):
+                            _pending = [{"type": "http.request", "body": b"".join(_req_chunks), "more_body": False}]
+                            break
+                else:
+                    _pending = []
+
+                async def receive():
+                    if _pending:
+                        return _pending.pop(0)
+                    return await _orig_receive()
 
                 async def _wrapped_send(msg):
                     t = msg.get("type")
@@ -12307,6 +12336,21 @@ def build_app():
                                 "Decode the base64 `payment-required` response header for the "
                                 "full x402 challenge (accepts, schema, output example)."
                             )
+                        try:
+                            import free_preview as _fp
+                            _q = None
+                            try:
+                                _jb = json.loads(b"".join(_req_chunks) or b"{}")
+                                if isinstance(_jb, dict):
+                                    _q = next((str(_jb[k]) for k in ("request", "question", "query", "q", "prompt", "text") if _jb.get(k)), None)
+                            except Exception:
+                                pass
+                            _ip = dict(scope.get("headers") or []).get(b"x-forwarded-for", b"").split(b",")[0].strip().decode() or (scope.get("client") or ("?",))[0]
+                            _prev = _fp.build(_q, f"ip:{_ip}", pay_url=f"https://graphadvocate.com{scope.get('path', '/route')}")
+                            if _prev:
+                                enriched["free_preview"] = _prev
+                        except Exception as _fpe:
+                            log.warning(f"free preview failed: {_fpe}")
                         body = json.dumps(enriched).encode()
                         # Rewrite Content-Length so the new body is delivered correctly.
                         new_headers = [
