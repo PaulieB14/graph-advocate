@@ -2921,16 +2921,16 @@ def _auto_search(request: str) -> str:
     if any(kw in req_lower for kw in DASHBOARD_KEYWORDS):
         results.append(
             "[GRAPH ECOSYSTEM DASHBOARDS — graphtools.pro]\n"
-            "- Delegators Activity: https://graphtools.pro/delegators-activity\n"
-            "- Indexer Score (find inactive): https://graphtools.pro/indexer-score\n"
-            "- Top Indexers by Query Fees: https://graphtools.pro/top-indexers\n"
-            "- Elite Subgraphs (500K+ daily): https://graphtools.pro/elite-subgraphs\n"
-            "- Subgraph Search by Contract: https://graphtools.pro/subgraph-search\n"
-            "- GRT Vesting: https://graphtools.pro/vesting\n"
-            "- Curation Earnings: https://graphtools.pro/curation\n"
-            "- Disputes/Slashings: https://graphtools.pro/disputes\n"
-            "- Subgraphs by Network: https://graphtools.pro/subgraphs-network\n"
-            "- REO Reward Eligibility (Graphtronauts app V4, indexer tab): https://reo.thegraph.com/?network=mainnet"
+            "- Delegators Activity: https://graphtools.pro/delegators/\n"
+            "- Indexer Score (find inactive): https://indexerscore.com/\n"
+            "- Top Indexers by Query Fees: https://indexer-top-10.vercel.app\n"
+            "- Elite Subgraphs (500K+ daily): https://my-subgraph-dashboard.vercel.app\n"
+            "- Subgraph Search by Contract: https://subgraph-search-by-contract.vercel.app/\n"
+            "- GRT Vesting: https://vesting-dashboard-eight.vercel.app/\n"
+            "- Curation Earnings: https://curation-dashboard-test.vercel.app\n"
+            "- Disputes/Slashings: https://graph-dispute-dashboard.vercel.app\n"
+            "- Subgraphs by Network: https://graphtools.pro/network/\n"
+            "- REO Reward Eligibility (Graphtronauts app V4, network tab): https://reo.thegraph.com/?network=mainnet"
         )
 
     if any(kw in req_lower for kw in ETHSKILLS_KEYWORDS):
