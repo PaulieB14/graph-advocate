@@ -2930,7 +2930,7 @@ def _auto_search(request: str) -> str:
             "- Curation Earnings: https://graphtools.pro/curation\n"
             "- Disputes/Slashings: https://graphtools.pro/disputes\n"
             "- Subgraphs by Network: https://graphtools.pro/subgraphs-network\n"
-            "- REO Reward Eligibility: https://graphtools.pro/reo"
+            "- REO Reward Eligibility (Graphtronauts app V4, indexer tab): https://reo.thegraph.com/?network=mainnet"
         )
 
     if any(kw in req_lower for kw in ETHSKILLS_KEYWORDS):
