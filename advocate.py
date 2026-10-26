@@ -2913,7 +2913,7 @@ def _auto_search(request: str) -> str:
         results.append(
             "[THE GRAPH ECOSYSTEM CONTEXT]\n"
             "The Graph's 2026 roadmap: 6 products — Subgraphs (15,500+), Substreams, Token API, Tycho (DEX liquidity), Amp (SQL analytics), Firehose.\n"
-            "Key themes: AI agents as first-class consumers via MCP, x402 pay-per-query, Horizon protocol unification, 80+ chains, 200+ indexers, $2B+ staked GRT.\n"
+            "Key themes: AI agents as first-class consumers via MCP, x402 pay-per-query, Horizon protocol unification, 80+ chains, ~90 active staked indexers (190 registered), ~1.75B GRT staked + delegated + curated on Arbitrum (Oct 2026; worth ~$40M at ~$0.022).\n"
             "Roadmap blog: https://thegraph.com/blog/technical-roadmap/ | Core dev roadmap: https://thegraph.com/roadmap/\n"
             "Upcoming: Tycho (real-time DEX pricing, not yet MCP), Amp (SQL for institutions, coming 2026), x402 payments (USDC per-query, live on Base)."
         )
