@@ -9055,6 +9055,15 @@ def build_app():
     .try .out{margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.07);font-size:0.74rem;color:rgba(199,206,229,0.62)}
     .footer{margin-top:48px;font-size:0.75rem;color:rgba(199,206,229,0.4);font-family:'JetBrains Mono',monospace}
     code{background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:#a5b4fc}
+    .partner{margin:36px 0 8px;text-align:left;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.28);border-radius:12px;padding:18px 18px 16px}
+    .partner .plbl{font-size:0.72rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#34d399;margin-bottom:8px}
+    .partner h2{font-size:1.05rem;font-weight:700;color:#e2e8f0;margin:0 0 10px;background:none;-webkit-text-fill-color:initial}
+    .partner p{color:#c7cee5;line-height:1.55;font-size:0.88rem;margin:0 0 10px}
+    .partner ul{margin:0 0 10px;padding-left:18px;color:#c7cee5;font-size:0.84rem;line-height:1.55}
+    .partner li{margin:4px 0}
+    .partner .lim{font-size:0.76rem;color:rgba(199,206,229,0.62);line-height:1.5;margin-top:8px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.07)}
+    .partner a{color:#6ee7b7;text-decoration:none;font-weight:600}
+    .partner a:hover{text-decoration:underline}
       
     /* ── Small screens ──────────────────────────────────────────────────
        There were no media queries at all, which showed up worst in the one
@@ -9126,6 +9135,27 @@ def build_app():
       <a class="link" href="/.well-known/agent-card.json">📋 Agent Card</a>
       <a class="link" href="https://github.com/PaulieB14/graph-advocate" target="_blank">⭐ GitHub</a>
     </div>
+    <div class="partner" id="partner-apis">
+      <div class="plbl">Partner API · not a Graph Advocate route</div>
+      <h2>Partner API: Jupiter Lend Data API (x402)</h2>
+      <p>
+        Historical Jupiter Lend data on Solana, built with Substreams.
+        Scheduled refresh every 6 hours (not real-time) — see the live coverage timestamp.
+        Pay per call in USDC on Base or Solana via x402.
+        Base URL <a href="https://lend-api-production.up.railway.app" target="_blank" rel="noopener">https://lend-api-production.up.railway.app</a>.
+        Free routes: <code>/api</code>, <code>/coverage</code>, <code>/health</code>, <code>/stats</code>.
+      </p>
+      <p style="font-size:0.82rem;color:#a7f3d0;margin-bottom:12px">__JL_COVERAGE__</p>
+      <ul>
+        <li><code>/liquidations</code> ($0.005): vault liquidations, filter by vault, liquidator or since-day. Example <code>/liquidations?vault=40&amp;limit=10</code></li>
+        <li><code>/rates/daily</code> ($0.002, mint required): daily borrow rate, utilization and exchange price per token. Example <code>/rates/daily?mint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amp;days=7</code></li>
+        <li><code>/earn/wallet</code> ($0.003): one wallet's Earn deposit/withdraw history; pass a full wallet address (<code>?wallet=&lt;address&gt;&amp;limit=10</code>)</li>
+        <li><code>/dex/swaps/daily</code> ($0.002): daily DEX pool swaps, volume and fees. Example <code>/dex/swaps/daily?days=7</code></li>
+      </ul>
+      <div class="lim">
+        Known limitations: not real-time; first and last UTC days partial; borrow rate/utilization are null on days with no on-chain rate-update event (see <code>rate_source</code>); raw amounts are base-unit integer strings.
+      </div>
+    </div>
     <div class="footer">
       <code>/chat</code> free · A2A with <code>metadata</code> 3 free/day · anonymous $0.01 from call 1<br>
       Paid calls settle in USDC on Base via x402
@@ -9164,9 +9194,44 @@ def build_app():
             f'<div class="stat"><b>{v}</b><span>{k}</span></div>' for v, k in cells
         )
 
+    async def _jupiter_lend_coverage_html() -> str:
+        """Live Jupiter Lend coverage line for the partner listing.
+
+        Server-side so the landing page stays usable without relying on CORS
+        from the partner host. Falls back to a /coverage link on any failure.
+        """
+        fallback = (
+            'Live coverage: '
+            '<a href="https://lend-api-production.up.railway.app/coverage" '
+            'target="_blank" rel="noopener">GET /coverage</a>'
+        )
+        try:
+            import httpx as _hx
+            async with _hx.AsyncClient(timeout=2.5) as _c:
+                _r = await _c.get(
+                    "https://lend-api-production.up.railway.app/coverage",
+                    headers={"User-Agent": "GraphAdvocate-Landing/1.0"},
+                )
+            if _r.status_code != 200:
+                return fallback
+            _d = _r.json()
+            _first = _d.get("first_day") or "?"
+            _last = _d.get("last_day") or "?"
+            _ts = _d.get("last_ts") or "?"
+            return (
+                f'Live coverage: <code>{_first}</code> → <code>{_last}</code> '
+                f'(last_ts <code>{_ts}</code>) · '
+                f'<a href="https://lend-api-production.up.railway.app/coverage" '
+                f'target="_blank" rel="noopener">/coverage</a>'
+            )
+        except Exception:
+            return fallback
+
     async def landing_endpoint(request):
         """GET / — HTML landing page with OG meta tags for x402scan listing."""
-        return HTMLResponse(LANDING_HTML.replace("__STATS__", _landing_stats()), headers={
+        html = LANDING_HTML.replace("__STATS__", _landing_stats())
+        html = html.replace("__JL_COVERAGE__", await _jupiter_lend_coverage_html())
+        return HTMLResponse(html, headers={
             "cache-control": "public, max-age=300",
         })
 
