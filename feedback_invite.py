@@ -30,6 +30,7 @@ import os
 import re
 
 SCAN_URL = "https://8004scan.io/agents/base/41034"
+SCAN_URL_ARB = "https://www.8004scan.io/agents/arbitrum/734"
 REPUTATION_REGISTRY = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63"
 IDENTITY_REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
 HUMAN_LINE = f"Found this useful? Rate Graph Advocate on 8004scan: {SCAN_URL}"
@@ -41,6 +42,7 @@ FEEDBACK = {
     "message": HUMAN_LINE,
     "erc8004": {
         "scan_url": SCAN_URL,
+        "scan_url_arbitrum": SCAN_URL_ARB,
         "registrations": [
             {"chain": "base", "chainId": 8453, "agentId": 41034,
              "identityRegistry": IDENTITY_REGISTRY,
@@ -52,6 +54,12 @@ FEEDBACK = {
         "method": GIVE_FEEDBACK_SIG,
         "example": "giveFeedback(41034, 90, 0, \"\", \"\", \"\", \"\", 0x0) on Base; value is your score",
         "note": "Optional, honest feedback only; no reward is offered.",
+    },
+    "offchain": {
+        "url": "https://graphadvocate.com/feedback",
+        "method": "POST",
+        "body": {"agent_id": "your-id", "rating": 5, "comment": "optional", "was_useful": True},
+        "note": "Optional 1-5 rating logged off-chain; does not replace ERC-8004 giveFeedback.",
     },
 }
 

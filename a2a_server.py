@@ -1805,6 +1805,10 @@ def _init_activity_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_ts ON feedback(timestamp)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_agent ON feedback(agent_id)")
+        try:
+            conn.execute("ALTER TABLE feedback ADD COLUMN rating INTEGER")
+        except Exception:
+            pass
 
         # Quality scores — auto-scored per response
         conn.execute("""
@@ -4362,6 +4366,28 @@ async def x402_graph_test_endpoint(request: Request):
 
 # ── Feedback endpoint ────────────────────────────────────────────────────────
 
+
+# In-memory rate limit for POST /feedback (unauthenticated). Conservative.
+_FEEDBACK_RL_LOCK = __import__("threading").Lock()
+_FEEDBACK_RL: dict[str, list[float]] = {}
+_FEEDBACK_RL_PER_HOUR = 20
+
+
+def _feedback_rate_allow(key: str) -> bool:
+    import time as _time
+    now = _time.time()
+    with _FEEDBACK_RL_LOCK:
+        hits = [t for t in _FEEDBACK_RL.get(key, []) if now - t < 3600]
+        if len(hits) >= _FEEDBACK_RL_PER_HOUR:
+            _FEEDBACK_RL[key] = hits
+            return False
+        hits.append(now)
+        _FEEDBACK_RL[key] = hits
+        if len(_FEEDBACK_RL) > 20000:
+            _FEEDBACK_RL.clear()
+        return True
+
+
 async def feedback_endpoint(request: Request):
     """POST /feedback — agents report whether a response was useful.
 
@@ -4370,6 +4396,7 @@ async def feedback_endpoint(request: Request):
         "request": "the original query",
         "service_recommended": "graph-aave-mcp",
         "was_useful": true/false,
+        "rating": 1-5 (optional star rating),
         "tool_executed": "get_aave_reserves" (optional),
         "actual_result": "success" or error message (optional),
         "comment": "free text" (optional)
@@ -4414,12 +4441,33 @@ async def feedback_endpoint(request: Request):
             {"error": "was_useful must be true, false, or omitted"}, status_code=400
         )
 
+    # Optional 1-5 star rating (alongside or instead of was_useful).
+    _rating = body.get("rating")
+    if _rating is not None:
+        try:
+            _rating = int(_rating)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "rating must be an integer 1-5 or omitted"}, status_code=400)
+        if _rating < 1 or _rating > 5:
+            return JSONResponse({"error": "rating must be an integer 1-5 or omitted"}, status_code=400)
+
+    # Light per-IP rate limit (unauthenticated route).
+    _ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (
+        request.client.host if request.client else "anon"
+    )
+    if not _feedback_rate_allow(_ip or "anon"):
+        return JSONResponse({"error": "rate limit exceeded; try later"}, status_code=429)
+
     try:
         import sqlite3 as _sq
         conn = _sq.connect(str(DB_PATH))
+        try:
+            conn.execute("ALTER TABLE feedback ADD COLUMN rating INTEGER")
+        except Exception:
+            pass
         conn.execute(
-            "INSERT INTO feedback (timestamp, agent_id, request, service_recommended, was_useful, tool_executed, actual_result, comment) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO feedback (timestamp, agent_id, request, service_recommended, was_useful, tool_executed, actual_result, comment, rating) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 datetime.now(timezone.utc).isoformat(),
                 agent_id,
@@ -4429,17 +4477,22 @@ async def feedback_endpoint(request: Request):
                 _clean["tool_executed"],
                 _clean["actual_result"],
                 _clean["comment"],
+                _rating,
             ),
         )
         conn.commit()
         total = conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
         useful = conn.execute("SELECT COUNT(*) FROM feedback WHERE was_useful = 1").fetchone()[0]
         conn.close()
-        log.info(f"FEEDBACK from {agent_id}: useful={body.get('was_useful')} service={body.get('service_recommended')}")
+        log.info(
+            f"FEEDBACK from {agent_id}: useful={body.get('was_useful')} rating={_rating} "
+            f"service={body.get('service_recommended')}"
+        )
         return JSONResponse({
             "status": "recorded",
             "total_feedback": total,
             "useful_rate": round(useful / total * 100, 1) if total > 0 else 0,
+            "rating": _rating,
         })
     except Exception as e:
         # Log the detail, return a generic message: the raw exception text of a
