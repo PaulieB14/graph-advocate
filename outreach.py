@@ -348,46 +348,31 @@ def load_conversions(path: Path) -> dict[str, dict]:
     return raw if isinstance(raw, dict) else {}
 
 
-def build_intro(public_url: str) -> str:
-    """Tight A2A intro: replayable free path + paid /route + compounding install.
+def build_intro(public_url: str, agent: dict | None = None) -> str:
+    """A2A intro text.
 
-    Live rules:
+    Default (OUTREACH_PERSONALIZED unset/0): legacy generic template.
+    When OUTREACH_PERSONALIZED=1 (or agent dict passed and flag on): short
+    personalized pitch via outreach_pitch.build_personalized_intro.
+
+    Kill switch: leave OUTREACH_PERSONALIZED unset to keep current wording.
+    Live rules (both modes):
       - A2A POST / with metadata.sender = 42-char 0x wallet → 3 free/day.
-      - A name alone does NOT qualify.
       - HTTP POST /route is x402-gated from call 1 ($0.01 USDC on Base).
-      - Peers pay the 402 challenge payTo, never the identity wallet.
     """
-    a2a_body = (
-        '{"jsonrpc":"2.0","id":1,"method":"message/send",'
-        '"params":{"message":{"role":"user","messageId":"1",'
-        '"parts":[{"kind":"text","text":"Top Uniswap V3 pools on Base by TVL"}],'
-        '"metadata":{"sender":"0xYOUR_WALLET","name":"your-agent"}}}}'
+    from outreach_pitch import legacy_intro, build_personalized_intro
+    personalized = os.environ.get("OUTREACH_PERSONALIZED", "").strip().lower() in (
+        "1", "true", "yes", "on",
     )
-    return (
-        "Graph Advocate — onchain data router for The Graph Protocol. "
-        f"Live: {public_url}  ERC-8004 #41034 Base / #734 Arbitrum.\n"
-        "Ask in English, get the subgraph + GraphQL. URL discovery does not compound "
-        "(we see probes, not payers) — install once, then call.\n\n"
-        "1) Three free A2A queries/day ONLY if metadata.sender is YOUR 0x EVM wallet "
-        "(42 chars). A name does not qualify. Replay (fill 0xYOUR_WALLET):\n"
-        f"curl -sX POST {public_url} -H 'Content-Type: application/json' -d '{a2a_body}'\n\n"
-        "2) Paid path: HTTP POST /route is x402-gated from call 1 "
-        "($0.01 USDC on Base, eip155:8453, Coinbase CDP facilitator). "
-        "Pay the 402 challenge payTo — do not send USDC to some other wallet.\n"
-        "import { wrapFetchWithPayment } from \"@x402/fetch\";\n"
-        "const pay = wrapFetchWithPayment(fetch, client); // client = your x402Client\n"
-        f"await pay(\"{public_url}/route\", {{method:\"POST\","
-        "headers:{\"Content-Type\":\"application/json\"},"
-        "body: JSON.stringify({request: \"Top Uniswap V3 pools on Base by TVL\"})}});\n\n"
-        "3) Keep this (compounding drop-in):\n"
-        "pip install 'langchain-graph-advocate[x402]'\n"
-        "from langchain_graph_advocate import GraphAdvocateTool\n"
-        "GraphAdvocateTool(x402_private_key=os.environ['X402_PRIVATE_KEY'])"
-        ".invoke({\"request\": \"Top Uniswap V3 pools on Base by TVL\"})"
-    )
+    if personalized and agent is not None:
+        return build_personalized_intro(
+            name=str(agent.get("name") or ""),
+            description=str(agent.get("description") or agent.get("desc") or ""),
+            skills=agent.get("skills"),
+            public_url=public_url,
+        )
+    return legacy_intro(public_url)
 
-
-# ── HTTP helpers ─────────────────────────────────────────────────────────────
 
 def _get(url: str, *, params: dict | None = None, headers: dict | None = None) -> tuple[int, Any, str]:
     try:
@@ -891,6 +876,13 @@ def build_candidates(
                 "a2a": _has_a2a(item) or True,
                 "chain_id": chain,
                 "token_id": token,
+                "description": str(
+                    item.get("description")
+                    or item.get("desc")
+                    or item.get("summary")
+                    or ""
+                ),
+                "skills": item.get("skills") or item.get("capabilities") or [],
             }
         )
 
@@ -1008,7 +1000,9 @@ def run() -> None:
                     candidates.append({"name": c["name"], "url": c["endpoint"], "wallet": c["wallet"],
                                        "source": "8004", "score": c["score"], "x402": True, "a2a": True,
                                        "chain_id": c["agent_id"].split(":")[0],
-                                       "token_id": c["agent_id"].split(":")[1]})
+                                       "token_id": c["agent_id"].split(":")[1],
+                                       "description": str(c.get("description") or ""),
+                                       "skills": c.get("skills") or []})
                     have.add(c["endpoint"])
 
     print(f"candidates sendable: {len(candidates)} (daily cap {daily_limit})")
@@ -1025,7 +1019,8 @@ def run() -> None:
         if not _is_http(url):
             continue
         print(f"\n→ {name} ({url}) source={cand.get('source')} x402={cand.get('x402')} score={cand.get('score')}")
-        status = send_intro(url, intro)
+        msg = build_intro(PUBLIC_URL, agent=cand) if os.environ.get("OUTREACH_PERSONALIZED", "").strip().lower() in ("1", "true", "yes", "on") else intro
+        status = send_intro(url, msg)
         print(f"  {status}")
         contacted[url] = {
             "name": name,
