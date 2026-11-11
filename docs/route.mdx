@@ -11,7 +11,7 @@ api: "POST https://graphadvocate.com/route"
 ## What happens
 
 1. **First call** returns `402 Payment Required` with x402 accepts list ($0.01 USDC on Base)
-2. **x402 client signs** a transferWithAuthorization and retries with `X-PAYMENT` header
+2. **x402 client signs** a transferWithAuthorization and retries with a `PAYMENT-SIGNATURE` header (x402 v2) or `X-PAYMENT` (v1)
 3. **CDP facilitator** verifies, settles on-chain, forwards to the handler
 4. **Graph Advocate routes** the query, picks the best service, generates the GraphQL, and — when possible — **executes it and returns live data**
 

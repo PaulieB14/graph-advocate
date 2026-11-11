@@ -66,6 +66,22 @@ X402_WALLET = os.environ.get("X402_PAY_TO", "0x0FF5A6ecef783BBA35463ec2F8403B9B5
 # call after the 2026-10-12 tiering is ~$0.02 (Sonnet, cached) vs ~$0.11 (Opus).
 X402_PRICE_CENTS = int(os.environ.get("X402_PRICE_CENTS", "1"))
 
+# Facilitator actually used for mainnet settlement (CDP). Advertised on A2A
+# accepts so callers do not follow the testnet default x402.org/facilitator.
+CDP_X402_FACILITATOR_URL = "https://api.cdp.coinbase.com/platform/v2/x402"
+
+# v2 clients send PAYMENT-SIGNATURE; v1 sends X-PAYMENT. The server middleware
+# accepts both. Browser clients need both on preflight and must be able to
+# read payment-required / payment-response on the actual 402/200.
+X402_CORS_ALLOW_HEADERS = (
+    "Content-Type, Authorization, Accept, "
+    "X-PAYMENT, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, PAYMENT-RESPONSE"
+)
+X402_CORS_EXPOSE_HEADERS = (
+    "PAYMENT-REQUIRED, PAYMENT-RESPONSE, PAYMENT-SIGNATURE, "
+    "X-PAYMENT, X-PAYMENT-RESPONSE"
+)
+
 
 def _facilitator_rejection(exc: Exception):
     """(stage, reason, payer) if exc is the x402 client's facilitator rejection, else None.
@@ -815,7 +831,7 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
             "extra": {
                 "name": "USD Coin",
                 "version": "2",
-                "facilitator": "https://x402.org/facilitator",
+                "facilitator": CDP_X402_FACILITATOR_URL,
                 "provider": "Graph Advocate (graphadvocate.eth)",
             },
         }],
@@ -823,21 +839,23 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
         "alternatives": [],
         # BRIDGE onto the standard x402 rail. The A2A reply above is HTTP 200 (not
         # a 402), so a client's autopay middleware never fires here — it only fires
-        # on a real HTTP 402 + `X-PAYMENT`. `pay_via_http` hands the caller the
+        # on a real HTTP 402 + payment header. `pay_via_http` hands the caller the
         # exact auto-payable endpoint so any x402 SDK can sign + retry.
         "pay_via_http": {
             "url": f"{_base}/route",
             "method": "POST",
             "payment_header": "X-PAYMENT",
+            "payment_headers": ["PAYMENT-SIGNATURE", "X-PAYMENT"],
             "price": "$0.01",
             "network": "eip155:8453",
             "asset": _USDC_BASE_ASSET,
             "payTo": X402_WALLET,
             "body": {"request": (user_text or "<your onchain data question>")[:400]},
             "note": (
-                "Recommended: POST here with an x402 `X-PAYMENT` header. Standard "
-                "HTTP 402 challenge — any x402 SDK auto-signs + retries. Returns a "
-                "routing recommendation (see output_example)."
+                "Recommended: POST here with an x402 `PAYMENT-SIGNATURE` header "
+                "(v2) or `X-PAYMENT` (v1). Standard HTTP 402 challenge — any x402 "
+                "SDK auto-signs + retries. Returns a routing recommendation "
+                "(see output_example)."
             ),
         },
         # Honest: $0.01 over the routing path returns a ROUTING recommendation.
@@ -895,6 +913,7 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
             "url": f"{_base}{_svc['path']}",
             "method": "POST",
             "payment_header": "X-PAYMENT",
+            "payment_headers": ["PAYMENT-SIGNATURE", "X-PAYMENT"],
             "price": _svc["price"],
             "scheme": "exact",
             "network": "eip155:8453",
@@ -907,17 +926,17 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
             "output_example_for": _ex_label,
             "note": (
                 f"You asked for `{_ex_label}` — POST this endpoint with an x402 "
-                f"`X-PAYMENT` header ({_svc['price']}) to get the computed result "
-                "shown in output_example. Standard HTTP 402, auto-payable by any "
-                "x402 SDK. This is the exact data you want (the $0.01 routing path "
-                "only tells you where to look)."
+                f"`PAYMENT-SIGNATURE` (v2) or `X-PAYMENT` (v1) header ({_svc['price']}) "
+                "to get the computed result shown in output_example. Standard HTTP "
+                "402, auto-payable by any x402 SDK. This is the exact data you want "
+                "(the $0.01 routing path only tells you where to look)."
             ),
         }
 
     resp["hint"] = (
         "Two standard x402 ways to pay — both USDC on Base (eip155:8453): "
         "(1) HTTP rail (recommended; any x402 SDK auto-signs + retries on the 402): "
-        "POST `pay_via_http.url` with an `X-PAYMENT` header for the routing answer"
+        "POST `pay_via_http.url` with a `PAYMENT-SIGNATURE` (v2) or `X-PAYMENT` (v1) header for the routing answer"
         + (", or `direct_service.url` for the exact computed result you asked for. "
            if _svc else ". ")
         + "(2) Over A2A: prefix this message's text with `x402:<signed-payment>` to "
@@ -2084,6 +2103,44 @@ def _add_bazaar_service_metadata(pr_b64: bytes, path: str) -> bytes:
         return _b64m.b64encode(json.dumps(decoded, separators=(",", ":")).encode())
     except Exception:
         return pr_b64
+
+
+def _encode_payment_required_header(payload: dict) -> bytes:
+    """Base64-encode a v2 PaymentRequired object for the payment-required header."""
+    import base64 as _b64pr
+    return _b64pr.b64encode(json.dumps(payload, separators=(",", ":")).encode())
+
+
+def _with_x402_cors_headers(headers: list) -> list:
+    """Ensure paid-route responses expose x402 payment headers to browsers."""
+    out = list(headers or [])
+    names = {k.lower() for k, _ in out}
+    if b"access-control-allow-origin" not in names:
+        out.append((b"access-control-allow-origin", b"*"))
+    if b"access-control-expose-headers" not in names:
+        out.append((b"access-control-expose-headers", X402_CORS_EXPOSE_HEADERS.encode()))
+    return out
+
+
+class _X402CorsASGI:
+    """Attach CORS allow-origin + Expose-Headers on 402/200 (and other) responses
+    from the paid x402 app, so browser clients can read PAYMENT-REQUIRED /
+    PAYMENT-RESPONSE / PAYMENT-SIGNATURE (and the v1 X-PAYMENT* names)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_cors(msg):
+            if msg.get("type") == "http.response.start":
+                msg = {**msg, "headers": _with_x402_cors_headers(list(msg.get("headers") or []))}
+            await send(msg)
+
+        await self.app(scope, receive, send_with_cors)
 
 
 # ContextVar holding the recovered EVM signer address of the current x402
@@ -3882,7 +3939,7 @@ agent_card = AgentCard(
         # can discover HOW to pay before they ever hit a paywall. The A2A reply
         # to a paid call is HTTP 200 (not a 402 an SDK auto-pays), so we point
         # clients at the standard HTTP rail (`pay_via_http`/`direct_service` +
-        # `X-PAYMENT`) carried in every payment-required response.
+        # `PAYMENT-SIGNATURE` / `X-PAYMENT`) carried in every payment-required response.
         extensions=[
             AgentExtension(
                 uri="https://x402.org/ext/a2a-payments/v1",
@@ -3890,8 +3947,9 @@ agent_card = AgentCard(
                     "Paid calls settle with x402 (USDC on Base, eip155:8453). A "
                     "payment-required reply is a JSON object with recommendation="
                     "'payment-required' carrying: `accepts` (x402 PaymentRequirements), "
-                    "`pay_via_http` (POST an `X-PAYMENT` header to this URL — a real "
-                    "HTTP 402 any x402 SDK auto-pays), and, when the question maps to "
+                    "`pay_via_http` (POST a `PAYMENT-SIGNATURE` (v2) or `X-PAYMENT` (v1) "
+                    "header to this URL — a real HTTP 402 any x402 SDK auto-pays), and, "
+                    "when the question maps to "
                     "a specialized endpoint, `direct_service` (the endpoint that "
                     "computes the exact result, with its own price/body/output_example). "
                     "You may also pay over A2A by prefixing the message text with "
@@ -3907,6 +3965,7 @@ agent_card = AgentCard(
                     "assetSymbol": "USDC",
                     "payTo": X402_WALLET,
                     "paymentHeader": "X-PAYMENT",
+                    "paymentHeaders": ["PAYMENT-SIGNATURE", "X-PAYMENT"],
                     "httpEndpoint": f"{PUBLIC_URL}/route",
                     "bazaarDiscovery": f"{PUBLIC_URL}/.well-known/x402",
                     "freeTierPerDay": DAILY_FREE_QUERIES,
@@ -11599,6 +11658,13 @@ def build_app():
                 "maxTimeoutSeconds": 300,
                 "extra": {"name": "USD Coin", "version": "2"},
             }
+            accepts_list = [{k: v for k, v in accepts.items() if v}]
+            resource_obj = {
+                "url": f"{base}{path}",
+                "description": entry.get("desc") or lede,
+                "mimeType": "application/json",
+                **_bazaar_service_metadata(path),
+            }
             payload = {
                 # 402, not 405. x402 says an unpaid request to a priced resource
                 # answers with the payment requirements, and the CDP Bazaar's
@@ -11610,26 +11676,41 @@ def build_app():
                 # indexed. 24 routes declare discovery metadata; 2 were listed.
                 # The `Allow: POST` header and `method` field below still carry
                 # the verb, so nothing a crawler learned from the 405 is lost.
-                "x402Version": 1,
-                "error": "payment_required",
+                #
+                # Also emit the v2 `payment-required` header (not just the body).
+                # Official x402 2.8+ clients read the header first and ignore a
+                # body that is not x402Version 1, so a headerless GET 402 looks
+                # like a broken resource even when `accepts` is in the JSON.
+                "x402Version": 2,
+                "error": "Payment required",
                 "message": lede,
                 "method": "POST",
-                "resource": f"{base}{path}",
+                "resource": resource_obj,
                 "price": price,
                 "description": entry.get("desc"),
                 "body": entry.get("body"),
-                "accepts": [{k: v for k, v in accepts.items() if v}],
+                "accepts": accepts_list,
                 "hint": (
-                    "POST the `body` above with an x402 `X-PAYMENT` header. Most "
-                    "x402 SDKs sign and retry automatically — POST once with no "
-                    "header to get the machine-readable 402 challenge first."
+                    "POST the `body` above with an x402 `PAYMENT-SIGNATURE` header "
+                    "(v2) or `X-PAYMENT` (v1). Most x402 SDKs sign and retry "
+                    "automatically — POST once with no header to get the "
+                    "machine-readable 402 challenge first."
                 ),
                 **common,
             }
             # Drop empties, not just Nones: a blank price or `{}` body reads as a
             # broken field to a crawler, where an absent key reads as "n/a".
-            return _RouteJSON({k: v for k, v in payload.items() if v not in (None, "", {}, [])},
-                              status_code=402, headers={"Allow": "POST"})
+            body = {k: v for k, v in payload.items() if v not in (None, "", {}, [])}
+            pr_doc = {
+                "x402Version": 2,
+                "error": "Payment required",
+                "resource": resource_obj,
+                "accepts": accepts_list,
+            }
+            return _RouteJSON(body, status_code=402, headers={
+                "Allow": "POST",
+                "payment-required": _encode_payment_required_header(pr_doc).decode(),
+            })
 
         _inner_route_app = _RouteStarlette(routes=[
             _RouteRoute("/route", _route_handler, methods=["POST"]),
@@ -12439,6 +12520,13 @@ def build_app():
                         example = None
                         description = None
                         resource_obj = None
+                        orig_body: dict = {}
+                        try:
+                            _ob = json.loads(bytes(state["buf"]) or b"{}")
+                            if isinstance(_ob, dict):
+                                orig_body = _ob
+                        except Exception:
+                            orig_body = {}
                         if pr_b64:
                             try:
                                 decoded = json.loads(_b64hook.b64decode(pr_b64))
@@ -12454,18 +12542,50 @@ def build_app():
                                 )
                             except Exception:
                                 pass
+                        # GET (and any 402 that omitted the header) used to lose
+                        # `accepts` here: the shim replaced the body and had
+                        # nothing to copy. Fall back to the original body and
+                        # synthesize a v2 payment-required header so official
+                        # clients and Bazaar-style GET validators can read it.
+                        if not accepts:
+                            accepts = orig_body.get("accepts")
+                        if resource_obj is None and isinstance(orig_body.get("resource"), dict):
+                            resource_obj = orig_body["resource"]
+                        if not description:
+                            description = orig_body.get("description") or (
+                                (resource_obj or {}).get("description")
+                            )
                         if description:
                             enriched["description"] = description
-                        enriched["resource"] = {**(resource_obj or {}), **_bazaar_service_metadata(scope.get("path", ""))}
+                        path = scope.get("path", "")
+                        if resource_obj is None:
+                            resource_obj = {"url": f"https://graphadvocate.com{path}"}
+                        enriched["resource"] = {**resource_obj, **_bazaar_service_metadata(path)}
                         if accepts:
                             enriched["accepts"] = accepts
+                        if not pr_b64 and accepts:
+                            pr_b64 = _encode_payment_required_header({
+                                "x402Version": 2,
+                                "error": "Payment required",
+                                "resource": enriched["resource"],
+                                "accepts": accepts,
+                            })
                         if example is not None:
                             enriched["output_example"] = example
                             enriched["hint"] = (
-                                "POST the same body again with an x402 `X-PAYMENT` header to "
-                                "receive a payload matching `output_example`. Most x402 SDKs "
-                                "handle the signing + retry automatically; the example is also "
-                                "available base64-encoded in the `payment-required` response header."
+                                "POST the same body again with an x402 `PAYMENT-SIGNATURE` "
+                                "header (v2) or `X-PAYMENT` (v1) to receive a payload "
+                                "matching `output_example`. Most x402 SDKs handle the "
+                                "signing + retry automatically; the example is also "
+                                "available base64-encoded in the `payment-required` "
+                                "response header."
+                            )
+                        elif accepts:
+                            enriched["hint"] = (
+                                "POST the same body again with an x402 `PAYMENT-SIGNATURE` "
+                                "header (v2) or `X-PAYMENT` (v1). Most x402 SDKs sign and "
+                                "retry automatically; the challenge is also in the "
+                                "`payment-required` response header."
                             )
                         else:
                             enriched["hint"] = (
@@ -12554,6 +12674,7 @@ def build_app():
                 _x402_route_app = _PaidFB(_x402_route_app)
             except Exception as _fe:
                 log.warning(f"feedback invite middleware not installed: {_fe}")
+            _x402_route_app = _X402CorsASGI(_x402_route_app)
         else:
             log.warning("x402 server not available — /route will return 402 without verification capability")
     except Exception as e:
@@ -13171,7 +13292,7 @@ def build_app():
             await send({"type": "http.response.start", "status": 204, "headers": [
                 [b"access-control-allow-origin", b"*"],
                 [b"access-control-allow-methods", b"GET, POST, OPTIONS"],
-                [b"access-control-allow-headers", b"Content-Type, X-PAYMENT, Authorization, Accept"],
+                [b"access-control-allow-headers", X402_CORS_ALLOW_HEADERS.encode()],
                 [b"access-control-max-age", b"86400"],
             ]})
             await send({"type": "http.response.body", "body": b""})
@@ -13409,10 +13530,10 @@ def build_app():
                 while more_body:
                     msg = await receive()
                     more_body = msg.get("more_body", False)
-                await send({"type": "http.response.start", "status": 402, "headers": [
+                await send({"type": "http.response.start", "status": 402, "headers": _with_x402_cors_headers([
                     [b"content-type", b"application/json"],
                     [b"payment-required", _b64f.b64encode(ch)],
-                ]})
+                ])})
                 await send({"type": "http.response.body", "body": ch})
         else:
             await a2a_app(scope, receive, send)

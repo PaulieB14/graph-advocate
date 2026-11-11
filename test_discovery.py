@@ -16,6 +16,9 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test")
 import discovery_files as d  # noqa: E402
 from a2a_server import (  # noqa: E402
     _add_bazaar_service_metadata, _bazaar_service_metadata, agent_card,
+    _encode_payment_required_header, _with_x402_cors_headers,
+    X402_CORS_ALLOW_HEADERS, X402_CORS_EXPOSE_HEADERS,
+    CDP_X402_FACILITATOR_URL,
 )
 
 ASCII = re.compile(r"^[\x20-\x7e]{1,32}$")
@@ -144,6 +147,65 @@ class TestRoutes(unittest.TestCase):
     def test_agent_card_icon(self):
         card = self.c.get("/.well-known/agent-card.json").json()
         self.assertIn("iconUrl", card)
+
+    def test_get_paid_routes_return_full_v2_challenge(self):
+        """GET /route, /ask, /tip must be a 402 with accepts + payment-required header."""
+        for path in ("/route", "/ask", "/tip"):
+            r = self.c.get(path)
+            self.assertEqual(r.status_code, 402, path)
+            body = r.json()
+            self.assertEqual(body.get("x402Version"), 2, path)
+            accepts = body.get("accepts")
+            self.assertTrue(isinstance(accepts, list) and accepts, f"{path} body missing accepts")
+            acc = accepts[0]
+            self.assertEqual(acc.get("scheme"), "exact")
+            self.assertEqual(acc.get("network"), "eip155:8453")
+            self.assertEqual(acc.get("asset"), "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+            self.assertEqual(acc.get("payTo").lower(), "0x0ff5a6ecef783bba35463ec2f8403b9b5e9e7c86")
+            if path == "/route":
+                self.assertEqual(str(acc.get("amount")), "10000")
+            pr = r.headers.get("payment-required")
+            self.assertTrue(pr, f"{path} missing payment-required header")
+            decoded = json.loads(base64.b64decode(pr))
+            self.assertEqual(decoded.get("x402Version"), 2, path)
+            self.assertTrue(decoded.get("accepts"), f"{path} header missing accepts")
+            expose = r.headers.get("access-control-expose-headers") or ""
+            for h in ("PAYMENT-REQUIRED", "PAYMENT-RESPONSE", "PAYMENT-SIGNATURE", "X-PAYMENT"):
+                self.assertIn(h, expose, f"{path} expose-headers missing {h}")
+
+    def test_options_preflight_lists_v2_payment_headers(self):
+        r = self.c.options("/route")
+        self.assertEqual(r.status_code, 204)
+        allow = r.headers.get("access-control-allow-headers") or ""
+        for h in ("PAYMENT-SIGNATURE", "PAYMENT-REQUIRED", "PAYMENT-RESPONSE", "X-PAYMENT"):
+            self.assertIn(h, allow, f"OPTIONS allow-headers missing {h}")
+
+
+class TestPaymentRequiredHeaderHelpers(unittest.TestCase):
+    def test_encode_roundtrip(self):
+        doc = {"x402Version": 2, "accepts": [{"amount": "10000"}]}
+        out = json.loads(base64.b64decode(_encode_payment_required_header(doc)))
+        self.assertEqual(out, doc)
+
+    def test_cors_header_helper_adds_expose(self):
+        headers = _with_x402_cors_headers([(b"content-type", b"application/json")])
+        as_dict = {
+            (k.decode() if isinstance(k, (bytes, bytearray)) else k).lower():
+            (v.decode() if isinstance(v, (bytes, bytearray)) else v)
+            for k, v in headers
+        }
+        self.assertEqual(as_dict["access-control-allow-origin"], "*")
+        for h in ("PAYMENT-REQUIRED", "PAYMENT-SIGNATURE", "X-PAYMENT"):
+            self.assertIn(h, as_dict["access-control-expose-headers"])
+        self.assertEqual(as_dict["access-control-expose-headers"], X402_CORS_EXPOSE_HEADERS)
+
+    def test_cdp_facilitator_constant(self):
+        self.assertEqual(
+            CDP_X402_FACILITATOR_URL,
+            "https://api.cdp.coinbase.com/platform/v2/x402",
+        )
+        self.assertIn("PAYMENT-SIGNATURE", X402_CORS_ALLOW_HEADERS)
+        self.assertIn("X-PAYMENT", X402_CORS_ALLOW_HEADERS)
 
 
 if __name__ == "__main__":

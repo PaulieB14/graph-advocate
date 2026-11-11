@@ -1498,6 +1498,17 @@ class TestFreeTierCopyMatchesTheGate(unittest.TestCase):
         pv = body.get("pay_via_http") or {}
         self.assertTrue(pv.get("url") and pv.get("payment_header") == "X-PAYMENT",
                         "the 402 must still hand over a directly payable endpoint")
+        self.assertIn("PAYMENT-SIGNATURE", pv.get("payment_headers") or [])
+        self.assertIn("PAYMENT-SIGNATURE", pv.get("note") or "")
+        self.assertIn("X-PAYMENT", pv.get("note") or "")
+        extras = ((body.get("accepts") or [{}])[0].get("extra") or {})
+        self.assertEqual(
+            extras.get("facilitator"),
+            self.srv.CDP_X402_FACILITATOR_URL,
+            "A2A accepts must advertise the CDP facilitator used for settlement, "
+            "not the x402.org testnet default",
+        )
+        self.assertNotIn("x402.org/facilitator", extras.get("facilitator") or "")
 
 
 class TestRefusalScoring(unittest.TestCase):

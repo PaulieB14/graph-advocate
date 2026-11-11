@@ -130,7 +130,7 @@ curl -X POST https://graphadvocate.com/agent/score \
   -d '{"wallet":"0xe69f9cc5e073b4a41d9e888a91159d0706161f18","days":30}'
 ```
 
-Both require an `X-PAYMENT` header carrying a signed EIP-3009 authorization for $0.02 USDC. Most x402 SDKs handle the sign + retry automatically — discover via `GET /.well-known/x402`.
+Both require a `PAYMENT-SIGNATURE` header (x402 v2) or `X-PAYMENT` (v1) carrying a signed EIP-3009 authorization for $0.02 USDC. Most x402 SDKs handle the sign + retry automatically — discover via `GET /.well-known/x402`.
 
 ## Use cases
 
