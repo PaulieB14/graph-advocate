@@ -83,3 +83,41 @@ def humanize_data(value: Any, _key: str = "") -> Any:
     if isinstance(value, str) and _USD_KEY_RE.search(_key) and _NUMERIC_RE.match(value.strip()):
         return format_usd(value) or value
     return value
+
+
+def _flatten(prefix: str, value: Any, out: dict) -> None:
+    if isinstance(value, dict):
+        for k, v in value.items():
+            _flatten(f"{prefix}_{k}" if prefix else k, v, out)
+    elif isinstance(value, list):
+        out[prefix] = [humanize_data(v, prefix.rsplit("_", 1)[-1]) if isinstance(v, (dict, list)) else v for v in value]
+    elif isinstance(value, str) and _USD_KEY_RE.search(prefix.rsplit("_", 1)[-1]) and _NUMERIC_RE.match(value.strip()):
+        out[prefix] = format_usd(value) or value
+    else:
+        out[prefix] = value
+
+
+def table_rows(data: dict, limit: int = 25) -> tuple[str | None, list[dict]]:
+    """(list_field_name, flat formatted rows) for the biggest list in a GraphQL `data` block.
+
+    {"pools": [{"token0": {"symbol": "USDC"}, "volumeUSD": "609167447506.18"}]}
+      -> ("pools", [{"token0_symbol": "USDC", "volumeUSD": "$609.17B"}])
+    A single-entity field (dict) becomes one row. `_meta` is ignored.
+    """
+    best_key, best = None, None
+    for k, v in (data or {}).items():
+        if k == "_meta":
+            continue
+        if isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+            if best is None or len(v) > len(best):
+                best_key, best = k, v
+        elif isinstance(v, dict) and best is None:
+            best_key, best = k, [v]
+    if best is None:
+        return None, []
+    rows = []
+    for item in best[:limit]:
+        flat: dict = {}
+        _flatten("", item, flat)
+        rows.append(flat)
+    return best_key, rows

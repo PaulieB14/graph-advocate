@@ -126,7 +126,7 @@ _ENS_GQL = """
 # (keywords, topic_id, source, endpoint, full_answer_includes, example_or_None)
 _TOPICS: list[tuple[tuple[str, ...], str, str, str, str, dict | None]] = [
     (("polymarket",), "polymarket",
-     "Polymarket subgraphs on The Graph (main V2 FjHkLw5U…, orderbook B9mm21…, PnL 6iGihL…)",
+     "Polymarket subgraphs on The Graph (main 81Dm16Jj…, orderbook B9mm21…, PnL 6iGihL…)",
      "/polymarket/*",
      "trader PnL, positions, order flow and a ready-to-run GraphQL query",
      _ex_http("POST", "/polymarket/pnl-quick", {"wallet": "0xYOUR_WALLET"},

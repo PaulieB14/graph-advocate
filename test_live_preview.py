@@ -207,13 +207,57 @@ class TestLivePreview(LiveBase):
         with mock.patch.object(lp, "_fetch", return_value=pm):
             prev = fp.build("How big is Polymarket overall?", "pm1")
         self.assertEqual(prev["live_preview"]["rows"][0]["traders"], "1,234,567")
-        self.assertEqual(prev["live_preview"]["rows"][0]["collateral_volume"], "$5.12B")
+        self.assertEqual(prev["live_preview"]["rows"][0]["markets_open"], "40")
+        self.assertNotIn("collateral_volume", prev["live_preview"]["rows"][0])
 
     def test_non_live_topic_unchanged(self):
         with mock.patch.object(lp, "_fetch", return_value=UNI_DATA) as f:
             prev = fp.build("Compare SOL token holder distribution vs ETH", "tk1")
         self.assertEqual(f.call_count, 0)
         self.assertNotIn("live_preview", prev)
+
+
+class TestChainsStaleAndPaid(LiveBase):
+    def test_chain_selection(self):
+        with mock.patch.object(lp, "_fetch", return_value=UNI_DATA) as f:
+            fp.build("top Uniswap V3 pools on Base by volume", "ch1")
+            self.assertEqual(f.call_args[0][0], lp.UNI_V3["base"][0])
+            fp.build("top Uniswap V3 pools on Optimism by volume", "ch2")
+            self.assertEqual(f.call_args[0][0], lp.UNI_V3["optimism"][0])
+            n = f.call_count
+            for i, q in enumerate(["top Uniswap V3 pools on Arbitrum by volume", "top Uniswap pools on Base and Optimism",
+                                   "top Uniswap V3 pools on Solana by volume", "top Uniswap V3 pools on bsc"]):
+                self.assertNotIn("live_preview", fp.build(q, f"chx{i}"), q)
+            self.assertEqual(f.call_count, n)
+        mk = {"markets": [{"name": "Aave Arbitrum WBTC", "inputToken": {"symbol": "WBTC"}, "totalValueLockedUSD": "230881291.93"}]}
+        with mock.patch.object(lp, "_fetch", return_value=mk) as f:
+            prev = fp.build("top Aave V3 markets on Arbitrum by TVL", "ch5")
+            self.assertEqual(f.call_args[0][0], lp.AAVE_V3["arbitrum"][0])
+            self.assertEqual(prev["live_preview"]["source"]["network"], "arbitrum")
+            self.assertNotIn("live_preview", fp.build("Aave V3 liquidations on Arbitrum", "ch6"))
+            self.assertNotIn("live_preview", fp.build("top Aave V3 markets on Base by TVL", "ch7"))
+
+    def test_stale_index_falls_back(self):
+        import time
+        stale = dict(UNI_DATA, _meta={"block": {"number": 1, "timestamp": int(time.time()) - 30 * 86400}})
+        with mock.patch.object(lp, "_fetch", return_value=stale):
+            prev = fp.build("top Uniswap V3 pools on Ethereum by volume", "st1")
+        self.assertNotIn("live_preview", prev)
+        with lp._cache_lock:
+            lp._cache.clear()
+        fresh = dict(UNI_DATA, _meta={"block": {"number": 1, "timestamp": int(time.time()) - 60}})
+        with mock.patch.object(lp, "_fetch", return_value=fresh):
+            prev = fp.build("top Uniswap V3 pools by volume", "st2")
+        self.assertIn("live_preview", prev)
+
+    def test_build_paid_returns_up_to_25_rows_and_no_upsell_note(self):
+        with mock.patch.object(lp, "_fetch", return_value=UNI_DATA) as f:
+            out = lp.build_paid("top Uniswap V3 pools on Ethereum by volume")
+        self.assertIn("first: 25", f.call_args[0][1])
+        self.assertEqual(out["row_count"], 3)
+        self.assertNotIn("pay $", out["note"] or "")
+        self.assertEqual(out["rows"][0]["volume_usd_lifetime"], "$609.17B")
+        self.assertIsNone(lp.build_paid("what is the weather like in paris tomorrow"))
 
 
 class TestCallerKey(LiveBase):
@@ -264,6 +308,22 @@ class TestExecutedDisplay(unittest.TestCase):
         self.assertEqual(ex["data"]["pools"][0]["volumeUSD"], "609167447506.1830892627042412837456")
         self.assertEqual(ex["data_display"]["pools"][0]["volumeUSD"], "$609.17B")
         self.assertEqual(ex["data_display"]["pools"][0]["totalValueLockedUSD"], "$363.10M")
+        row = ex["rows_display"]["rows"][0]
+        self.assertEqual(ex["rows_display"]["field"], "pools")
+        self.assertEqual((row["token0_symbol"], row["token1_symbol"], row["volumeUSD"]), ("USDC", "WETH", "$609.17B"))
+        self.assertEqual(row["feeTier"], "500")  # not a USD field: untouched
+        res = se.build_result_block(ex)
+        self.assertEqual(res["rows_shown"], 3)
+        self.assertEqual(res["source"]["subgraph_id"], lp.UNI_V3_ETH)
+        self.assertIn("pools", res["query"])
+        self.assertEqual(res["indexed_block"], 26395637)
+        self.assertIsNone(se.build_result_block({"ok": False}))
+        self.assertIsNone(se.build_result_block(None))
+
+    def test_table_rows_single_entity_and_meta(self):
+        f, rows = numfmt.table_rows({"_meta": {"x": 1}, "pool": {"id": "0xa", "totalValueLockedUSD": "1500000.123"}})
+        self.assertEqual((f, rows), ("pool", [{"id": "0xa", "totalValueLockedUSD": "$1.50M"}]))
+        self.assertEqual(numfmt.table_rows({}), (None, []))
 
 
 if __name__ == "__main__":

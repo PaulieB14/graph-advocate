@@ -10108,9 +10108,25 @@ def build_app():
                                 f"X402-ROUTE execution failed: {executed.get('error')}"
                             )
 
+                # What the buyer actually pays for is DATA: lift the executed rows into a
+                # top-level, formatted `result` (rows + query + source + indexed block).
+                # If the model's own query was missing or failed and we have a verified
+                # query for the topic (Uniswap/Aave/Compound/ENS/Polymarket), serve that
+                # instead (up to 25 rows). Strictly additive: any failure keeps `rec`.
+                if req_data.get("execute", True):
+                    try:
+                        from subgraph_exec import build_result_block
+                        _res = build_result_block(rec.get("executed"))
+                        if _res is None:
+                            import live_preview as _lp
+                            _res = await asyncio.to_thread(_lp.build_paid, user_text)
+                        if _res:
+                            rec["result"] = _res
+                    except Exception:
+                        log.exception("X402-ROUTE result block failed")
                 _log_request("x402-paid", user_text, rec.get("recommendation", "unknown"),
                             rec.get("confidence", "high"), "x402-route", response=rec)
-                log.info(f"X402-ROUTE paid query: {user_text[:60]}")
+                log.info(f"X402-ROUTE paid query: {user_text[:60]} result_rows={(rec.get('result') or {}).get('row_count')}")
                 return _RouteJSON(rec)
             except Exception as exc:
                 # Don't return a bare 500 — surface what crashed so the caller

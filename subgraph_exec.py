@@ -87,6 +87,31 @@ def strip_false_capability_claims(reason: str) -> str:
     return cleaned or reason
 
 
+def build_result_block(executed: dict | None) -> dict | None:
+    """Buyer-facing summary of a successful execution: the formatted rows, the query that
+    produced them and where they came from. Raw `executed.data` stays alongside."""
+    if not isinstance(executed, dict) or not executed.get("ok"):
+        return None
+    rd = executed.get("rows_display") or {}
+    rows = rd.get("rows") or []
+    if not rows:
+        return None
+    out = {
+        "label": "live result (real rows from The Graph)",
+        "source": {"subgraph_id": executed.get("subgraph_id"), "gateway": "The Graph"},
+        "query": executed.get("gql"),
+        "rows": rows,
+        "row_count": executed.get("row_count"),
+        "rows_shown": len(rows),
+    }
+    if executed.get("indexed_block") is not None:
+        out["indexed_block"] = executed["indexed_block"]
+    if executed.get("indexed_timestamp") is not None:
+        out["indexed_timestamp"] = executed["indexed_timestamp"]
+    out["note"] = "rows are formatted for reading; exact gateway values are in `executed.data`."
+    return out
+
+
 def _api_key() -> str | None:
     return os.environ.get("GRAPH_API_KEY") or os.environ.get("GATEWAY_API_KEY")
 
@@ -314,6 +339,9 @@ async def execute_query_ready(
     try:
         import numfmt
         executed["data_display"] = numfmt.humanize_data(data)
+        _field, _rows = numfmt.table_rows(data, 25)
+        if _rows:
+            executed["rows_display"] = {"field": _field, "rows": _rows, "shown": len(_rows)}
         executed["display_note"] = (
             "data_display mirrors data with *USD fields formatted for reading "
             "(e.g. $609.17B); data keeps the exact gateway strings."
