@@ -5147,6 +5147,7 @@ What is free (one rule, matches the code):
 2. A2A `POST /` with `metadata.sender` = your 0x EVM wallet (42 chars) gets 3 full answers per
    day. A `name` alone does NOT qualify; anonymous A2A pays from call 1.
 3. HTTP `POST /route` has NO daily free quota: $0.01 USDC per call, from the first call.
+Try it with no payment and no 402: GET /preview?q=<your question> returns the live top-3 rows as plain JSON.
 Pay in one step: any x402 client (x402-fetch / x402 for Python) reads the 402, signs a gas-free
 USDC authorization and retries. Snippets are in every 402 body (`how_to_pay`) and at
 GET /route in a browser.
@@ -6332,6 +6333,34 @@ def _get_onchain_payers() -> dict:
     _PAYERS_CACHE["data"] = out
     _PAYERS_CACHE["ts"] = now
     return out
+
+
+async def preview_endpoint(request: Request):
+    """GET /preview?q=<question> - free live top-3 rows, HTTP 200 (no 402).
+
+    The same `live_preview` a paid endpoint puts in its 402, but as a plain 200 so a
+    browser, fetch tool or agent that treats 402 as an error can still see real data.
+    Cached ~10 min server-side; same per-caller limiter as the 402 preview.
+    """
+    import free_preview as _fp
+    q = (request.query_params.get("q") or request.query_params.get("request") or "").strip()[:500]
+    base = {"endpoint": "GET /preview", "paid_endpoint": "POST https://graphadvocate.com/route",
+            "price": "$0.01 USDC per call on Base via x402"}
+    if not q:
+        return JSONResponse({**base, "error": "missing_q",
+                             "usage": "GET /preview?q=top%20Uniswap%20V3%20pools%20on%20Ethereum%20by%20volume",
+                             "covers": ["Uniswap V3 (Ethereum, Base, Optimism)", "Aave V3 (Ethereum, Polygon, Arbitrum, Avalanche, Gnosis)",
+                                        "Compound V3 Ethereum", "ENS names", "Polymarket protocol totals"]},
+                            status_code=400, headers={"Access-Control-Allow-Origin": "*"})
+    hdrs = {k.lower(): v for k, v in request.headers.items()}
+    ckey = _fp.caller_key_from_headers(hdrs, request.client.host if request.client else None)
+    prev = await asyncio.to_thread(_fp.build, q, ckey)
+    if not prev:
+        return JSONResponse({**base, "live_preview": None,
+                             "note": "No live preview for this question (not a recognised topic, or rate-limited). "
+                                     "POST it to /route for a full answer."},
+                            headers={"Access-Control-Allow-Origin": "*"})
+    return JSONResponse({**base, "question": q, **prev}, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=60"})
 
 
 async def quota_endpoint(request: Request):
@@ -11824,21 +11853,28 @@ def build_app():
                         mime_type="application/json",
                         extensions={
                             **declare_discovery_extension(
-                                input={"request": "wallet balance for vitalik.eth on base"},
+                                input={"request": "top Uniswap V3 pools on Ethereum by volume"},
                                 input_schema={
                                     "type": "object",
                                     "properties": {
-                                        "request": {"type": "string", "description": "Plain-English onchain data question"},
+                                        "request": {"type": "string", "description": "Plain-English onchain data question (e.g. 'top Aave V3 markets on Polygon by TVL', 'who owns vitalik.eth')"},
+                                        "execute": {"type": "boolean", "description": "Run the query and return rows (default true)"},
                                     },
                                     "required": ["request"],
                                 },
                                 body_type="json",
                                 output=OutputConfig(
                                     example={
-                                        "recommendation": "token-api",
-                                        "reason": "wallet balance query on an EVM chain",
+                                        "recommendation": "subgraph-registry",
+                                        "reason": "Uniswap V3 Ethereum subgraph, ranked by volumeUSD",
                                         "confidence": "high",
-                                        "query_ready": {"tool": "getV1EvmBalances", "args": {"network": "base", "address": "0x..."}},
+                                        "query_ready": {"tool": "execute_query_by_subgraph_id", "args": {"subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV", "gql": "{ pools(first: 10, orderBy: volumeUSD, orderDirection: desc) { id feeTier volumeUSD token0 { symbol } token1 { symbol } } }"}},
+                                        "result": {
+                                            "label": "live result (real rows from The Graph)",
+                                            "rows": [{"id": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640", "feeTier": "500", "volumeUSD": "$609.17B", "token0_symbol": "USDC", "token1_symbol": "WETH"}],
+                                            "row_count": 10,
+                                            "indexed_block": 26395665,
+                                        },
                                         "alternatives": [],
                                     },
                                     schema={
@@ -11848,6 +11884,8 @@ def build_app():
                                             "reason": {"type": "string"},
                                             "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                                             "query_ready": {"type": "object"},
+                                            "result": {"type": "object", "description": "Executed live rows (formatted), the query and source subgraph"},
+                                            "executed": {"type": "object", "description": "Raw gateway data + data_display"},
                                             "alternatives": {"type": "array"},
                                         },
                                         "required": ["recommendation", "reason", "confidence"],
@@ -13249,6 +13287,7 @@ def build_app():
         Route("/admin/backfill-quality", backfill_quality_endpoint, methods=["GET", "POST"]),
         Route("/admin/backfill-paid-by-wallet", backfill_paid_by_wallet_endpoint, methods=["GET", "POST"]),
         Route("/quota", quota_endpoint),
+        Route("/preview", preview_endpoint, methods=["GET", "OPTIONS"]),
         Route("/bazaar/search", bazaar_search_endpoint),
         Route("/bazaar/active", bazaar_active_endpoint),
         Route("/claw/scout", claw_scout_endpoint),
@@ -13572,7 +13611,7 @@ def build_app():
         elif scope["type"] == "http" and scope["path"] in ("/graphadvocate.png", "/favicon.ico", "/favicon.png"):
             # Static assets for the landing page + x402scan card
             await extra(scope, receive, send)
-        elif scope["type"] == "http" and (scope["path"] in ("/robots.txt", "/sitemap.xml", "/.well-known/mcp/server.json", "/.well-known/mcp.json", "/.well-known/ard.json", "/.well-known/agent-registration.json", "/health", "/healthz", "/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/quota", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/x402-graph-test", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
+        elif scope["type"] == "http" and (scope["path"] in ("/robots.txt", "/sitemap.xml", "/.well-known/mcp/server.json", "/.well-known/mcp.json", "/.well-known/ard.json", "/.well-known/agent-registration.json", "/health", "/healthz", "/logs", "/dashboard", "/dashboard/data", "/chat", "/openapi.json", "/.well-known/x402", "/llms.txt", "/SKILL.md", "/skill.md", "/quota", "/preview", "/admin/outreach-pay", "/admin/self-test-paid", "/admin/x402-graph-test", "/admin/prune-activity", "/admin/backfill-quality", "/admin/backfill-paid-by-wallet", "/hyperliquid", "/polymarket", "/copytrade", "/hyperliquid-live", "/x402") or scope["path"].startswith("/export/") or scope["path"].startswith("/feedback") or scope["path"].startswith("/quality") or scope["path"].startswith("/agents/") or scope["path"].startswith("/bazaar/") or scope["path"].startswith("/claw/") or scope["path"].startswith("/copytrade") or scope["path"].startswith("/x402") or scope["path"].startswith("/webhook/")):
             await extra(scope, receive, send)
         elif scope["type"] == "http" and (
             scope["path"] in ("/route", "/tip", "/ask")
