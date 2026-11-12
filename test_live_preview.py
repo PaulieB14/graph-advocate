@@ -53,7 +53,9 @@ class TestNumfmt(unittest.TestCase):
                         "txCount": "123456789", "token0": {"symbol": "USDC"}}]}
         h = numfmt.humanize_data(d)
         self.assertEqual(h["pools"][0]["volumeUSD"], "$609.17B")
-        self.assertEqual(h["pools"][0]["txCount"], "123456789")
+        self.assertEqual(h["pools"][0]["txCount"], "123,456,789")  # counts get separators
+        self.assertEqual(h["pools"][0]["feeTier"], "0.05%")
+        self.assertEqual(d["pools"][0]["txCount"], "123456789")
         self.assertEqual(h["pools"][0]["id"], "0xabc")
         # original untouched
         self.assertEqual(d["pools"][0]["volumeUSD"], "609167447506.18308")
@@ -343,7 +345,7 @@ class TestExecutedDisplay(unittest.TestCase):
         row = ex["rows_display"]["rows"][0]
         self.assertEqual(ex["rows_display"]["field"], "pools")
         self.assertEqual((row["token0_symbol"], row["token1_symbol"], row["volumeUSD"]), ("USDC", "WETH", "$609.17B"))
-        self.assertEqual(row["feeTier"], "500")  # not a USD field: untouched
+        self.assertEqual(row["feeTier"], "0.05%")  # raw "500" lives in executed.data
         res = se.build_result_block(ex)
         self.assertEqual(res["rows_shown"], 3)
         self.assertEqual(res["source"]["subgraph_id"], lp.UNI_V3_ETH)

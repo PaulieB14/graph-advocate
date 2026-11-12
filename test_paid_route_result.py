@@ -92,3 +92,21 @@ class TestPaidRouteResult(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PaidRowsFormatLeafFields(unittest.TestCase):
+    """Found on the real $0.01 settlement: feeTier came back raw '500' and txCount as a bare 12498203."""
+
+    def test_feetier_and_txcount_are_readable_in_rows_and_data_display(self):
+        import numfmt
+        data = {"pools": [{"id": "0x88e6", "feeTier": "500", "txCount": "12498203",
+                           "volumeUSD": "609167447506.18", "feesUSD": "304590000.5",
+                           "token0": {"symbol": "USDC"}, "token1": {"symbol": "WETH"}}]}
+        _k, rows = numfmt.table_rows(data)
+        self.assertEqual(rows[0]["feeTier"], "0.05%")
+        self.assertEqual(rows[0]["txCount"], "12,498,203")
+        self.assertEqual(rows[0]["volumeUSD"], "$609.17B")
+        disp = numfmt.humanize_data(data)
+        self.assertEqual(disp["pools"][0]["feeTier"], "0.05%")
+        self.assertEqual(data["pools"][0]["feeTier"], "500")  # raw input untouched
+        self.assertEqual(numfmt.table_rows({"pools": [{"id": "1", "tick": "500"}]})[1][0]["tick"], "500")

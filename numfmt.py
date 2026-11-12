@@ -74,15 +74,29 @@ def format_fee_tier(value: Any) -> str | None:
     return f"{format(pct, 'f')}%"
 
 
+_COUNT_KEY_RE = re.compile(r"(^|[a-z])(txCount|transactionCount|swapCount|mintCount|burnCount|poolCount|holderCount|tokenCount|userCount)$", re.I)
+
+
+def _fmt_scalar(key: str, value: Any) -> Any:
+    """Readable form of one leaf field by name; the original value when not applicable."""
+    if not isinstance(value, str) or not _NUMERIC_RE.match(value.strip()):
+        return value
+    if _USD_KEY_RE.search(key):
+        return format_usd(value) or value
+    if key == "feeTier":
+        return format_fee_tier(value) or value
+    if _COUNT_KEY_RE.search(key):
+        return format_count(value) or value
+    return value
+
+
 def humanize_data(value: Any, _key: str = "") -> Any:
     """Copy of a GraphQL `data` block with *USD string fields turned into '$1.23B'."""
     if isinstance(value, dict):
         return {k: humanize_data(v, k) for k, v in value.items()}
     if isinstance(value, list):
         return [humanize_data(v, _key) for v in value]
-    if isinstance(value, str) and _USD_KEY_RE.search(_key) and _NUMERIC_RE.match(value.strip()):
-        return format_usd(value) or value
-    return value
+    return _fmt_scalar(_key, value)
 
 
 def _flatten(prefix: str, value: Any, out: dict) -> None:
@@ -91,10 +105,8 @@ def _flatten(prefix: str, value: Any, out: dict) -> None:
             _flatten(f"{prefix}_{k}" if prefix else k, v, out)
     elif isinstance(value, list):
         out[prefix] = [humanize_data(v, prefix.rsplit("_", 1)[-1]) if isinstance(v, (dict, list)) else v for v in value]
-    elif isinstance(value, str) and _USD_KEY_RE.search(prefix.rsplit("_", 1)[-1]) and _NUMERIC_RE.match(value.strip()):
-        out[prefix] = format_usd(value) or value
     else:
-        out[prefix] = value
+        out[prefix] = _fmt_scalar(prefix.rsplit("_", 1)[-1], value)
 
 
 def table_rows(data: dict, limit: int = 25) -> tuple[str | None, list[dict]]:
