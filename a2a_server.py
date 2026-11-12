@@ -11903,7 +11903,7 @@ def build_app():
                                         "query_ready": {"tool": "execute_query_by_subgraph_id", "args": {"subgraph_id": "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV", "gql": "{ pools(first: 10, orderBy: volumeUSD, orderDirection: desc) { id feeTier volumeUSD token0 { symbol } token1 { symbol } } }"}},
                                         "result": {
                                             "label": "live result (real rows from The Graph)",
-                                            "rows": [{"id": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640", "feeTier": "500", "volumeUSD": "$609.17B", "token0_symbol": "USDC", "token1_symbol": "WETH"}],
+                                            "rows": [{"id": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640", "feeTier": "0.05%", "volumeUSD": "$609.17B", "token0_symbol": "USDC", "token1_symbol": "WETH"}],
                                             "row_count": 10,
                                             "indexed_block": 26395665,
                                         },
