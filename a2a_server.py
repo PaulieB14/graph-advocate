@@ -9284,11 +9284,10 @@ def build_app():
     </div>
     <div class="stats">__STATS__</div>
     <div class="try">
-      <div class="lbl">Try it — free, no key, no wallet</div>
-      <pre>curl -sX POST https://graphadvocate.com/chat \\
-  -H "Content-Type: application/json" \\
-  -d '{"message":"best subgraph for uniswap v3 on ethereum"}'</pre>
-      <div class="out">Returns the subgraph to use and the GraphQL to run against it. Chat hands you the query, never the data — run it with your own key, or let the paid endpoints run it for you.</div>
+      <div class="lbl">Try it — free, real data, no key, no wallet</div>
+      __LIVE_DEMO__
+      <pre>curl -s "https://graphadvocate.com/preview?q=top%20Aave%20V3%20markets%20on%20Arbitrum%20by%20TVL"</pre>
+      <div class="out">That is the live top 3 rows for any Uniswap / Aave / Compound / ENS / Polymarket question. Want the full list, other chains, filters and follow-ups? <code>POST /route</code> is $0.01 USDC per call over x402 &mdash; open <a href="/route">/route</a> in a browser for copy-paste code (x402-fetch, Python, curl, MCP). Free chat (<code>/chat</code>) still hands you the subgraph and the GraphQL.</div>
     </div>
     <div class="links">
       <a class="link" href="/dashboard">📊 Live Dashboard</a>
@@ -9389,10 +9388,33 @@ def build_app():
         except Exception:
             return fallback
 
+    async def _landing_live_demo() -> str:
+        """Server-rendered live top-3 Uniswap V3 rows for the landing page (cached ~10 min
+        by live_preview; empty string if the gateway is unavailable, so the page never breaks)."""
+        try:
+            import html as _h
+            import live_preview as _lp
+            lv = await asyncio.to_thread(_lp.build, "uniswap", "top uniswap v3 pools on ethereum by volume")
+            if not lv or not lv.get("rows"):
+                return ""
+            rows = "".join(
+                f"<tr><td>{r.get('rank')}</td><td>{_h.escape(str(r.get('pool')))}</td><td>{_h.escape(str(r.get('fee')))}</td>"
+                f"<td>{_h.escape(str(r.get('volume_usd_lifetime')))}</td><td>{_h.escape(str(r.get('tvl_usd')))}</td></tr>"
+                for r in lv["rows"])
+            return (
+                '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin:8px 0">'
+                "<tr style='text-align:left;opacity:.7'><th>#</th><th>Pool</th><th>Fee</th><th>Volume (lifetime)</th><th>TVL</th></tr>"
+                f"{rows}</table>"
+                f"<div class='out' style='margin-bottom:8px'>Live from {_h.escape(lv['source']['name'])} &middot; "
+                f"fetched {_h.escape(lv['fetched_at'])}</div>")
+        except Exception:
+            return ""
+
     async def landing_endpoint(request):
         """GET / — HTML landing page with OG meta tags for x402scan listing."""
         html = LANDING_HTML.replace("__STATS__", _landing_stats())
         html = html.replace("__JL_COVERAGE__", await _jupiter_lend_coverage_html())
+        html = html.replace("__LIVE_DEMO__", await _landing_live_demo())
         return HTMLResponse(html, headers={
             "cache-control": "public, max-age=300",
         })

@@ -42,6 +42,20 @@ class TestPreviewEndpoint(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertNotIn("live_preview", r.json())
 
+    def test_landing_shows_live_rows_and_no_placeholder(self):
+        with mock.patch.object(lp, "_fetch", return_value=UNI):
+            r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("__LIVE_DEMO__", r.text)
+        self.assertIn("<td>A/B</td>", r.text)
+        self.assertIn("/preview?q=", r.text)
+        with mock.patch.object(lp, "_fetch", return_value=None):
+            with lp._cache_lock:
+                lp._cache.clear()
+            r2 = self.client.get("/")
+        self.assertEqual(r2.status_code, 200)  # gateway down: page still renders
+        self.assertNotIn("__LIVE_DEMO__", r2.text)
+
     def test_route_402_carries_how_to_pay_and_html_view(self):
         with mock.patch.object(lp, "_fetch", return_value=UNI):
             r = self.client.post("/route", json={"request": "top uniswap v3 pools by volume"})
