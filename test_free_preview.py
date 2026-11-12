@@ -12,6 +12,7 @@ import free_preview as fp
 class TestFreePreview(unittest.TestCase):
     def setUp(self):
         os.environ.pop("GA_FREE_PREVIEW", None)
+        os.environ["GA_LIVE_PREVIEW"] = "0"  # these tests cover the static preview; live is in test_live_preview.py
         # Reset in-memory rate limits between tests
         with fp._lock:
             fp._hits.clear()

@@ -8,6 +8,12 @@ x402 fields; it never alters `x402Version`, `accepts`, `resource` or the
 Rate limits (in-memory, per process): PER_CALLER_PER_HOUR per caller key and
 GLOBAL_PER_DAY overall; over-limit callers just get the normal 402.
 
+Where a verified, runnable subgraph query exists for the matched topic (Uniswap V3,
+Aave V3, Compound V3, ENS, Polymarket — see live_preview.py) the preview also carries
+`live_preview`: the top 3 REAL rows, cached ~10 min, with a 3.5s timeout and a silent
+fallback to the static example. build() may therefore block up to ~3.5s on a cache
+miss; async callers must run it via asyncio.to_thread.
+
 Each matched topic may include a static `example` (GraphQL stub or HTTP
 request shape) clearly labeled as an example, not live data. Served previews
 emit a structured `free_preview_served` log line (topic + path only).
@@ -224,7 +230,10 @@ def _allow(key: str) -> bool:
 def _match_topic(low: str) -> tuple[str, str, str, str, dict | None]:
     """Return (topic_id, source, endpoint, full_answer_includes, example)."""
     for kws, tid, s, e, f, ex in _TOPICS:
-        if any(re.search(r"(?<![a-z0-9])" + re.escape(k), low) for k in kws):
+        # ".eth" is a suffix ("vitalik.eth"), so the leading-boundary rule below can never
+        # match it; names fell through to the generic fallback topic.
+        if any(re.search(r"(?<![a-z0-9])" + re.escape(k), low) for k in kws) or (
+                tid == "ens" and re.search(r"[a-z0-9-]\.eth\b", low)):
             if tid == "aave":
                 if "liquidation" in low:
                     f = ("recent liquidation events (amounts, collateral/principal assets, "
@@ -254,8 +263,11 @@ def _feedback_ask() -> dict | None:
 
 
 def build(text: str | None, caller_key: str | None, pay_url: str = "https://graphadvocate.com/route",
-          price: str = "$0.01") -> dict | None:
-    """Return the teaser dict, or None (disabled / probe / spam / rate-limited)."""
+          price: str = "$0.01", live: bool = True) -> dict | None:
+    """Return the teaser dict, or None (disabled / probe / spam / rate-limited).
+
+    Synchronous and may block ~3.5s on a live-preview cache miss (see module doc).
+    """
     if not enabled() or not is_real_question(text):
         return None
     if not _allow(caller_key or "anon"):
@@ -269,11 +281,29 @@ def build(text: str | None, caller_key: str | None, pay_url: str = "https://grap
         "cta": f"Pay {price} USDC on Base for the full breakdown: re-POST the same body to {pay_url} "
                "with an x402 `X-PAYMENT` header (any x402 SDK, e.g. x402-fetch / x402-axios, signs and retries automatically).",
     }
+    live_prev = None
+    if live and topic != "fallback":
+        try:
+            import live_preview as _lp
+            live_prev = _lp.build(topic, low, price=price)
+        except Exception as exc:  # never let the live path break the free preview
+            log.warning("live preview failed: %s", type(exc).__name__)
+    if live_prev:
+        out["live_preview"] = live_prev
+        out["teaser"] = (f"Live from {live_prev['source']['name']} (top {live_prev['row_count']} rows below). "
+                         f"Best source for this: {src}. Graph Advocate serves it via {ep}.")
+        out["cta"] = (f"These are real, live rows. Pay {price} USDC on Base to get the full list, other chains, "
+                      f"filters/time windows and follow-up questions plus the verified query: re-POST the same body to "
+                      f"{pay_url} with an x402 `PAYMENT-SIGNATURE` (v2) or `X-PAYMENT` header "
+                      "(any x402 SDK, e.g. x402-fetch / x402-axios, signs and retries automatically).")
     if example:
+        if live_prev:
+            example = dict(example, label="example query shape (illustrative; the real rows are in live_preview)")
         out["example"] = example
     fb = _feedback_ask()
     if fb:
         out["feedback"] = fb
     # Structured line for daily checks — topic + path only (no question text / PII).
-    log.info("free_preview_served topic=%s path=%s", topic, ep.split()[0] if ep else "/route")
+    log.info("free_preview_served topic=%s path=%s live=%s", topic, ep.split()[0] if ep else "/route",
+             bool(live_prev))
     return out

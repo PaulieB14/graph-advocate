@@ -308,6 +308,18 @@ async def execute_query_ready(
         "elapsed_ms": elapsed_ms,
         "source": f"The Graph gateway — subgraph {subgraph_id}",
     }
+    # The gateway returns BigDecimal strings with up to ~30 decimal digits
+    # ("609167447506.1830892627042412837456"). Hand callers a readable twin of
+    # the same structure ("$609.17B") next to the untouched raw `data`.
+    try:
+        import numfmt
+        executed["data_display"] = numfmt.humanize_data(data)
+        executed["display_note"] = (
+            "data_display mirrors data with *USD fields formatted for reading "
+            "(e.g. $609.17B); data keeps the exact gateway strings."
+        )
+    except Exception:  # formatting must never cost the caller their rows
+        pass
     if truncated:
         executed["truncated_to"] = max_rows
         executed["truncation_note"] = (

@@ -3436,7 +3436,7 @@ class GraphAdvocateExecutor(AgentExecutor):
                 )
                 try:
                     import free_preview as _fp
-                    _prev = _fp.build(user_text, f"a2a:{sender_id or 'anon'}")
+                    _prev = await asyncio.to_thread(_fp.build, user_text, f"a2a:{sender_id or 'anon'}")
                     if _prev:
                         _pr["free_preview"] = _prev
                 except Exception as _fpe:
@@ -12602,7 +12602,7 @@ def build_app():
                             except Exception:
                                 pass
                             _ip = dict(scope.get("headers") or []).get(b"x-forwarded-for", b"").split(b",")[0].strip().decode() or (scope.get("client") or ("?",))[0]
-                            _prev = _fp.build(_q, f"ip:{_ip}", pay_url=f"https://graphadvocate.com{scope.get('path', '/route')}", price=(_price_for_path(scope.get('path', '/route')) or "$0.01"))
+                            _prev = await asyncio.to_thread(_fp.build, _q, f"ip:{_ip}", pay_url=f"https://graphadvocate.com{scope.get('path', '/route')}", price=(_price_for_path(scope.get('path', '/route')) or "$0.01"))
                             if _prev:
                                 enriched["free_preview"] = _prev
                         except Exception as _fpe:
