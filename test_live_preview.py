@@ -260,6 +260,38 @@ class TestChainsStaleAndPaid(LiveBase):
         self.assertIsNone(lp.build_paid("what is the weather like in paris tomorrow"))
 
 
+class TestTopicMisroutes(LiveBase):
+    def topic(self, q):
+        return fp._match_topic(q.lower())[0]
+
+    def test_prefix_collisions_fixed(self):
+        self.assertEqual(self.topic("find a subgraph for Balancer pools on Arbitrum"), "fallback")
+        self.assertEqual(self.topic("please ensure the results are sorted"), "fallback")
+        self.assertEqual(self.topic("show token balances for 0xabc123"), "token-api")
+        self.assertEqual(self.topic("top USDC holders on Ethereum"), "token-api")
+        self.assertEqual(self.topic("who owns vitalik.eth"), "ens")
+        self.assertEqual(self.topic("what is ens"), "ens")
+
+    def test_kalshi_vs_polymarket_routes_to_kalshi_without_live(self):
+        q = "What is the Kalshi vs Polymarket spread on the fed rate market?"
+        self.assertEqual(self.topic(q), "kalshi")
+        with mock.patch.object(lp, "_fetch", return_value={"globals": [{"numTraders": "1"}]}) as f:
+            prev = fp.build(q, "km1")
+        self.assertEqual(f.call_count, 0)
+        self.assertNotIn("live_preview", prev)
+
+    def test_polymarket_live_only_for_protocol_size_questions(self):
+        with mock.patch.object(lp, "_fetch", return_value={"globals": [{"numTraders": "5", "numConditions": "9", "numOpenConditions": "3"}]}) as f:
+            self.assertIn("live_preview", fp.build("How big is Polymarket overall?", "pq1"))
+            self.assertNotIn("live_preview", fp.build("Polymarket election markets with the best odds", "pq2"))
+        self.assertEqual(f.call_count, 1)
+
+    def test_short_eth_question_is_real(self):
+        self.assertTrue(fp.is_real_question("resolve nick.eth"))
+        self.assertFalse(fp.is_real_question("hello there"))
+        self.assertFalse(fp.is_real_question("Uniswap"))
+
+
 class TestCallerKey(LiveBase):
     def test_uses_real_ip_not_leftmost_xff_and_splits_by_ua(self):
         k1 = fp.caller_key_from_headers({"x-real-ip": "1.2.3.4", "x-forwarded-for": "9.9.9.9, 1.2.3.4", "user-agent": "bot-a"})

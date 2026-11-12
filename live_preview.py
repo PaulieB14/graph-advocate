@@ -284,9 +284,12 @@ def _ens(low: str, n: int = TOP_N) -> dict | None:
     return None
 
 
+_POLY_STATS_RE = re.compile(r"\b(overall|total|how (big|many)|traders|stats|statistics|size of|protocol)\b")
+
+
 def _polymarket(low: str, n: int = TOP_N) -> dict | None:
-    if _ADDRESS_RE.search(low):
-        return None  # wallet-specific question: paid /polymarket/pnl-quick
+    if _ADDRESS_RE.search(low) or "kalshi" in low or not _POLY_STATS_RE.search(low):
+        return None  # wallet-specific / cross-venue / not a protocol-size question
     return _spec(
         POLYMARKET_MAIN, "Polymarket", "polygon",
         "{ _meta { block { number timestamp } } globals(first: 1) { numTraders numConditions numOpenConditions } }",

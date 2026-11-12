@@ -94,16 +94,30 @@ def _bootstrap() -> tuple[Any, Any, str]:
 
 
 def _max_usdc_policy(rec: dict, max_usdc: Decimal) -> bool:
-    """Return True if the payment requirement fits within max_usdc.
+    """Return True if some payment requirement fits within max_usdc.
 
     Walks the `accepts` array on a 402 response and checks each requirement's
     amount vs the cap. max_usdc is in USDC units (not atomic).
+
+    Handles both wire formats: x402 v1 (`maxAmountRequired`, `asset` is an
+    object) and v2 (`amount` in atomic units, `asset` is an address string).
+    Until 2026-11 only the v1 field names were read, so every v2 challenge had
+    raw == 0, was skipped, and the policy answered "exceeds cap" for all of
+    them (fail-closed, but it made every v2 target unpayable). An amount that
+    cannot be read still never counts as within the cap.
     """
-    for r in rec.get("accepts", []):
-        asset = r.get("asset", {})
-        decimals = int(asset.get("decimals") or r.get("extra", {}).get("decimals") or 6)
-        raw = int(r.get("maxAmountRequired") or r.get("amountRequired") or 0)
-        if raw == 0:
+    for r in rec.get("accepts", []) if isinstance(rec, dict) else []:
+        if not isinstance(r, dict):
+            continue
+        asset = r.get("asset")
+        extra = r.get("extra") if isinstance(r.get("extra"), dict) else {}
+        asset_dec = asset.get("decimals") if isinstance(asset, dict) else None
+        try:
+            decimals = int(asset_dec or extra.get("decimals") or 6)
+            raw = int(r.get("amount") or r.get("maxAmountRequired") or r.get("amountRequired") or 0)
+        except (TypeError, ValueError):
+            continue
+        if raw <= 0:
             continue
         amount_usdc = Decimal(raw) / Decimal(10 ** decimals)
         if amount_usdc <= max_usdc:

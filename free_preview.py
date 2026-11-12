@@ -125,18 +125,18 @@ _ENS_GQL = """
 
 # (keywords, topic_id, source, endpoint, full_answer_includes, example_or_None)
 _TOPICS: list[tuple[tuple[str, ...], str, str, str, str, dict | None]] = [
-    (("polymarket",), "polymarket",
-     "Polymarket subgraphs on The Graph (main 81Dm16Jj…, orderbook B9mm21…, PnL 6iGihL…)",
-     "/polymarket/*",
-     "trader PnL, positions, order flow and a ready-to-run GraphQL query",
-     _ex_http("POST", "/polymarket/pnl-quick", {"wallet": "0xYOUR_WALLET"},
-              "Example paid endpoint + body; replace wallet. Not live data.")),
     (("kalshi",), "kalshi",
      "Kalshi public market API + Polymarket cross-venue reconciliation",
      "/kalshi/* and /kalshi-polymarket/*",
      "matched markets, price gaps and trader stats",
      _ex_http("POST", "/kalshi-polymarket/spread", {"query": "fed rate"},
               "Example paid endpoint + body. Not live data.")),
+    (("polymarket",), "polymarket",
+     "Polymarket subgraphs on The Graph (main 81Dm16Jj…, orderbook B9mm21…, PnL 6iGihL…)",
+     "/polymarket/*",
+     "trader PnL, positions, order flow and a ready-to-run GraphQL query",
+     _ex_http("POST", "/polymarket/pnl-quick", {"wallet": "0xYOUR_WALLET"},
+              "Example paid endpoint + body; replace wallet. Not live data.")),
     (("hyperliquid", "leverage", "perp"), "hyperliquid",
      "Hyperliquid info API (fills, positions, vaults)",
      "/hyperliquid/*",
@@ -205,7 +205,8 @@ def is_real_question(text: str | None) -> bool:
     if not text:
         return False
     t = text.strip()
-    if len(t) < 12 or len(t.split()) < 3:
+    short_ok = bool(re.search(r"[a-z0-9-]\.eth\b|\b0x[0-9a-fA-F]{6,}", t))  # "resolve nick.eth" is a real question
+    if len(t) < 12 or (len(t.split()) < 3 and not (short_ok and len(t.split()) >= 2)):
         return False
     if is_spam_pitch(t):
         return False
@@ -258,7 +259,10 @@ def _match_topic(low: str) -> tuple[str, str, str, str, dict | None]:
     for kws, tid, s, e, f, ex in _TOPICS:
         # ".eth" is a suffix ("vitalik.eth"), so the leading-boundary rule below can never
         # match it; names fell through to the generic fallback topic.
-        if any(re.search(r"(?<![a-z0-9])" + re.escape(k), low) for k in kws) or (
+        # Leading boundary always; trailing boundary for words that are prefixes of other words
+        # ("balance" in "balancer", "ens" in "ensure") - token-api words allow a plural "s".
+        tail = r"s?(?![a-z0-9])" if tid == "token-api" else (r"(?![a-z0-9])" if tid == "ens" else "")
+        if any(re.search(r"(?<![a-z0-9])" + re.escape(k) + tail, low) for k in kws) or (
                 tid == "ens" and re.search(r"[a-z0-9-]\.eth\b", low)):
             if tid == "aave":
                 if "liquidation" in low:
