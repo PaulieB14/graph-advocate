@@ -43,6 +43,22 @@ _cache: dict[tuple[str, str], tuple[float, Any]] = {}  # key -> (expires_at, pay
 _cache_lock = threading.Lock()
 _inflight = threading.BoundedSemaphore(MAX_INFLIGHT)
 
+# Gateway spend guard: cache hits are free, so this only bounds UNCACHED fetches
+# (new questions/topics). ~600/hour is far above real demand and far below a flood.
+UNCACHED_PER_HOUR = int(os.environ.get("GA_LIVE_PREVIEW_UNCACHED_PER_HOUR", "600"))
+_spend = {"h": "", "n": 0}
+
+
+def _spend_ok() -> bool:
+    hour = time.strftime("%Y-%m-%d-%H", time.gmtime())
+    with _cache_lock:
+        if _spend["h"] != hour:
+            _spend.update(h=hour, n=0)
+        if _spend["n"] >= UNCACHED_PER_HOUR:
+            return False
+        _spend["n"] += 1
+        return True
+
 UNI_V3_ETH = "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV"
 AAVE_V3_ETH = "JCNWRypm7FYwV8fx5HhzZPSFaMxgkPuw4TnR3Gpi81zk"
 COMPOUND_V3_ETH = "AwoxEZbiWLvv6e3QdvdMZw4WDURdGbvPfHmZRc8Dpfz9"
@@ -250,6 +266,9 @@ def _fetch(sid: str, query: str) -> dict | None:
     """Run `query`; return the `data` dict or None on any problem."""
     key = _api_key()
     if not key:
+        return None
+    if not _spend_ok():
+        log.info("live_preview skipped: hourly uncached budget exhausted")
         return None
     if not _inflight.acquire(blocking=False):
         log.info("live_preview skipped: too many in-flight gateway calls")

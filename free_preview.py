@@ -29,8 +29,13 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-PER_CALLER_PER_HOUR = int(os.environ.get("GA_FREE_PREVIEW_PER_HOUR", "3"))
-GLOBAL_PER_DAY = int(os.environ.get("GA_FREE_PREVIEW_PER_DAY", "2000"))
+# A static preview costs nothing, and a live one is served from a ~10 min cache
+# (live_preview.py has its own gateway-spend budget), so these limits only stop
+# scripted hammering. They were 3/hour per key and 2,000/day overall; behind
+# Railway's edge many unrelated callers can share one client IP, so 3/hour
+# silently denied most first-time callers a preview.
+PER_CALLER_PER_HOUR = int(os.environ.get("GA_FREE_PREVIEW_PER_HOUR", "30"))
+GLOBAL_PER_DAY = int(os.environ.get("GA_FREE_PREVIEW_PER_DAY", "30000"))
 
 _lock = threading.Lock()
 _hits: dict[str, list[float]] = {}
@@ -205,6 +210,27 @@ def is_real_question(text: str | None) -> bool:
     if is_spam_pitch(t):
         return False
     return not _PROBE_RE.search(t)
+
+
+def caller_key_from_headers(headers: dict[str, str] | None, client_host: str | None = None) -> str:
+    """Stable per-caller key for the preview limiter.
+
+    Railway's edge OVERWRITES X-Real-IP / X-Forwarded-For (client-supplied copies are
+    dropped), and documents X-Real-IP as the client's remote IP. We never trust the
+    leftmost client-supplied hop. Because the edge address can be shared by many
+    clients (CDN in front), the IP is combined with a short hash of the User-Agent,
+    so two different agents behind the same address get separate budgets.
+    `headers` keys must be lower-case.
+    """
+    import hashlib
+    h = headers or {}
+    ip = (h.get("x-real-ip") or "").strip()
+    if not ip:
+        xff = (h.get("x-forwarded-for") or "").split(",")
+        ip = xff[-1].strip() if xff and xff[-1].strip() else (client_host or "anon")
+    ua = (h.get("user-agent") or "").strip()
+    uah = hashlib.sha1(ua.encode("utf-8", "ignore")).hexdigest()[:8] if ua else "noua"
+    return f"ip:{ip}:{uah}"
 
 
 def _allow(key: str) -> bool:

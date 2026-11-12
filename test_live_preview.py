@@ -216,6 +216,30 @@ class TestLivePreview(LiveBase):
         self.assertNotIn("live_preview", prev)
 
 
+class TestCallerKey(LiveBase):
+    def test_uses_real_ip_not_leftmost_xff_and_splits_by_ua(self):
+        k1 = fp.caller_key_from_headers({"x-real-ip": "1.2.3.4", "x-forwarded-for": "9.9.9.9, 1.2.3.4", "user-agent": "bot-a"})
+        k2 = fp.caller_key_from_headers({"x-real-ip": "1.2.3.4", "user-agent": "bot-b"})
+        k3 = fp.caller_key_from_headers({"x-real-ip": "1.2.3.4", "x-forwarded-for": "6.6.6.6", "user-agent": "bot-a"})
+        self.assertTrue(k1.startswith("ip:1.2.3.4:"))
+        self.assertNotEqual(k1, k2)
+        self.assertEqual(k1, k3)
+
+    def test_fallbacks(self):
+        self.assertTrue(fp.caller_key_from_headers({"x-forwarded-for": "9.9.9.9, 1.2.3.4"}).startswith("ip:1.2.3.4:"))
+        self.assertTrue(fp.caller_key_from_headers({}, "10.0.0.1").startswith("ip:10.0.0.1:"))
+
+    def test_limit_allows_many_first_time_callers_and_caps_hammering(self):
+        for i in range(20):
+            self.assertTrue(fp._allow(f"k{i}"))
+        n = sum(fp._allow("hammer") for _ in range(100))
+        self.assertEqual(n, fp.PER_CALLER_PER_HOUR)
+
+    def test_uncached_spend_budget(self):
+        with mock.patch.object(lp, "UNCACHED_PER_HOUR", 0), mock.patch.object(lp, "_api_key", return_value="k"):
+            self.assertIsNone(lp._fetch(lp.UNI_V3_ETH, "{ x }"))
+
+
 class TestExecutedDisplay(unittest.TestCase):
     def test_execute_adds_data_display_and_keeps_raw(self):
         import asyncio

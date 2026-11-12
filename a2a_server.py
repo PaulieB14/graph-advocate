@@ -12601,8 +12601,16 @@ def build_app():
                                     _q = next((str(_jb[k]) for k in ("request", "question", "query", "q", "prompt", "text") if _jb.get(k)), None)
                             except Exception:
                                 pass
-                            _ip = dict(scope.get("headers") or []).get(b"x-forwarded-for", b"").split(b",")[0].strip().decode() or (scope.get("client") or ("?",))[0]
-                            _prev = await asyncio.to_thread(_fp.build, _q, f"ip:{_ip}", pay_url=f"https://graphadvocate.com{scope.get('path', '/route')}", price=(_price_for_path(scope.get('path', '/route')) or "$0.01"))
+                            if not _q:
+                                try:
+                                    from urllib.parse import parse_qs as _pqs
+                                    _qs = _pqs((scope.get("query_string") or b"").decode("latin-1"))
+                                    _q = next((_qs[k][0] for k in ("request", "question", "query", "q") if _qs.get(k)), None)
+                                except Exception:
+                                    pass
+                            _hdrs = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in (scope.get("headers") or [])}
+                            _ckey = _fp.caller_key_from_headers(_hdrs, (scope.get("client") or ("?",))[0])
+                            _prev = await asyncio.to_thread(_fp.build, _q, _ckey, pay_url=f"https://graphadvocate.com{scope.get('path', '/route')}", price=(_price_for_path(scope.get('path', '/route')) or "$0.01"))
                             if _prev:
                                 enriched["free_preview"] = _prev
                         except Exception as _fpe:
