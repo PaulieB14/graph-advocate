@@ -84,7 +84,7 @@ Uniswap TVL contradiction showed up as 2/5, not as a clean failure.
 - **Layer 3:** `_extract_json` → `_fallback_route` → `_inject_missing_fields` — robust response parsing
 - **Caching:** Benchmark bot static responses (3 queries) + SQLite persistent cache (24h TTL) + in-memory cache
 - **Scoring:** Every response auto-scored 0-5 (parse, query_ready, subgraph_id, curl, install)
-- **x402:** 3 free queries/day per sender, then $0.01 USDC on Base
+- **x402:** free live top-3 preview on every 402; 3 free A2A answers/day per wallet sender; `POST /route` $0.01 every call (Base)
 
 ## Adding a new paid endpoint — the six places
 

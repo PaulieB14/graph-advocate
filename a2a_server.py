@@ -854,10 +854,12 @@ def _x402_payment_required_response(*, anonymous: bool = False, user_text: str |
             "note": (
                 "Recommended: POST here with an x402 `PAYMENT-SIGNATURE` header "
                 "(v2) or `X-PAYMENT` (v1). Standard HTTP 402 challenge — any x402 "
-                "SDK auto-signs + retries. Returns a routing recommendation "
-                "(see output_example)."
+                "SDK auto-signs + retries. Returns a routing recommendation plus "
+                "the executed live rows in `result` / `executed` (see output_example)."
             ),
         },
+        "how_to_pay": __import__("pay_snippets").how_to_pay(
+            f"{_base}/route", {"request": (user_text or "<your onchain data question>")[:400]}, "$0.01"),
         # Honest: $0.01 over the routing path returns a ROUTING recommendation.
         "output_example": _A2A_ROUTING_EXAMPLE,
         "output_example_for": "routing",
@@ -1723,6 +1725,8 @@ def _get_cached_response(text: str) -> dict | None:
                     resp = json.loads(resp_json)
                     if isinstance(resp, dict) and resp.get("recommendation") in _NEVER_CACHE_RECS:
                         continue        # a billing event, not an answer
+                    resp.pop("live_preview", None)  # rows are time-sensitive; never replay a stored copy
+                    resp.pop("result", None)
                     resp["_cached"] = True
                     resp["_cached_age_seconds"] = int(age)
                     return resp
@@ -3896,6 +3900,18 @@ class GraphAdvocateExecutor(AgentExecutor):
         except Exception:
             pass  # nudge failure never blocks the response
 
+        # Free A2A answers get the same live rows the 402 preview shows (top 3, cached,
+        # silent fallback), so the free tier demonstrates real data, not just routing.
+        try:
+            if (not _is_paid_request and service not in _SKIP_TIP_SERVICES
+                    and not isinstance(rec.get("executed"), dict) and "live_preview" not in rec):
+                import free_preview as _fpl
+                _lv = await asyncio.to_thread(_fpl.live_for_text, user_text)
+                if _lv:
+                    rec["live_preview"] = _lv
+        except Exception as _lve:
+            log.warning(f"free A2A live preview failed: {_lve}")
+
         _log_request(task_id, user_text, service, confidence, tool_name, response=rec)
         # (scoring runs automatically inside _log_request)
 
@@ -3920,9 +3936,9 @@ agent_card = AgentCard(
         "Compound, Curve, ENS, Lido) on Ethereum, Arbitrum, Base, Polygon, Optimism, "
         "Solana, BSC, TON. Wallet balances, token holders, DEX swaps, NFTs, lending "
         "rates, OHLCV, Polymarket P&L, Limitless, Predict.fun, ERC-8004 agent discovery. "
-        "Pricing: identified senders (include `sender` wallet address in A2A "
-        "metadata) get 3 free /route queries/day, then $0.01 USDC via x402 on Base. "
-        "Anonymous senders (no metadata) pay $0.01 from call 1. Plus paid "
+        "Pricing: every unpaid call returns a free live top-3 preview (real rows). "
+        "A2A POST / with a wallet in `metadata.sender` gets 3 full answers/day free; "
+        "HTTP POST /route and everyone else pay $0.01 USDC via x402 on Base per call. Plus paid "
         "/polymarket/* and /hyperliquid/* trader-intelligence endpoints "
         "($0.01-$0.10) — paid from call 1 regardless of metadata. Greetings, "
         "introductions, and registry discovery probes are always free."
@@ -3955,8 +3971,9 @@ agent_card = AgentCard(
                     "You may also pay over A2A by prefixing the message text with "
                     "`x402:<signed-payment>`. Wallet-identified senders (set "
                     "`metadata.sender` to a 0x EVM address) get "
-                    f"{DAILY_FREE_QUERIES} free /route queries/day; a `name` alone "
-                    "does not qualify. Anonymous senders pay $0.01 from call 1."
+                    f"{DAILY_FREE_QUERIES} free A2A answers/day (POST / only); a `name` alone "
+                    "does not qualify. Anonymous senders and HTTP POST /route pay $0.01 from call 1; "
+                    "every payment-required reply carries a free live top-3 `live_preview`."
                 ),
                 required=False,
                 params={
@@ -5124,16 +5141,20 @@ Repository: https://github.com/PaulieB14/graph-advocate
 
 ## Pricing
 
-Free tier: set `metadata.sender` to a 0x EVM address (42 chars) in the A2A
-message to be counted as an identified sender and claim 3 free /route
-queries/day — send it on the FIRST call to skip the 402 round-trip. A `name`
-alone does NOT qualify: the allowance is counted per wallet. Anonymous
-requests (no sender metadata) are not eligible and pay $0.01 USDC from call 1.
+What is free (one rule, matches the code):
+1. Every unpaid call to a paid endpoint (POST /route, /ask, ...) answers HTTP 402 and includes a
+   free live preview: the top 3 REAL rows for the question (`free_preview.live_preview`).
+2. A2A `POST /` with `metadata.sender` = your 0x EVM wallet (42 chars) gets 3 full answers per
+   day. A `name` alone does NOT qualify; anonymous A2A pays from call 1.
+3. HTTP `POST /route` has NO daily free quota: $0.01 USDC per call, from the first call.
+Pay in one step: any x402 client (x402-fetch / x402 for Python) reads the 402, signs a gas-free
+USDC authorization and retries. Snippets are in every 402 body (`how_to_pay`) and at
+GET /route in a browser.
 
 | Endpoint                       | Price        | Notes |
 |--------------------------------|--------------|-------|
-| POST /                         | free 3/day   | Then $0.01 USDC via x402 |
-| POST /route                    | free 3/day   | Then $0.01 USDC via x402 |
+| POST /                         | 3 free/day per wallet sender | Then $0.01 USDC via x402; anonymous pays from call 1 |
+| POST /route                    | $0.01        | Every call; free live top-3 preview on the 402 |
 | GET  /chat                     | free         | Routing-only; doesn't answer with data |
 | POST /tip                      | optional tip | Any amount |
 __PAID_PRICE_ROWS__
@@ -8534,7 +8555,7 @@ CHAT_HTML = """<!DOCTYPE html>
     <strong>This chat doesn't fetch data.</strong> It explains GA's capabilities and points you to the right
     subgraph, Token API, or Substream. To actually run a query and get data back,
     <a href="/.well-known/agent-card.json" target="_blank" rel="noopener">connect an agent</a>
-    that pays x402 — three free queries per sender per day, then $0.01 USDC on Base per call.
+    that pays x402 — every unpaid call shows a free live top-3 preview; a wallet-identified A2A sender gets 3 free answers/day, then $0.01 USDC on Base per call.
   </div>
   <div class="welcome" id="welcome">
     <h2>What can Graph Advocate do?</h2>
@@ -8879,8 +8900,8 @@ def build_app():
             "instructions": (
                 "POST a plain-English onchain data request and receive a "
                 "ready-to-execute query, the right subgraph ID, and an MCP install hint. "
-                "Free tier: " + str(DAILY_FREE_QUERIES) + " queries/day per requesting "
-                "agent. After that, $0.01 USDC on Base via x402. "
+                "Free: a live top-3 preview on every 402, plus " + str(DAILY_FREE_QUERIES) + " full A2A (POST /) "
+                "answers/day per wallet-identified sender. Otherwise $0.01 USDC on Base via x402 per call. "
                 "Hyperliquid + Polymarket trader-intelligence endpoints ($0.01–$0.10/call) "
                 "are documented at " + BASE_URL + "/hyperliquid and " + BASE_URL + "/polymarket."
             ),
@@ -9269,7 +9290,7 @@ def build_app():
       </div>
     </div>
     <div class="footer">
-      <code>/chat</code> free · A2A with <code>metadata</code> 3 free/day · anonymous $0.01 from call 1<br>
+      <code>/chat</code> free · A2A with a wallet in <code>metadata.sender</code>: 3 free answers/day · everything else $0.01 per call, with a free live top-3 preview<br>
       Paid calls settle in USDC on Base via x402
     </div>
   </div>
@@ -11793,13 +11814,12 @@ def build_app():
                         # longer fails verify with "maximum string length is 500".
                         # Keep the BM25-friendly keyword density tight.
                         description=(
-                            "Onchain data router for AI agents. Plain-English → working GraphQL "
-                            "or REST. 15.5K+ subgraphs on 8 chains. Uniswap, Aave, Compound, ENS, "
-                            "Polymarket, Limitless, Predict.fun, ERC-8004 discovery. Identified "
-                            "senders (include `sender` wallet in A2A metadata): 3 free /route "
-                            "/day, then $0.01 USDC via x402 on Base. Anonymous senders pay $0.01 "
-                            "from call 1. /polymarket + /hyperliquid trader-intel paid from call "
-                            "1 ($0.01-$0.10)."
+                            "Onchain data router for AI agents. Plain-English question -> live rows + "
+                            "the working GraphQL/REST query. Uniswap, Aave, Compound, ENS, Polymarket, "
+                            "15.5K+ subgraphs on 8 chains. $0.01 USDC per call on Base via x402. "
+                            "Every unpaid call returns a free live top-3 preview. A2A POST / with a "
+                            "wallet `metadata.sender` gets 3 full answers/day free. Plus "
+                            "/polymarket + /hyperliquid trader-intel ($0.01-$0.10)."
                         ),
                         mime_type="application/json",
                         extensions={
@@ -12624,6 +12644,8 @@ def build_app():
                                     _q = next((_qs[k][0] for k in ("request", "question", "query", "q") if _qs.get(k)), None)
                                 except Exception:
                                     pass
+                            if not _q and scope.get("method") == "GET" and scope.get("path") == "/route":
+                                _q = "top Uniswap V3 pools on Ethereum by volume"  # sample, so a bare GET shows real rows
                             _hdrs = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in (scope.get("headers") or [])}
                             _ckey = _fp.caller_key_from_headers(_hdrs, (scope.get("client") or ("?",))[0])
                             _prev = await asyncio.to_thread(_fp.build, _q, _ckey, pay_url=f"https://graphadvocate.com{scope.get('path', '/route')}", price=(_price_for_path(scope.get('path', '/route')) or "$0.01"))
@@ -12631,12 +12653,45 @@ def build_app():
                                 enriched["free_preview"] = _prev
                         except Exception as _fpe:
                             log.warning(f"free preview failed: {_fpe}")
+                        try:
+                            import pay_snippets as _ps
+                            _pth = scope.get("path", "/route")
+                            _ent = next((c for c in _PAID_CATALOG.values() if c.get("path") == _pth), None) or {}
+                            _bd = None
+                            try:
+                                _rb = json.loads(b"".join(_req_chunks) or b"{}")
+                                if isinstance(_rb, dict) and _rb:
+                                    _bd = _rb
+                            except Exception:
+                                pass
+                            if _bd is None:
+                                _bd = _ent.get("body") if isinstance(_ent.get("body"), dict) else None
+                            if _bd is None and _pth in ("/route", "/ask"):
+                                _bd = {"request" if _pth == "/route" else "question": "top Uniswap V3 pools on Ethereum by volume"}
+                            enriched["how_to_pay"] = _ps.how_to_pay(
+                                f"https://graphadvocate.com{_pth}", _bd,
+                                _price_for_path(_pth) or "$0.01")
+                        except Exception as _pse:
+                            log.warning(f"how_to_pay failed: {_pse}")
                         body = json.dumps(enriched).encode()
+                        _ct_html = False
+                        try:
+                            _hd = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in (scope.get("headers") or [])}
+                            _acc = _hd.get("accept", "")
+                            if scope.get("method") == "GET" and "text/html" in _acc and "application/json" not in _acc.split("text/html")[0]:
+                                import pay_snippets as _ps2
+                                body = _ps2.render_html(enriched).encode()
+                                _ct_html = True
+                        except Exception as _hte:
+                            log.warning(f"402 html view failed: {_hte}")
                         # Rewrite Content-Length so the new body is delivered correctly.
                         new_headers = [
                             (k, v) for k, v in state["headers"]
                             if k.lower() not in (b"content-length", b"payment-required")
+                            and not (_ct_html and k.lower() == b"content-type")
                         ]
+                        if _ct_html:
+                            new_headers.append((b"content-type", b"text/html; charset=utf-8"))
                         if pr_b64:
                             new_headers.append((
                                 b"payment-required",

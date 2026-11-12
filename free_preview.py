@@ -279,6 +279,23 @@ def _match_topic(low: str) -> tuple[str, str, str, str, dict | None]:
     return tid, s, e, f, ex
 
 
+def live_for_text(text: str | None, price: str = "$0.01") -> dict | None:
+    """live_preview for a question without building the whole teaser (used on free A2A answers).
+    Blocking up to ~3.5s on a cache miss; async callers use asyncio.to_thread."""
+    if not enabled() or not is_real_question(text):
+        return None
+    low = (text or "").lower()
+    topic = _match_topic(low)[0]
+    if topic == "fallback":
+        return None
+    try:
+        import live_preview as _lp
+        return _lp.build(topic, low, price=price)
+    except Exception as exc:
+        log.warning("live preview failed: %s", type(exc).__name__)
+        return None
+
+
 def _feedback_ask() -> dict | None:
     """Short ERC-8004 rating invite from feedback_invite (no invented addresses)."""
     try:

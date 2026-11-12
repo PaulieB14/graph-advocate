@@ -66,9 +66,9 @@ console.log(await res.json());
 </CodeGroup>
 
 <Note>
-  **Free tier:** 3 routing calls/day per *identified* sender. Identification means putting your wallet address (or other ID) in the A2A message metadata — e.g. `params.metadata.sender_id` or `params.message.metadata.from_agent_id`. **Anonymous senders (no identity in metadata) pay from call 1** — there is no IP-fallback free tier.
+  **What is free:** every unpaid call returns a live top-3 preview (real rows) inside its 402. A2A `POST /` with your **wallet address** in `metadata.sender` (a 0x address, 42 chars) also gets 3 full answers/day. Anonymous senders pay from call 1; HTTP `POST /route` has no daily free quota.
 
-  Beyond the 3-free cap, `POST /route` returns HTTP 402 with x402 payment requirements; any x402-aware client signs a $0.01 USDC `transferWithAuthorization` on Base and retries automatically. **No signup, no card, no API key — ever.**
+  `POST /route` (and A2A past the 3-free cap) returns HTTP 402 with x402 payment requirements; any x402-aware client signs a $0.01 USDC `transferWithAuthorization` on Base and retries automatically. **No signup, no card, no API key — ever.**
 </Note>
 
 ## 2. Keep going once you hit the cap

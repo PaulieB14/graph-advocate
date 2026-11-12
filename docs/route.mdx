@@ -5,7 +5,7 @@ api: "POST https://graphadvocate.com/route"
 ---
 
 <Note>
-  This endpoint is x402-gated. Free-tier users (10/day) should POST to `/` using A2A JSON-RPC — same routing logic, no payment required.
+  This endpoint is x402-gated and charged on every call ($0.01 USDC). An unpaid call returns HTTP 402 with a **free live top-3 preview** (`free_preview.live_preview`: real rows, not an example) and a copy-paste `how_to_pay` snippet. For free full answers, POST to `/` using A2A JSON-RPC with your wallet in `metadata.sender` (3/day).
 </Note>
 
 ## What happens
@@ -61,8 +61,9 @@ If `execution_result` is missing, fire the `curl_example` against the Graph gate
 
 | Tier | Quota | Cost |
 |------|-------|------|
-| Free | 10 queries / sender / day | $0 (hit `POST /`, not `/route`) |
-| Paid | Unlimited | $0.01 USDC on Base per call |
+| Free preview | every unpaid call | $0: live top-3 rows in the 402 body |
+| Free A2A | 3 full answers / wallet sender / day | $0 (hit `POST /`, not `/route`) |
+| Paid | Unlimited | $0.01 USDC on Base per call (`/route` has no daily free quota) |
 | Priority | Same as paid | Higher-ranked response, full search context |
 
 ## Sample: paid call

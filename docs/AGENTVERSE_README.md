@@ -152,7 +152,7 @@ Machine-readable surfaces (auto-fetched by Cursor, Claude Code, Cline, etc.):
 - Returns **routing + queries**, not raw data — except Token API which returns live data inline
 - Subgraph data depends on indexer availability on The Graph's decentralized network
 - Best for **structured onchain data** — not off-chain, social, or general knowledge
-- Free tier is 10 calls/day per sender wallet; sustained use needs x402 payment
+- Free tier is 3 full answers/day per sender wallet (A2A POST /); every unpaid HTTP call also gets a live top-3 preview; sustained use needs x402 payment
 
 ## Metadata
 

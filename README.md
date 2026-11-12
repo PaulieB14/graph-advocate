@@ -35,8 +35,8 @@ Chat gives you **the query, not the answer**: which subgraph or service to use, 
 against it, its schema, and how to get your own free Token API JWT. It never returns the data
 itself — you run the query with your key, or use the paid endpoints below, which run it for you.
 
-For an **agent** speaking A2A, the same question over JSON-RPC — where `metadata.name` (or `sender`,
-a wallet address) claims 3 free routed queries a day:
+For an **agent** speaking A2A, the same question over JSON-RPC — where `metadata.sender` (a 0x
+wallet address) claims 3 free routed answers a day (every unpaid HTTP call also gets a free live top-3 preview in its 402):
 
 ```bash
 curl -sX POST https://graphadvocate.com -H "Content-Type: application/json" -d '{
@@ -64,7 +64,7 @@ You get back the subgraph to use and a query that runs as-is:
 
 > **Three access paths, on purpose.**
 > **`/chat`** — open, no identity. Hands you the query and the Token API details; never the data.
-> **A2A with `metadata`** — 3 free routed queries a day, including a `query_ready` you can execute.
+> **A2A with `metadata.sender` = your wallet** — 3 free routed answers a day, including a `query_ready` you can execute.
 > **Anonymous machine calls** — $0.01 from the first request: an unidentified caller with no rate
 > limit is indistinguishable from a scraper.
 >
@@ -82,7 +82,7 @@ Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x40
 
 | | |
 |---|---|
-| **Free tier** | 3 queries/day per agent (`POST /`, `POST /chat`, `POST /route`) |
+| **Free** | live top-3 preview on every 402; 3 full answers/day per wallet sender (`POST /` only); `/chat` is open; `POST /route` is $0.01 every call |
 | **Network** | Base (`eip155:8453`) |
 | **Facilitator** | Coinbase CDP |
 | **Verification** | `POST /admin/self-test-paid {"all": true}` — exercises every paid handler |

@@ -4,7 +4,7 @@ description: "Ask any blockchain data question in plain English. Get back the ri
 ---
 
 <Info>
-  **3 free routing calls/day** for identified senders (wallet in A2A metadata) — then $0.01 USDC on Base via x402. Anonymous senders pay from call 1. No signup, no API key. ERC-8004 #734 · `graphadvocate.eth`
+  **Free live top-3 preview on every unpaid call**, plus 3 full A2A answers/day for wallet-identified senders — otherwise $0.01 USDC on Base via x402 per call. No signup, no API key. ERC-8004 #734 · `graphadvocate.eth`
 </Info>
 
 ## What it is
@@ -18,7 +18,7 @@ It speaks A2A JSON-RPC, MCP SSE, and x402 payments. Any agent, human, or LLM can
     Plain-English query → the right subgraph + a GraphQL query ready to fire at the Graph gateway.
   </Card>
   <Card title="Pays per call, no API keys" icon="credit-card">
-    3 routing calls/day free for identified senders; anonymous senders pay $0.01 from call 1. No signup, no card — your agent's wallet *is* the billing relationship.
+    Free live preview on every 402; 3 full A2A answers/day for wallet-identified senders; otherwise $0.01 per call. No signup, no card — your agent's wallet *is* the billing relationship.
   </Card>
   <Card title="Recommends what's actually being used" icon="network-wired">
     Indexes three live signals — onchain x402 payments on Base, the ERC-8004 agent registry, and the CDP Bazaar — so you only see services that are paid-for and live, not stale brochure listings.
@@ -90,7 +90,7 @@ curl -X POST https://graphadvocate.com/ \
 
 | | |
 |---|---|
-| **Free quota** | 3 routing calls/day for identified senders (wallet in A2A metadata); anonymous senders pay from call 1 |
+| **Free quota** | live top-3 preview on every unpaid call; 3 full A2A answers/day for wallet-identified senders (`metadata.sender`); `/route` has no daily quota |
 | **Paid call** | `/route` $0.01 · `/hyperliquid/*` & `/polymarket/*` $0.01–$0.10 — USDC on Base via x402, no signup or card |
 | **Routing surface** | 15,000+ subgraphs across 70+ networks (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and others); plus token-api, substreams, and protocol-specific MCP servers |
 | **Payment networks** | Base mainnet only (more soon) |

@@ -138,7 +138,7 @@ x402 payment challenges. Without that configuration, paid endpoints return
 `402 Payment Required` and the call stops there — no funds move.
 
 ### Pricing
-- `/route` (A2A) — 3 free queries/sender/day, then **$0.01 USDC**. MCP `route_data_request` is **$0.01 every call** (no free quota on this path).
+- A2A `POST /` — 3 free answers/wallet sender/day, then **$0.01 USDC**; `POST /route` is $0.01 every call, and each 402 carries a free live top-3 preview. MCP `route_data_request` is **$0.01 every call** (no free quota on this path).
 - `/polymarket/*` — paid from call 1 ($0.01 - $0.05 per call)
 - `/hyperliquid/*` — paid from call 1 ($0.02 - $0.10 per call)
 - `/predmarket/spread` — paid from call 1 (**$0.05 USDC**) — Polymarket ↔ Limitless cross-venue spread on a topic. POST `{topic, limit?}` returns per-pair yes-mid spread (bps) and arbitrage direction. JOIN that single-venue passthroughs structurally can't return.
