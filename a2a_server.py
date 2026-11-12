@@ -3648,6 +3648,16 @@ class GraphAdvocateExecutor(AgentExecutor):
         _cached_resp = None if _is_paid_request else _get_cached_response(user_text)
         if _cached_resp is not None:
             log.info(f"CACHED   task={task_id} | serving persistent cached response")
+            # Cached routing text is replayable; live rows are not, so re-attach fresh ones.
+            try:
+                if (_cached_resp.get("recommendation") not in ("introduction", "greeting")
+                        and "live_preview" not in _cached_resp):
+                    import free_preview as _fpl2
+                    _lv2 = await asyncio.to_thread(_fpl2.live_for_text, user_text)
+                    if _lv2:
+                        _cached_resp = {**_cached_resp, "live_preview": _lv2}
+            except Exception as _lve2:
+                log.warning(f"cached live preview failed: {_lve2}")
             _log_request(task_id, user_text, _cached_resp.get("recommendation", "cached"), "high", "cached", response=_cached_resp)
             await event_queue.enqueue_event(new_agent_text_message(json.dumps(_cached_resp)))
             return

@@ -74,3 +74,11 @@ class TestPreviewEndpoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CachedA2aReplyGetsLiveRows(unittest.TestCase):
+    def test_cached_branch_reattaches_live_preview(self):
+        import inspect, a2a_server
+        src = inspect.getsource(a2a_server)
+        i = src.index("serving persistent cached response")
+        self.assertIn("live_for_text", src[i:i + 900])
