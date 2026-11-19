@@ -5131,6 +5131,7 @@ the best service to use plus a ready-to-run curl / GraphQL / MCP example.
 
 Production: https://graphadvocate.com
 Repository: https://github.com/PaulieB14/graph-advocate
+Agent skill: npx skills add PaulieB14/graph-advocate  (skills/graph-advocate/SKILL.md)
 
 ## Endpoints
 
