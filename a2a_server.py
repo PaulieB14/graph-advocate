@@ -6187,7 +6187,7 @@ def _is_range_error(exc: Exception) -> bool:
             # 429 is deliberately NOT here. Rate limiting is not a size signal,
             # and halving a rate-limited request turns one refusal into two --
             # a retry storm that makes the limit worse. It is handled by
-            # _is_rate_limited() below, which stops the scan instead.
+            # _is_provider_rate_limited() below, which stops the scan instead.
             return exc.response.status_code == 413
     except Exception:
         pass
@@ -6199,7 +6199,7 @@ def _is_range_error(exc: Exception) -> bool:
         "query returned more than", "limit exceeded", "range is too large"))
 
 
-def _is_rate_limited(exc: Exception) -> bool:
+def _is_provider_rate_limited(exc: Exception) -> bool:
     """A provider asking us to slow down. Back off; never split."""
     try:
         import httpx
@@ -6273,7 +6273,7 @@ def _get_onchain_payers() -> dict:
                 # Progress up to the previous chunk is real; keep it, stop here,
                 # and report a WARNING rather than an error so the payer figures
                 # below are still served from everything scanned so far.
-                if _is_rate_limited(e):
+                if _is_provider_rate_limited(e):
                     # Never keep hammering a provider that asked us to stop. The
                     # next invocation resumes from last_block, so backing off
                     # costs latency, not data.
