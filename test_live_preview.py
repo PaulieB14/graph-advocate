@@ -10,8 +10,11 @@ import free_preview as fp
 import live_preview as lp
 import numfmt
 
+# Fixtures must look freshly indexed: live_preview drops data older than MAX_INDEX_AGE_S (6h).
+_NOW_TS = int(__import__('time').time()) - 60
+
 UNI_DATA = {
-    "_meta": {"block": {"number": 26395637, "timestamp": 1794447671}},
+    "_meta": {"block": {"number": 26395637, "timestamp": _NOW_TS}},
     "pools": [
         {"id": "0x88e6", "feeTier": "500", "volumeUSD": "609167447506.1830892627042412837456",
          "totalValueLockedUSD": "363095785.5150252058840355529469255",
@@ -169,7 +172,7 @@ class TestLivePreview(LiveBase):
         self.assertNotIn("live_preview", prev)
 
     def test_aave_markets_and_liquidations(self):
-        mk = {"_meta": {"block": {"number": 1, "timestamp": 1794447671}}, "markets": [
+        mk = {"_meta": {"block": {"number": 1, "timestamp": _NOW_TS}}, "markets": [
             {"name": "Aave Ethereum WETH", "inputToken": {"symbol": "WETH"},
              "totalValueLockedUSD": "4341479646.506991147463489406188",
              "totalDepositBalanceUSD": "4341479646.506991147463489406188",
