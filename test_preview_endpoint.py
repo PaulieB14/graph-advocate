@@ -49,6 +49,8 @@ class TestPreviewEndpoint(unittest.TestCase):
         self.assertNotIn("__LIVE_DEMO__", r.text)
         self.assertIn("<td>A/B</td>", r.text)
         self.assertIn("/preview?q=", r.text)
+        self.assertNotIn("Jupiter Lend", r.text)
+        self.assertNotIn("lend-api-production", r.text)
         with mock.patch.object(lp, "_fetch", return_value=None):
             with lp._cache_lock:
                 lp._cache.clear()
