@@ -214,3 +214,4 @@ Hosted on **Railway**. Auto-deploys on push to `main`. SQLite on Railway volume 
 | **Storage** | SQLite on `/data/` volume (activity, quality scores, feedback, cache) |
 | **Payments** | x402 via CDP facilitator on Base mainnet |
 | **Fetch.ai** | Proxy mode on Agentverse |
+<!-- Republished 2026-11-22 after Mintlify's earlier index.mdx parse failure blocked these pages. -->
