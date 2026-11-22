@@ -22,10 +22,15 @@ class TestFreeTierCopy(unittest.TestCase):
 
     def test_cdp_description_within_limit(self):
         text = (ROOT / "a2a_server.py").read_text(encoding="utf-8")
-        m = re.search(r'description=\(\s*"Onchain data router for AI agents\. Plain-English question(.*?)\),\s*mime_type', text, re.S)
+        m = re.search(
+            r'description=\(\s*"(Onchain data router for AI agents\. Ask [^"]+)"\s*\),\s*mime_type',
+            text,
+        )
         self.assertIsNotNone(m)
-        desc = "Onchain data router for AI agents. Plain-English question" + "".join(re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1)))
+        desc = m.group(1)
         self.assertLessEqual(len(desc), 500)
+        for phrase in ("uniswap v3 pools", "aave tvl", "polymarket trader"):
+            self.assertIn(phrase, desc.lower())
 
 
 if __name__ == "__main__":

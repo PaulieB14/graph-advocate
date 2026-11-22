@@ -2065,7 +2065,7 @@ def _normalize_service(service: str | None) -> str:
 BAZAAR_SERVICE_NAME = "Graph Advocate"
 BAZAAR_ICON_URL = "https://graphadvocate.com/graphadvocate.png"
 _BAZAAR_TAGS_BY_PREFIX = (
-    ("/route", ["onchain data", "subgraph", "the graph", "graphql", "blockchain"]),
+    ("/route", ["uniswap v3 pools", "aave tvl", "polymarket trader", "subgraph", "the graph"]),
     ("/tip", ["tip", "the graph", "onchain data"]),
     ("/ask", ["x402", "analytics", "base", "onchain data", "sql"]),
     ("/onchain-x402/", ["x402", "payments", "base", "wallet", "onchain data"]),
@@ -5124,10 +5124,14 @@ async def llms_txt_endpoint(request: Request):
     """
     body = """# Graph Advocate
 
-Routing agent for The Graph Protocol. Send a plain-English data question
-about any blockchain (Ethereum, Base, Arbitrum, Polygon, Solana, TON, BNB,
-Polymarket, Aave, Uniswap, ENS, ERC-8004 agents, etc.) and receive back
-the best service to use plus a ready-to-run curl / GraphQL / MCP example.
+Routing agent for The Graph Protocol. Start with GET /preview?q=... — a free
+live top-3 (plain HTTP 200, no wallet). Want the full list, other chains,
+filters, or a follow-up? POST /route is $0.01 USDC on Base via x402: a paid
+call runs the query and returns `result` rows, `executed.data`, and
+`query_ready`. Unpaid POSTs return HTTP 402 with the same free top-3 plus
+`how_to_pay` snippets. A browser GET /route (Accept: text/html) shows those
+snippets; the status stays 402 so agents still see a payment challenge.
+A2A POST / with a wallet in metadata.sender gets 3 full answers/day.
 
 Production: https://graphadvocate.com
 Repository: https://github.com/PaulieB14/graph-advocate
@@ -5135,6 +5139,9 @@ Agent skill: npx skills add PaulieB14/graph-advocate  (skills/graph-advocate/SKI
 
 ## Endpoints
 
+- GET  /preview?q=...              Free live top-3 rows (plain 200, no wallet). Start here.
+- POST /route                      $0.01 USDC on Base via x402. Runs the query and returns `result` rows, `executed.data`, and `query_ready`.
+- GET  /route                      HTTP 402 challenge. Browsers (Accept: text/html) get how_to_pay snippets; agents get JSON. Status stays 402.
 - POST /                           A2A JSON-RPC 2.0 (main agent endpoint)
 - GET  /.well-known/agent-card.json  A2A agent card
 - GET  /agents/capabilities.json   Machine-readable per-service capability list
@@ -5160,8 +5167,8 @@ What is free (one rule, matches the code):
 3. HTTP `POST /route` has NO daily free quota: $0.01 USDC per call, from the first call.
 Try it with no payment and no 402: GET /preview?q=<your question> returns the live top-3 rows as plain JSON.
 Pay in one step: any x402 client (x402-fetch / x402 for Python) reads the 402, signs a gas-free
-USDC authorization and retries. Snippets are in every 402 body (`how_to_pay`) and at
-GET /route in a browser.
+USDC authorization and retries. Snippets are in every 402 body (`how_to_pay`). A browser
+GET /route (Accept: text/html) shows the same snippets; the status stays 402.
 
 | Endpoint                       | Price        | Notes |
 |--------------------------------|--------------|-------|
@@ -8938,10 +8945,12 @@ def build_app():
                 BASE_URL + c["path"] for c in _PAID_CATALOG.values() if c.get("wellknown")
             ],
             "instructions": (
-                "POST a plain-English onchain data request and receive a "
-                "ready-to-execute query, the right subgraph ID, and an MCP install hint. "
-                "Free: a live top-3 preview on every 402, plus " + str(DAILY_FREE_QUERIES) + " full A2A (POST /) "
-                "answers/day per wallet-identified sender. Otherwise $0.01 USDC on Base via x402 per call. "
+                "Start with GET /preview?q=... (free live top-3, no wallet). "
+                "POST {request} to /route ($0.01 USDC on Base via x402) to run the query "
+                "and receive `result` rows, `executed.data`, and `query_ready`. "
+                "Unpaid calls return HTTP 402 with the free top-3 plus how_to_pay snippets. "
+                "A2A POST / with metadata.sender = a 0x wallet gets " + str(DAILY_FREE_QUERIES) + " full "
+                "answers/day. "
                 "Hyperliquid + Polymarket trader-intelligence endpoints ($0.01–$0.10/call) "
                 "are documented at " + BASE_URL + "/hyperliquid and " + BASE_URL + "/polymarket."
             ),
@@ -8962,9 +8971,12 @@ def build_app():
                 "title": "Graph Advocate",
                 "version": "1.0.0",
                 "description": (
-                    "Claude-powered routing agent for The Graph Protocol. Send a "
-                    "plain-English onchain data request and receive a ready-to-execute "
-                    "GraphQL query, the right subgraph ID, and an MCP/npm install hint."
+                    "The routing agent for onchain data. Start with GET /preview?q=... "
+                    "(free live top-3, no wallet). POST /route ($0.01 USDC on Base via x402) "
+                    "runs the query and returns `result` rows, `executed.data`, and `query_ready`. "
+                    "Unpaid calls return HTTP 402 with the free preview and how_to_pay snippets. "
+                    "Payments go to x-discovery.agent.payTo (also the 402 payTo), not to "
+                    "x-discovery.agent.wallet."
                 ),
                 "contact": {
                     "name": "Graph Advocate",
@@ -8977,8 +8989,9 @@ def build_app():
                 "agent": {
                     "name": "Graph Advocate",
                     "ens": "graphadvocate.eth",
-                    "erc8004": "Agent #734 on Arbitrum",
-                    "wallet": X402_WALLET,
+                    "erc8004": "Agent #734 on Arbitrum, #41034 on Base",
+                    "wallet": _OUTBOUND_WALLET,
+                    "payTo": X402_WALLET,
                     "llms_txt": BASE_URL + "/llms.txt",
                     "capabilities": BASE_URL + "/agents/capabilities.json",
                 },
@@ -8991,6 +9004,44 @@ def build_app():
             },
             "components": {
                 "schemas": {
+                    "RouteRequest": {
+                        "type": "object",
+                        "required": ["request"],
+                        "properties": {
+                            "request": {
+                                "type": "string",
+                                "description": (
+                                    "Plain-English onchain data question, e.g. 'uniswap v3 pools', "
+                                    "'aave tvl', 'polymarket trader 0x…', 'who owns vitalik.eth'."
+                                ),
+                            },
+                            "execute": {
+                                "type": "boolean",
+                                "default": True,
+                                "description": "When true (default), run the query and return live rows.",
+                            },
+                        },
+                    },
+                    "RouteResponse": {
+                        "type": "object",
+                        "properties": {
+                            "recommendation": {"type": "string"},
+                            "reason": {"type": "string"},
+                            "confidence": {"type": "string"},
+                            "result": {
+                                "type": "array",
+                                "description": "Formatted live rows (human-readable values) from the executed query.",
+                            },
+                            "executed": {
+                                "type": "object",
+                                "description": "Raw gateway payload plus data_display when the query was run.",
+                            },
+                            "query_ready": {
+                                "type": "object",
+                                "description": "The GraphQL/REST tool + args that produced the rows.",
+                            },
+                        },
+                    },
                     "RoutingRequest": {
                         "type": "object",
                         "required": ["jsonrpc", "id", "method", "params"],
@@ -9049,32 +9100,37 @@ def build_app():
                 "/route": {
                     "post": {
                         "operationId": "routeQuery",
-                        "summary": "Route an onchain data request",
+                        "summary": "Run a plain-English onchain data question and return live rows",
                         "description": (
-                            "POST a plain-English request via A2A JSON-RPC 2.0 (`message/send`) "
-                            "and receive a ready-to-execute query, the right subgraph ID, an "
-                            "MCP install hint, and a working curl example. "
-                            "Powered by Claude with auto-search across 15,500+ subgraphs."
+                            "Paid POST. Send `{request}` (optional `execute`, default true). "
+                            "A settled $0.01 USDC payment on Base runs the query and returns "
+                            "`result` (formatted rows), `executed` (raw gateway payload plus "
+                            "`data_display`), and `query_ready` (the GraphQL/REST call that produced them). "
+                            "Unpaid calls return HTTP 402 with a free live top-3 preview and `how_to_pay` snippets. "
+                            "Try GET /preview?q=... first (free, no wallet). "
+                            "A browser GET /route with Accept: text/html shows the same snippets; the status stays 402. "
+                            "Payments go to `x-payment-info.payTo` (or the 402 `payTo`), not to `x-discovery.agent.wallet`."
                         ),
                         "requestBody": {
                             "required": True,
                             "content": {
                                 "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/RoutingRequest"},
+                                    "schema": {"$ref": "#/components/schemas/RouteRequest"},
+                                    "example": {"request": "top Uniswap V3 pools on Ethereum by volume"},
                                 },
                             },
                         },
                         "responses": {
                             "200": {
-                                "description": "Routing recommendation with ready-to-run query",
+                                "description": "Live rows plus the query that produced them (`result`, `executed`, `query_ready`).",
                                 "content": {
                                     "application/json": {
-                                        "schema": {"$ref": "#/components/schemas/RoutingResponse"},
+                                        "schema": {"$ref": "#/components/schemas/RouteResponse"},
                                     },
                                 },
                             },
                             "402": {
-                                "description": "Payment required",
+                                "description": "Payment required. Body includes accepts[], free_preview, and how_to_pay. Status stays 402 for agents and browsers.",
                                 "content": {
                                     "application/json": {
                                         "schema": {"type": "object"},
@@ -9082,9 +9138,13 @@ def build_app():
                                 },
                             },
                         },
-                        # Match the exact shape merx.exchange uses (verified working on x402scan)
+                        # Keep merx.exchange price shape (verified working on x402scan) and name the payee.
                         "x-payment-info": {
                             "protocols": [{"x402": {}}],
+                            "scheme": "exact",
+                            "network": "base",
+                            "asset": USDC_BASE,
+                            "payTo": X402_WALLET,
                             "price": {
                                 "mode": "fixed",
                                 "currency": "USD",
@@ -9289,7 +9349,7 @@ def build_app():
       <div class="lbl">Try it — free, real data, no key, no wallet</div>
       __LIVE_DEMO__
       <pre>curl -s "https://graphadvocate.com/preview?q=top%20Aave%20V3%20markets%20on%20Arbitrum%20by%20TVL"</pre>
-      <div class="out">That is the live top 3 rows for any Uniswap / Aave / Compound / ENS / Polymarket question. Want the full list, other chains, filters and follow-ups? <code>POST /route</code> is $0.01 USDC per call over x402 &mdash; open <a href="/route">/route</a> in a browser for copy-paste code (x402-fetch, Python, curl, MCP). Free chat (<code>/chat</code>) still hands you the subgraph and the GraphQL.</div>
+      <div class="out">That is the live top 3 rows for any Uniswap / Aave / Compound / ENS / Polymarket question &mdash; <code>GET /preview?q=...</code> (no key, no wallet). Want the full list, other chains, filters and follow-ups? <code>POST /route</code> is $0.01 USDC on Base via x402. The 402 body includes <code>how_to_pay</code> snippets (x402-fetch, Python, curl, MCP). A browser opening <a href="/route">/route</a> shows the same snippets; the status stays 402 so agents still see a payment challenge. Free chat (<code>/chat</code>) still hands you the subgraph and the GraphQL.</div>
     </div>
     <div class="links">
       <a class="link" href="/dashboard">📊 Live Dashboard</a>
@@ -9299,7 +9359,7 @@ def build_app():
       <a class="link" href="https://github.com/PaulieB14/graph-advocate" target="_blank">⭐ GitHub</a>
     </div>
     <div class="footer">
-      <code>/chat</code> free · A2A with a wallet in <code>metadata.sender</code>: 3 free answers/day · everything else $0.01 per call, with a free live top-3 preview<br>
+      <code>GET /preview</code> free live top-3 · <code>/chat</code> free · A2A with a wallet in <code>metadata.sender</code>: 3 free answers/day · <code>POST /route</code> $0.01, with a free live top-3 preview on every unpaid call<br>
       Paid calls settle in USDC on Base via x402
     </div>
   </div>
@@ -9313,7 +9373,7 @@ def build_app():
         failure falls back to the static figures - a landing page must never
         500 because a counter query did.
         """
-        subgraphs, endpoints = "15.5K+", str(len(_PAID_CATALOG))
+        subgraphs = "15.5K+"
         served = settlements = None
         try:
             import sqlite3 as _sq
@@ -9329,7 +9389,7 @@ def build_app():
         cells = [
             (f"{served:,}" if served else "5K+", "requests routed"),
             (subgraphs, "subgraphs indexed"),
-            (endpoints, "paid endpoints"),
+            ("$0.01", "per /route call"),
             ("20+", "chains"),
         ]
         return "".join(
@@ -11812,12 +11872,7 @@ def build_app():
                         # longer fails verify with "maximum string length is 500".
                         # Keep the BM25-friendly keyword density tight.
                         description=(
-                            "Onchain data router for AI agents. Plain-English question -> live rows + "
-                            "the working GraphQL/REST query. Uniswap, Aave, Compound, ENS, Polymarket, "
-                            "15.5K+ subgraphs on 8 chains. $0.01 USDC per call on Base via x402. "
-                            "Every unpaid call returns a free live top-3 preview. A2A POST / with a "
-                            "wallet `metadata.sender` gets 3 full answers/day free. Plus "
-                            "/polymarket + /hyperliquid trader-intel ($0.01-$0.10)."
+                            "Onchain data router for AI agents. Ask 'uniswap v3 pools', 'aave tvl', 'who owns vitalik.eth', or 'polymarket trader' and get live rows plus the working GraphQL/REST query. Uniswap, Aave, Compound, ENS, Polymarket, 15.5K+ subgraphs. $0.01 USDC on Base via x402. Unpaid calls return a free live top-3 preview. A2A POST / with a wallet metadata.sender gets 3 full answers/day free."
                         ),
                         mime_type="application/json",
                         extensions={
@@ -11826,7 +11881,7 @@ def build_app():
                                 input_schema={
                                     "type": "object",
                                     "properties": {
-                                        "request": {"type": "string", "description": "Plain-English onchain data question (e.g. 'top Aave V3 markets on Polygon by TVL', 'who owns vitalik.eth')"},
+                                        "request": {"type": "string", "description": "Plain-English onchain data question, e.g. 'uniswap v3 pools', 'aave tvl', 'polymarket trader 0x…', 'who owns vitalik.eth'"},
                                         "execute": {"type": "boolean", "description": "Run the query and return rows (default true)"},
                                     },
                                     "required": ["request"],
@@ -13387,10 +13442,13 @@ def build_app():
 
         # ── POST /mcp (Streamable HTTP MCP probe) ──
         # 8004scan and other modern MCP validators POST a JSON-RPC `initialize`
-        # call to /mcp. The real session-bearing transport is /mcp/sse; for
-        # one-shot health-check probes, respond inline with a valid MCP
-        # initialize result. Anything else gets a JSON-RPC error pointing at
-        # SSE — still 200 HTTP so the validator can parse the response cleanly.
+        # call to /mcp. Hosted POST /mcp answers initialize / tools/list /
+        # prompts/list / resources/list / ping inline so a one-shot HTTP client
+        # gets a valid MCP handshake. Full tool execution lives in the
+        # `npx -y graph-advocate-mcp` package (stdio / streamable HTTP). The
+        # old /mcp/sse URL is not served and must not be advertised. Unknown
+        # methods still return JSON-RPC -32601 with HTTP 200 so validators
+        # can parse the response cleanly.
         if scope["type"] == "http" and scope["path"] == "/mcp" and scope.get("method") == "POST":
             body_in = b""
             more = True
@@ -13405,16 +13463,18 @@ def build_app():
             req_id = req.get("id", 1)
             method = req.get("method", "")
             # Inline catalog mirroring mcp_server.py so probers (8004scan,
-            # MCP Inspector) see the same three tools they'd see over SSE.
+            # MCP Inspector) see the same three tools they'd see on tools/list.
             # Keep in sync with @mcp.tool() decorators in mcp_server.py — if
             # a new tool is added there, mirror it here.
             _MCP_TOOLS = [
                 {
                     "name": "route_data_request",
                     "description": (
-                        "Route an onchain data request to the right Graph "
-                        "Protocol service. Returns the exact tool + args to "
-                        "use. Call this FIRST for any blockchain data need."
+                        "Route a plain-English onchain data request (Uniswap v3 "
+                        "pools, Aave TVL, ENS owners, Polymarket traders, 15.5K+ "
+                        "subgraphs). Returns live result rows when executed, plus "
+                        "query_ready (tool + args), recommendation, reason, and "
+                        "confidence. Call this FIRST for any blockchain data need."
                     ),
                     "inputSchema": {
                         "type": "object",
@@ -13508,8 +13568,9 @@ def build_app():
                     "id": req_id,
                     "error": {
                         "code": -32601,
-                        "message": (f"Method '{method}' requires a session — "
-                                    "open an SSE connection at /mcp/sse for full tool execution."),
+                        "message": (f"Method '{method}' is not served on this one-shot probe path. "
+                                    "For full tool execution use `npx -y graph-advocate-mcp`, "
+                                    "or call GET /preview (free) and POST /route ($0.01) directly."),
                     },
                 }
             body_out = json.dumps(resp).encode()
@@ -13556,8 +13617,8 @@ def build_app():
                 "name": "Graph Advocate MCP",
                 "status": "healthy",
                 "version": "1.0.0",
-                "transport": "sse",
-                "description": "Onchain data routing for The Graph Protocol. POST /mcp for one-shot JSON-RPC (initialize, tools/list); connect via SSE at /mcp/sse for full session.",
+                "transport": "streamable-http",
+                "description": "Onchain data routing for The Graph Protocol. POST /mcp answers initialize, tools/list, prompts/list, resources/list and ping (streamable HTTP). For a full MCP session use `npx -y graph-advocate-mcp`.",
                 "tools": ["route_data_request", "recommend_npm_package", "compare_graph_services"],
             }).encode()
             await receive()
@@ -13568,7 +13629,7 @@ def build_app():
             await send({"type": "http.response.body", "body": body})
             return
         if scope["type"] == "http" and scope["path"] == "/mcp/catalog":
-            # Machine-readable catalog lives in `extra`, not the MCP SSE server
+            # Machine-readable catalog lives in `extra`, not the MCP server
             await extra(scope, receive, send)
             return
         if scope["type"] == "http" and scope["path"].startswith("/mcp"):

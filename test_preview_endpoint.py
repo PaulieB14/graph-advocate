@@ -49,6 +49,11 @@ class TestPreviewEndpoint(unittest.TestCase):
         self.assertNotIn("__LIVE_DEMO__", r.text)
         self.assertIn("<td>A/B</td>", r.text)
         self.assertIn("/preview?q=", r.text)
+        self.assertIn("GET /preview", r.text)
+        self.assertIn("per /route call", r.text)
+        self.assertNotIn("paid endpoints", r.text)
+        self.assertNotIn("in a browser for copy-paste code", r.text)
+        self.assertNotIn("/mcp/sse", r.text)
         self.assertNotIn("Jupiter Lend", r.text)
         self.assertNotIn("lend-api-production", r.text)
         with mock.patch.object(lp, "_fetch", return_value=None):

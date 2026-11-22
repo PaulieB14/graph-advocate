@@ -55,8 +55,9 @@ class TestStaticFiles(unittest.TestCase):
         self.assertLessEqual(len(s["description"]), 100)
         self.assertTrue(s["version"])
         types = {r["type"] for r in s["remotes"]}
-        self.assertEqual(types, {"streamable-http", "sse"})
+        self.assertEqual(types, {"streamable-http"})
         self.assertIn("https://graphadvocate.com/mcp", [r["url"] for r in s["remotes"]])
+        self.assertFalse(any("/mcp/sse" in r["url"] for r in s["remotes"]))
         # The registry publisher validates against this schema when available.
         try:
             import jsonschema
@@ -179,6 +180,54 @@ class TestRoutes(unittest.TestCase):
         allow = r.headers.get("access-control-allow-headers") or ""
         for h in ("PAYMENT-SIGNATURE", "PAYMENT-REQUIRED", "PAYMENT-RESPONSE", "X-PAYMENT"):
             self.assertIn(h, allow, f"OPTIONS allow-headers missing {h}")
+
+    def test_openapi_route_is_paid_post_with_correct_wallets(self):
+        spec = self.c.get("/openapi.json").json()
+        route = spec["paths"]["/route"]["post"]
+        self.assertIn("RouteRequest", route["requestBody"]["content"]["application/json"]["schema"]["$ref"])
+        self.assertIn("result", spec["components"]["schemas"]["RouteResponse"]["properties"])
+        self.assertIn("executed", spec["components"]["schemas"]["RouteResponse"]["properties"])
+        self.assertIn("query_ready", spec["components"]["schemas"]["RouteResponse"]["properties"])
+        self.assertNotIn("message/send", route["description"])
+        self.assertIn("`result`", route["description"])
+        agent = spec["x-discovery"]["agent"]
+        self.assertEqual(agent["wallet"].lower(), "0x575267eed09c338fae5716a486a7b58a5749a292")
+        self.assertEqual(agent["payTo"].lower(), "0x0ff5a6ecef783bba35463ec2f8403b9b5e9e7c86")
+        self.assertEqual(route["x-payment-info"]["payTo"].lower(), "0x0ff5a6ecef783bba35463ec2f8403b9b5e9e7c86")
+        self.assertNotEqual(agent["wallet"].lower(), agent["payTo"].lower())
+
+    def test_route_bazaar_metadata_matches_everyday_queries(self):
+        from a2a_server import _bazaar_service_metadata
+        tags = _bazaar_service_metadata("/route")["tags"]
+        for t in ("uniswap v3 pools", "aave tvl", "polymarket trader"):
+            self.assertIn(t, tags)
+        # GET /route is a payload-less challenge; the Bazaar resource description
+        # and tags live on the unpaid POST /route 402.
+        r = self.c.post("/route", json={"request": "uniswap v3 pools"})
+        if r.status_code != 402:
+            self.skipTest("x402 middleware not initialised in this environment (no CDP credentials)")
+        pr = r.headers.get("payment-required")
+        self.assertTrue(pr)
+        decoded = json.loads(base64.b64decode(pr))
+        desc = (decoded.get("resource") or {}).get("description") or ""
+        self.assertLessEqual(len(desc), 500)
+        for phrase in ("uniswap v3 pools", "aave tvl", "polymarket trader"):
+            self.assertIn(phrase, desc.lower())
+        header_tags = (decoded.get("resource") or {}).get("tags") or []
+        for t in ("uniswap v3 pools", "aave tvl", "polymarket trader"):
+            self.assertIn(t, header_tags)
+
+    def test_discovery_surfaces_do_not_advertise_mcp_sse(self):
+        for path in ("/", "/llms.txt", "/openapi.json", "/mcp",
+                     "/.well-known/mcp/server.json", "/.well-known/mcp.json",
+                     "/.well-known/agent-card.json", "/.well-known/x402"):
+            r = self.c.get(path)
+            self.assertNotIn("/mcp/sse", r.text, path)
+            self.assertNotIn("MCP SSE", r.text, path)
+        # Hosted POST /mcp tools/call must not point at the dead SSE URL.
+        r = self.c.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                      "params": {"name": "route_data_request", "arguments": {"request": "x"}}})
+        self.assertNotIn("/mcp/sse", r.text)
 
 
 class TestPaymentRequiredHeaderHelpers(unittest.TestCase):
