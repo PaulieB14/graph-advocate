@@ -4,192 +4,98 @@
 
 <img src="static/graphadvocate.png" alt="Graph Advocate" width="160" />
 
-**Onchain Data Routing Agent for [The Graph Protocol](https://thegraph.com)**
+**Onchain data router for [The Graph](https://thegraph.com)**
 
-Ask a question about blockchain data. Get back the right subgraph, a ready-to-execute query, and an MCP install hint.
+Ask a blockchain data question in plain English. Get live rows and the working GraphQL or REST query.
 
 [![CDP Bazaar](https://img.shields.io/badge/CDP%20Bazaar-indexed-00D4AA)](https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant?payTo=0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86)
 [![x402scan](https://img.shields.io/badge/x402scan-listed-blue)](https://www.x402scan.com)
-[![ERC-8004](https://img.shields.io/badge/ERC--8004-%23734-purple)](https://www.8004scan.io/agents/arbitrum/734)
+[![ERC-8004](https://img.shields.io/badge/ERC--8004-%2341034-purple)](https://www.8004scan.io/agents/base/41034)
 
-**[📚 Docs](https://docs.graphadvocate.com)** · [Live Dashboard](https://graphadvocate.com/dashboard) · [Chat](https://graphadvocate.com/chat) · [Agent Card](https://graphadvocate.com/.well-known/agent-card.json) · [llms.txt](https://graphadvocate.com/llms.txt) · [capabilities.json](https://graphadvocate.com/agents/capabilities.json)
+**[Docs](https://docs.graphadvocate.com)** · [Live site](https://graphadvocate.com) · [Dashboard](https://graphadvocate.com/dashboard) · [Chat](https://graphadvocate.com/chat) · [Agent card](https://graphadvocate.com/.well-known/agent-card.json) · [llms.txt](https://graphadvocate.com/llms.txt)
 
-**Discoverable on:** [Agentic Market](https://agentic.market/?service=graphadvocate-com) · [CDP Bazaar](https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant?payTo=0x0FF5A6ecef783BBA35463ec2F8403B9B5e9e7C86) · [Ampersend](https://app.ampersend.ai/discover/agent/8453:41034) · [Agentverse](https://agentverse.ai/agents/details/agent1qfa8f2kzanmt4zqg35gvgk5lpkjev52f75duhdyl3tj6s0nn26466yu5c7a/profile) · [x402scan](https://www.x402scan.com) · [ClawHub](https://clawhub.ai/paulieb14/graph-advocate) · [8004scan](https://www.8004scan.io/agents/base/41034)
-
-> **For LLM tools (Cursor, Claude Code, etc.):** point at `https://graphadvocate.com/llms.txt` for auto-discovery of routing services and capabilities.
->
-> **Install as an agent skill** (Claude Code, Cursor, Codex, OpenClaw, …): `npx skills add PaulieB14/graph-advocate`
+`npx skills add PaulieB14/graph-advocate` · `npx -y graph-advocate-mcp`
 
 </div>
 
----
-
 ## Try it
 
-Ask in plain English. No key, no signup, no wallet:
+Start with the free live preview — no key, no wallet, no signup:
 
 ```bash
-curl -sX POST https://graphadvocate.com/chat -H "Content-Type: application/json" \
-  -d '{"message":"best subgraph for uniswap v3 on ethereum"}'
+curl -s "https://graphadvocate.com/preview?q=top+uniswap+v3+pools+by+volume"
 ```
 
-Chat gives you **the query, not the answer**: which subgraph or service to use, the GraphQL to run
-against it, its schema, and how to get your own free Token API JWT. It never returns the data
-itself — you run the query with your key, or use the paid endpoints below, which run it for you.
-
-For an **agent** speaking A2A, the same question over JSON-RPC — where `metadata.sender` (a 0x
-wallet address) claims 3 free routed answers a day (every unpaid HTTP call also gets a free live top-3 preview in its 402):
+That returns the top 3 live rows. For the full list, other chains, filters, or a follow-up, `POST /route` is **$0.01 USDC on Base** via [x402](https://www.x402.org/). Unpaid calls return HTTP 402 with the same free top-3 plus `how_to_pay` snippets (x402-fetch, Python, curl, MCP). A browser opening `/route` shows those snippets; the status stays 402 so agents still see a payment challenge.
 
 ```bash
-curl -sX POST https://graphadvocate.com -H "Content-Type: application/json" -d '{
-  "jsonrpc":"2.0","id":1,"method":"message/send",
-  "params":{"message":{"role":"user","messageId":"1",
-    "parts":[{"kind":"text","text":"Top Aave V3 markets by TVL"}],
-    "metadata":{"name":"my-agent"}}}}'
+# Unpaid call — 402 + free preview + how_to_pay
+curl -s -X POST https://graphadvocate.com/route \
+  -H "Content-Type: application/json" \
+  -d '{"request":"top Uniswap V3 pools on Base"}'
 ```
 
-You get back the subgraph to use and a query that runs as-is:
+A paid response includes `result` (formatted rows), `executed.data`, and `query_ready`.
 
-```json
-{
-  "recommendation": "subgraph-registry",
-  "reason": "Aave V3 Ethereum (Messari standardized) indexes Market entities with totalValueLockedUSD and inputToken. This returns the largest reserves by TVL with token symbols.",
-  "query_ready": {
-    "tool": "execute_query_by_subgraph_id",
-    "args": {
-      "subgraph_id": "JCNWRypm7FYwV8fx5HhzZPSFaMxgkPuw4TnR3Gpi81zk",
-      "gql": "{ markets(first: 10, orderBy: totalValueLockedUSD, orderDirection: desc) { id name totalValueLockedUSD inputToken { symbol } } }"
-    }
-  }
-}
-```
+## Pricing
 
-> **Three access paths, on purpose.**
-> **`/chat`** — open, no identity. Hands you the query and the Token API details; never the data.
-> **A2A with `metadata.sender` = your wallet** — 3 free routed answers a day, including a `query_ready` you can execute.
-> **Anonymous machine calls** — $0.01 from the first request: an unidentified caller with no rate
-> limit is indistinguishable from a scraper.
->
-> The line is deliberate. Guidance is free; **execution against metered infrastructure is not.**
+All paid calls settle in USDC on Base (`eip155:8453`) through the Coinbase CDP facilitator. No API key and no signup.
 
-## What it does
+| Path | Price | What you get |
+|------|-------|----------------|
+| `GET /preview?q=...` | Free | Live top-3 rows (plain 200) |
+| `POST /` (A2A, `metadata.sender` = your 0x wallet) | 3 full answers/day, then $0.01 | Routed answer + live rows |
+| `POST /route` | $0.01 every call | Live rows + the query that produced them |
+| `POST /ask` | $0.05 | Natural-language Q&A over x402 settlements on Base |
+| `/chat` | Free | The subgraph and GraphQL to run yourself (not the data) |
+| Other paid endpoints | $0.01–$0.10 | Hyperliquid, Polymarket, Kalshi, Uniswap, and agent-score APIs — see [docs](https://docs.graphadvocate.com) or `/llms.txt` |
 
-Routes plain-English data requests to the right Graph Protocol service — Token API, Subgraph Registry, Substreams, or one of 6 protocol-specific MCP packages (Aave, Uniswap, Polymarket, lending, Limitless, Predict.fun). Every response includes a working query you can execute immediately.
-
-Searches 15,500+ indexed subgraphs in real-time. Powered by Claude.
-
-## x402 Payments
-
-Accepts autonomous agent payments on **Base mainnet** via [x402](https://www.x402.org/). Verified and settled by the Coinbase CDP facilitator.
-
-| | |
-|---|---|
-| **Free** | live top-3 preview on every 402; 3 full answers/day per wallet sender (`POST /` only); `/chat` is open; `POST /route` is $0.01 every call |
-| **Network** | Base (`eip155:8453`) |
-| **Facilitator** | Coinbase CDP |
-| **Verification** | `POST /admin/self-test-paid {"all": true}` — exercises every paid handler |
-
-### Paid endpoint pricing
-
-| Endpoint | Price | Returns |
-|---|---|---|
-| `POST /route` | $0.01 | Routed query + ready-to-run GraphQL |
-| `POST /hyperliquid/score` | $0.02 | Derived skill metrics for an HL trader |
-| `POST /hyperliquid/pnl` | $0.05 | Scores + open positions + recent activity |
-| `POST /hyperliquid/screen` | $0.05 | Top N traders of a coin with per-trader skill scores (N capped at 10) |
-| `POST /hyperliquid/vault` | $0.10 | Vault evaluator: leader skill + depositor concentration + redemption pressure |
-| `POST /hyperliquid/risk` | $0.02 | Counterparty risk: liquidation rate + funding burn + outflow flag |
-| `POST /hyperliquid/fills` | $0.02 | Recent fill stream for a coin with bid/ask flow summary (N capped at 10) |
-| `POST /polymarket/pnl-quick` | $0.01 | Skill score + classification for a wallet |
-| `POST /polymarket/pnl` | $0.05 | Full PnL: scores + per-position records |
-| `POST /polymarket/screen` | $0.02 | Top wagerers on a market with ghost-fill risk (N capped at 10) |
-| `POST /polymarket/risk` | $0.02 | Wallet-type detection + ghost-fill risk classification |
-| `POST /kalshi/consensus-trend` | $0.05 | Kalshi consensus-probability slope + acceleration (uses Kalshi-unique forecast_history) |
-| `POST /kalshi-polymarket/spread` | $0.05 | Cross-source arbitrage spread between Kalshi and Polymarket on a topic — JOIN passthrough APIs can't return |
-| `POST /kalshi/sports-live-edge` | $0.05 | Live sports mispricing: play-by-play momentum vs market reaction; flags latency-arb windows |
-| `POST /predmarket/spread` | $0.05 | **Polymarket ↔ Limitless cross-venue spread** on a topic — paired markets, per-pair yes-mid spread (bps), arbitrage direction. JOIN single-venue passthroughs can't return |
-| `POST /narrative/divergence` | $0.05 | **Social momentum vs on-chain flow** — Cambrian deep42 JOINed with Uniswap flow acceleration. Finds tokens loud on social but quiet on-chain, and real flow nobody is tweeting about |
-| `POST /uniswap/pretrade` | $0.02 | Pre-trade check: real liquidity, deepest venue, honeypot flow, volume trend |
-| `POST /uniswap/basis` | $0.05 | Uniswap spot vs Hyperliquid perp basis — cross-venue JOIN |
-| `POST /uniswap/traders` | $0.02 | Per-wallet Uniswap flow: accumulators vs distributors |
-| `POST /polymarket/leaders` | $0.02 | Polymarket leaderboard with derived skill metrics |
-| `POST /onchain-x402/address` | $0.01 | On-chain x402 activity for an address (Base settlements) |
-| `POST /ask` | $0.05 | Natural-language Q&A over 132M+ x402 settlements on Base |
-| `POST /agent/score` | $0.02 | 0–100 agent reputation (ERC-8004 + USDC settlements + feedback registry) |
-
-```bash
-# Try it
-npx agentcash try https://graphadvocate.com
-```
+Pay with any x402 client (`x402-fetch`, `x402` for Python). The 402 body includes copy-paste snippets.
 
 ## Protocols
 
-| Protocol | Identity |
-|----------|----------|
-| **A2A** | `POST /` — JSON-RPC 2.0 |
-| **x402** | `POST /route` — pay-per-query on Base |
-| **MCP** | `POST /mcp` — streamable HTTP (or `npx -y graph-advocate-mcp`) |
-| **ERC-8004** | Agent #734 (Arbitrum) |
-| **ENS** | `graphadvocate.eth` |
+| Protocol | How to call |
+|----------|-------------|
+| **HTTP** | `GET /preview`, `POST /route` |
+| **A2A** | `POST /` — JSON-RPC 2.0 `message/send` |
+| **MCP** | `POST /mcp` (streamable HTTP) or `npx -y graph-advocate-mcp` |
+| **Skill** | `npx skills add PaulieB14/graph-advocate` |
+| **x402** | USDC on Base; payTo is in the 402 `payTo` field, not the identity wallet |
+| **ERC-8004** | Agent #41034 on Base, #734 on Arbitrum · `graphadvocate.eth` |
 
-## Services
+Identity wallet (ERC-8004 / ENS): `0x575267eED09c338FAE5716A486A7B58A5749A292`. Payments go to the `payTo` in the 402 challenge, never to that identity address.
 
-Routes to: **Token API** (balances, swaps, NFTs), **Subgraph Registry** (15,500+ protocols), **Substreams** (raw blocks), **Cambrian deep42** (social signal, JOINed with on-chain flow), **graph-aave-mcp** (40 tools), **graph-polymarket-mcp** (31 tools), **graph-lending-mcp**, **graph-limitless-mcp**, **predictfun-mcp**, **8004scan** (agent discovery).
+## What it routes
 
-## Project structure
+Plain-English questions across 15,500+ subgraphs and Token API / Substreams: Uniswap, Aave, Compound, ENS, Polymarket, Hyperliquid, wallet balances, holders, swaps, and more. Also protocol MCP packages (Aave, Uniswap, Polymarket, lending, Limitless, Predict.fun).
 
-Flat module layout, grouped here by role. Web entrypoint is [`a2a_server.py`](a2a_server.py) (`python a2a_server.py`).
+## Repo layout
 
-**Server & routing**
-- [`a2a_server.py`](a2a_server.py) — A2A/x402 HTTP server: JSON-RPC 2.0, payments, dashboard, paid-endpoint wiring
-- [`advocate.py`](advocate.py) — Core routing: keyword auto-search, Claude call, response parsing, SQLite logging
-- [`mcp_server.py`](mcp_server.py) — MCP server (stdio / streamable HTTP)
+Runtime stays at the repo root — Railway starts `python a2a_server.py` (site) and `python outreach.py` (daily outreach cron). Do not move those entrypoints.
 
-**Paid intelligence endpoints** — derived signals, the x402 revenue surface
-- [`hyperliquid_intel.py`](hyperliquid_intel.py) — Hyperliquid trader skill / risk / vault metrics
-- [`polymarket_intel.py`](polymarket_intel.py) — Polymarket trader skill + ghost-fill risk
-- [`kalshi.py`](kalshi.py) — Kalshi consensus-trend, sports-live-edge, Kalshi↔Polymarket spread
-- [`limitless_intel.py`](limitless_intel.py) — Polymarket↔Limitless cross-venue spread
-- [`uniswap_intel.py`](uniswap_intel.py) — Uniswap pre-trade / DeFi-spot intelligence
-- [`agent_score.py`](agent_score.py) — 0–100 agent reputation score (ERC-8004 + on-chain + feedback)
-- [`b20.py`](b20.py) — B20 native token-standard helpers (Base)
-
-**Outreach** — inbound conversion vs outbound paying (two different jobs)
-- [`outreach.py`](outreach.py) — Daily inbound conversion: find x402/A2A agents on 8004scan and ask them to CALL and PAY Graph Advocate. Does not spend. Persistence on the Railway volume (`/data`). Win = on-chain settlement to payTo, not HTTP 200.
-- [`x402_outreach.py`](x402_outreach.py) — Outbound x402 client (GA pays other agents). Unchanged. Gated by `GA_BASE_WALLET_PK` + `/admin/outreach-pay`.
-
-**Dashboards & monitoring**
-- [`dashboard.py`](dashboard.py) — Terminal dashboard (recommendation-log stats)
-- [`generate_dashboard.py`](generate_dashboard.py) — Renders `dashboard.html` from the SQLite log
-- [`x402_dashboard.py`](x402_dashboard.py) — x402 ecosystem dashboard data pipeline
-
-**Examples & tests**
-- [`a2a_client_example.py`](a2a_client_example.py) · [`example_usage.py`](example_usage.py) — Sample agents calling GA over A2A
-- [`test_advocate_routing.py`](test_advocate_routing.py) — Routing test suite (`python3 test_advocate_routing.py`, 90 tests)
-
-**Directories** — [`docs/`](docs/) Mintlify docs site · [`static/`](static/) assets · [`dune/`](dune/) Dune analysis exports & queries
-
-## Quick start
-
-See [Try it](#try-it) at the top — `/chat` for a person, A2A JSON-RPC for an agent.
-
-The command that used to live here omitted `metadata`, so it returned a payment challenge rather
-than an answer: correct behaviour, but a poor first impression from a README.
+| Path | Role |
+|------|------|
+| `a2a_server.py`, `advocate.py` | HTTP / A2A / x402 server and router |
+| `*_intel.py`, `kalshi.py`, `agent_score.py` | Paid intelligence endpoints |
+| `mcp_server.py`, `mcp/` | Python MCP server and the `graph-advocate-mcp` npm package |
+| `outreach.py`, `x402_outreach.py` | Inbound conversion cron and outbound x402 client |
+| `docs/` | Mintlify docs (published to [docs.graphadvocate.com](https://docs.graphadvocate.com) on push to `main`) |
+| `skills/`, `plugins/`, `openclaw-skill/` | Skill listings (`npx skills add`) |
+| `scripts/` | Operator tools (self-pay, preflight, audits) — not imported by the server |
+| `notes/` | Internal launch logs and drafts, not the public docs site |
+| `test_*.py` | Test suite: `python -m pytest -q test_*.py` |
 
 ## Development
 
 ```bash
 git clone git@github.com:PaulieB14/graph-advocate.git && cd graph-advocate
 pip install -r requirements.txt
-cp .env.example .env  # add ANTHROPIC_API_KEY
+cp .env.example .env   # add ANTHROPIC_API_KEY for local routing
 python3 a2a_server.py
+python -m pytest -q test_*.py
 ```
 
-## Deployment
-
-Railway (auto-deploy on push). Requires: `ANTHROPIC_API_KEY`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `GRAPH_API_KEY`.
-
-**Live:** https://graphadvocate.com
+Production is Railway (auto-deploy on push to `main`). Required env: `ANTHROPIC_API_KEY`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `GRAPH_API_KEY`.
 
 ## License
 

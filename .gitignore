@@ -30,3 +30,6 @@ dune/agent0_base_agents.csv
 # npm package (mcp/)
 node_modules/
 mcp/dist/
+.pytest_cache/
+.venv/
+*.egg-info/

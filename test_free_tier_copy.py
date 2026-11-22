@@ -6,7 +6,7 @@ import unittest
 ROOT = pathlib.Path(__file__).parent
 FILES = ["a2a_server.py", "README.md", "CLAUDE.md", "erc8004-registration.json",
          "docs/route.mdx", "docs/quickstart.mdx", "docs/index.mdx", "docs/REFERENCE.md", "docs/X402-USAGE.md",
-         "docs/AGENTVERSE_README.md", "openclaw-skill/graph-advocate/SKILL.md",
+         "notes/AGENTVERSE_README.md", "openclaw-skill/graph-advocate/SKILL.md",
          "plugins/graph-advocate/skills/graph-advocate/SKILL.md"]
 # Phrases that contradicted the code: /route has no daily quota; the A2A quota is 3, never 10.
 BANNED = [r"free /route\s+queries", r"free-tier users \(10/day\)", r"10 queries\s*/\s*sender", r"free tier is 10 calls",

@@ -2553,7 +2553,7 @@ try:
         _agent_kwargs = {
             "name": "graph-advocate",
             "seed": FETCH_SEED,
-            "readme_path": "docs/AGENTVERSE_README.md",
+            "readme_path": "notes/AGENTVERSE_README.md",
             "publish_agent_details": True,
         }
         if FETCH_MODE == "mailbox":
