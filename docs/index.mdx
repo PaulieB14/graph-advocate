@@ -11,7 +11,7 @@ description: "Ask any blockchain data question in plain English. Get back the ri
 
 The Graph has 15,000+ subgraphs across 70+ networks. Finding the right one and writing a query that actually returns data normally takes 3–4 round trips of search-skim-test. Graph Advocate is **one endpoint that does it for you** — ask a plain-English question, get back the right subgraph, a runnable GraphQL query, and (when possible) the live answer.
 
-It speaks A2A JSON-RPC, MCP SSE, and x402 payments. Any agent, human, or LLM can call it.
+It speaks A2A JSON-RPC, MCP (streamable HTTP at `POST /mcp`, or `npx -y graph-advocate-mcp`), and x402 payments. Any agent, human, or LLM can call it.
 
 <CardGroup cols={2}>
   <Card title="Routes 15,000+ subgraphs" icon="compass">
@@ -66,7 +66,8 @@ curl -X POST https://graphadvocate.com/ \
       "gql": "{ pools(first: 10, orderBy: totalValueLockedUSD) { ... } }"
     }
   },
-  "execution_result": { "data": { "pools": [ ... ] } }
+  "result": [{ "pair": "WETH/USDC", "tvl_usd": "$12.4M" }],
+  "executed": { "data": { "pools": [ ... ] } }
 }
 ```
 
@@ -95,6 +96,6 @@ curl -X POST https://graphadvocate.com/ \
 | **Routing surface** | 15,000+ subgraphs across 70+ networks (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and others); plus token-api, substreams, and protocol-specific MCP servers |
 | **Payment networks** | Base mainnet only (more soon) |
 | **Latency** | Typically <2s end-to-end including query execution |
-| **Standards** | A2A JSON-RPC 2.0 · MCP SSE · x402 v2 · ERC-8004 agent identity |
+| **Standards** | A2A JSON-RPC 2.0 · MCP (streamable HTTP) · x402 v2 · ERC-8004 agent identity |
 | **Status** | Live monitoring at [`/dashboard`](https://graphadvocate.com/dashboard) |
 | **Issues / feature requests** | [github.com/PaulieB14/graph-advocate](https://github.com/PaulieB14/graph-advocate/issues) |

@@ -5,9 +5,13 @@ description: "30 seconds from zero to first routing response."
 
 ## 0. Just want to see it work?
 
-Open [`/chat`](https://graphadvocate.com/chat) in your browser and type any onchain question — e.g. *"Top Uniswap V3 pools on Base"* or *"Wallet balance for vitalik.eth"*. No setup, no wallet, no signup.
+Open [`/chat`](https://graphadvocate.com/chat) in your browser, or hit the free live preview — no setup, no wallet, no signup:
 
-Calling it from code? Read on.
+```bash
+curl "https://graphadvocate.com/preview?q=top+uniswap+v3+pools+by+volume"
+```
+
+Want the full list, other chains, filters, or a follow-up? That's `POST /route` ($0.01 USDC on Base). Calling A2A or a paid endpoint from code? Read on.
 
 ## 1. Ask anything
 

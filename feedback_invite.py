@@ -12,7 +12,7 @@ Where it goes:
     bodies get headers only - the caller's JSON is never touched.
   * A2A paid path: message metadata always; the JSON body only when it is a
     plain object and the request was not caller-dictated JSON.
-  * MCP (/mcp, /mcp/sse) is free today, so it never gets an invite.
+  * MCP (POST /mcp) is free today, so it never gets an invite.
 
 Kill switch: GA_FEEDBACK_INVITE=0.
 

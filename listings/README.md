@@ -5,7 +5,7 @@ Shared copy
 **Name:** Graph Advocate
 **Homepage:** https://graphadvocate.com · **Repo:** https://github.com/PaulieB14/graph-advocate
 **Icon:** https://graphadvocate.com/graphadvocate.png (1024x1024 PNG)
-**MCP endpoint:** https://graphadvocate.com/mcp (streamable HTTP) · https://graphadvocate.com/mcp/sse (SSE)
+**MCP endpoint:** https://graphadvocate.com/mcp (streamable HTTP). Full sessions: `npx -y graph-advocate-mcp`.
 **A2A card:** https://graphadvocate.com/.well-known/agent-card.json · **x402:** https://graphadvocate.com/.well-known/x402 · **OpenAPI:** https://graphadvocate.com/openapi.json
 
 **Short description (<=100 chars):**

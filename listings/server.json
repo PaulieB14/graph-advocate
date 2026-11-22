@@ -22,10 +22,6 @@
     {
       "type": "streamable-http",
       "url": "https://graphadvocate.com/mcp"
-    },
-    {
-      "type": "sse",
-      "url": "https://graphadvocate.com/mcp/sse"
     }
   ]
 }

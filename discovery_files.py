@@ -59,7 +59,6 @@ def mcp_server_json() -> dict:
         "icons": [{"src": ICON_URL, "mimeType": "image/png", "sizes": ["1024x1024"]}],
         "remotes": [
             {"type": "streamable-http", "url": f"{SITE}/mcp"},
-            {"type": "sse", "url": f"{SITE}/mcp/sse"},
         ],
     }
 

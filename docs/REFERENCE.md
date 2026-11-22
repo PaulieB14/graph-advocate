@@ -10,8 +10,8 @@ Complete reference for all endpoints, identity, integrations, and architecture. 
 |----------|--------|---------|
 | `/` | POST | A2A JSON-RPC 2.0 routing (3 free/day per wallet sender) |
 | `/` | GET | Landing page (HTML with OG meta tags) |
-| `/route` | POST | x402 paid endpoint ($0.01 USDC on Base) |
-| `/route` | GET | x402 v2 challenge (HTTP 402) |
+| `/route` | POST | x402 paid endpoint ($0.01 USDC on Base). Runs the query and returns `result` rows, `executed.data`, and `query_ready`. |
+| `/route` | GET | x402 v2 challenge (HTTP 402). Browsers with Accept: text/html get `how_to_pay` snippets; status stays 402. |
 | `/dashboard` | GET | Live monitoring dashboard (4 tabs) |
 | `/dashboard/data` | GET | Dashboard JSON API (15s poll) |
 | `/chat` | GET/POST | Web chat UI (Haiku-powered) |
@@ -25,7 +25,8 @@ Complete reference for all endpoints, identity, integrations, and architecture. 
 | `/export/csv` | GET | Activity CSV export |
 | `/export/stats` | GET | Summary stats (grant reporting) |
 | `/logs` | GET | Last 200 requests as JSON |
-| `/mcp/sse` | GET | MCP server (SSE transport) |
+| `/mcp` | POST | MCP server (streamable HTTP). One-shot initialize / tools/list; use `npx -y graph-advocate-mcp` for a full session. |
+| `/preview` | GET | Free live top-3 rows (`?q=`), no wallet |
 | `/graphadvocate.png` | GET | Bot logo (1024x1024 PNG) |
 | `/favicon.ico` | GET | Favicon |
 

@@ -44,8 +44,8 @@ _sessions: dict[str, list] = {}
 @mcp.tool()
 def route_data_request(request: str, session_id: str = "default") -> str:
     """
-    Route an onchain data request to the right Graph Protocol service.
-    Returns JSON with: recommendation, reason, confidence, query_ready (tool + args), alternatives.
+    Route a plain-English onchain data request (Uniswap v3 pools, Aave TVL, ENS owners, Polymarket traders, 15.5K+ subgraphs).
+    Returns JSON with: live result rows when executed, plus query_ready (tool + args), recommendation, reason, confidence, alternatives.
 
     Call this FIRST whenever you need blockchain data — balances, swaps, NFTs,
     protocol entities, subgraph queries, or raw block data.

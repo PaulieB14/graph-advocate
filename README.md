@@ -128,7 +128,7 @@ npx agentcash try https://graphadvocate.com
 |----------|----------|
 | **A2A** | `POST /` — JSON-RPC 2.0 |
 | **x402** | `POST /route` — pay-per-query on Base |
-| **MCP** | `/mcp/sse` — SSE transport |
+| **MCP** | `POST /mcp` — streamable HTTP (or `npx -y graph-advocate-mcp`) |
 | **ERC-8004** | Agent #734 (Arbitrum) |
 | **ENS** | `graphadvocate.eth` |
 
@@ -143,7 +143,7 @@ Flat module layout, grouped here by role. Web entrypoint is [`a2a_server.py`](a2
 **Server & routing**
 - [`a2a_server.py`](a2a_server.py) — A2A/x402 HTTP server: JSON-RPC 2.0, payments, dashboard, paid-endpoint wiring
 - [`advocate.py`](advocate.py) — Core routing: keyword auto-search, Claude call, response parsing, SQLite logging
-- [`mcp_server.py`](mcp_server.py) — MCP server (SSE transport)
+- [`mcp_server.py`](mcp_server.py) — MCP server (stdio / streamable HTTP)
 
 **Paid intelligence endpoints** — derived signals, the x402 revenue surface
 - [`hyperliquid_intel.py`](hyperliquid_intel.py) — Hyperliquid trader skill / risk / vault metrics
