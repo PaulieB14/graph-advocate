@@ -173,4 +173,4 @@ Machine-readable surfaces (auto-fetched by Cursor, Claude Code, Cline, etc.):
 |---|---|
 | `ChatMessage` | `content` (array), `msg_id` (string), `timestamp` (string) |
 | `ChatAcknowledgement` | `acknowledged_msg_id` (string), `metadata` (object), `timestamp` (string) |
-<!-- Republished 2026-11-22 after Mintlify's earlier index.mdx parse failure blocked these pages. -->
+This page last reviewed 22 November 2026.

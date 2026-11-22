@@ -102,4 +102,4 @@ As of 2026-04-29:
 ---
 
 *Last updated: 2026-04-29 (after 3rd recurring session from Wallet A + first call from Wallet B).*
-<!-- Republished 2026-11-22 after Mintlify's earlier index.mdx parse failure blocked these pages. -->
+This page last reviewed 22 November 2026.
