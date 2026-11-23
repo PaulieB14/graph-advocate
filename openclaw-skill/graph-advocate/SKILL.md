@@ -257,6 +257,11 @@ payment challenges. Configure interactive approval if you want a per-call
 y/N prompt, and always use a low-balance wallet — see the "Optional paid mode"
 section above for the recommended posture and spend controls.
 
+## Official The Graph docs for agents
+
+- https://thegraph.com/llms.txt — curated LLM index of The Graph docs
+- https://thegraph.com/docs/AGENTS.md — agent orientation: product decision tree, auth, and The Graph MCP server
+
 ## Links
 
 - GitHub: https://github.com/PaulieB14/graph-advocate

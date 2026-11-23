@@ -77,3 +77,8 @@ with amount `10000`; refuse anything else.
 
 Queries go to graphadvocate.com (operated by @paulieb14). Do not send secrets. Use a dedicated low-balance wallet
 and cap per-call spend at $0.01 for `/route`.
+
+## Official The Graph docs for agents
+
+- https://thegraph.com/llms.txt — curated LLM index of The Graph docs
+- https://thegraph.com/docs/AGENTS.md — agent orientation: product decision tree, auth, and The Graph MCP server

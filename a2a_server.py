@@ -5137,6 +5137,11 @@ Production: https://graphadvocate.com
 Repository: https://github.com/PaulieB14/graph-advocate
 Agent skill: npx skills add PaulieB14/graph-advocate  (skills/graph-advocate/SKILL.md)
 
+## Official The Graph docs for agents
+
+- https://thegraph.com/llms.txt — curated LLM index of The Graph docs
+- https://thegraph.com/docs/AGENTS.md — agent orientation: product decision tree, auth, and The Graph MCP server
+
 ## Endpoints
 
 - GET  /preview?q=...              Free live top-3 rows (plain 200, no wallet). Start here.
