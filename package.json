@@ -1,0 +1,8 @@
+{
+  "name": "graph-advocate",
+  "private": true,
+  "description": "Railway Infrastructure as Code SDK (dev-only). App runtime is Python.",
+  "devDependencies": {
+    "railway": "^3.17.0"
+  }
+}
